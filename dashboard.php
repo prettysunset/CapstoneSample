@@ -95,6 +95,7 @@ button { padding: 4px 8px; margin: 2px; }
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 </head>
 <body>
+<a href="cl2.php" style="padding:6px 12px; background-color:#4CAF50; color:white; text-decoration:none; border-radius:4px;">View CL2 Schedule</a>
 
 <h2>Upload Excel File</h2>
 <form method="POST" enctype="multipart/form-data">
