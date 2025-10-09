@@ -145,6 +145,8 @@ let headers=["time","monday","tuesday","wednesday","thursday","friday","saturday
 let colorCols=["monday_color","tuesday_color","wednesday_color","thursday_color","friday_color","saturday_color"];
 let changes={};
 let isSelecting=false;
+let startCell=null;
+let lastRowIndex=null;
 
 // Add new row
 function addRow(){
@@ -193,18 +195,33 @@ function saveCellColor(cell){
     changes[rowId][colorCol]=rgbToHex(bg);
 }
 
-// Selection
+// Selection with shrink feature
 $(document).on('mousedown','td.editable',function(e){
     isSelecting=true;
-    if(!e.ctrlKey) $('td.selected').removeClass('selected');
+    $('td.selected').removeClass('selected');
+    startCell=this;
+    lastRowIndex=$(this).parent().index();
     $(this).addClass('selected');
 });
 
 $(document).on('mouseover','td.editable',function(){
-    if(isSelecting) $(this).addClass('selected');
+    if(isSelecting && startCell){
+        let startRow=$(startCell).parent().index();
+        let currentRow=$(this).parent().index();
+        let minRow=Math.min(startRow,currentRow);
+        let maxRow=Math.max(startRow,currentRow);
+        $('td.editable').removeClass('selected');
+        for(let i=minRow;i<=maxRow;i++){
+            $('#dataTable tbody tr').eq(i).find('td.editable[data-column="'+$(this).data('column')+'"]').addClass('selected');
+        }
+        lastRowIndex=currentRow;
+    }
 });
 
-$(document).on('mouseup',function(){ isSelecting=false; });
+$(document).on('mouseup',function(){ 
+    isSelecting=false; 
+    startCell=null;
+});
 
 // Ctrl + H to highlight
 $(document).on('keydown',function(e){
