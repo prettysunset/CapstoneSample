@@ -1,0 +1,162 @@
+/* Reset and base styles */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  font-family: 'Poppins', sans-serif;
+}
+
+body {
+  background-color: #f8f9fc;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+}
+
+/* Main container */
+.container {
+  display: flex;
+  width: 90%;
+  max-width: 1100px;
+  background: #fff;
+  border-radius: 15px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+  overflow: hidden;
+}
+
+/* Left side (illustration & title) */
+.left {
+  flex: 1;
+  background-color: #eaf0ff;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  padding: 40px;
+  text-align: center;
+}
+
+.left h1 {
+  font-size: 40px;
+  font-weight: 700;
+  color: #1a237e;
+  margin-bottom: 10px;
+}
+
+.left p {
+  font-size: 18px;
+  color: #555;
+  margin-bottom: 20px;
+}
+
+.left img {
+  width: 220px;
+}
+
+/* Right side (form) */
+.right {
+  flex: 2;
+  padding: 40px 50px;
+}
+
+/* Progress steps */
+.progress {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 30px;
+  font-weight: 500;
+}
+
+.progress div {
+  flex: 1;
+  text-align: center;
+  color: #999;
+  position: relative;
+}
+
+.progress div.active {
+  color: #1a237e;
+  font-weight: 600;
+}
+
+.progress div::before {
+  content: '';
+  position: absolute;
+  bottom: -10px;
+  left: 50%;
+  width: 6px;
+  height: 6px;
+  background: #ccc;
+  border-radius: 50%;
+  transform: translateX(-50%);
+}
+
+.progress div.active::before {
+  background: #1a237e;
+}
+
+/* Form elements */
+form {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+fieldset {
+  display: flex;
+  gap: 10px;
+  border: none;
+}
+
+input, select {
+  padding: 12px 14px;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  width: 100%;
+  transition: 0.3s;
+}
+
+input:focus, select:focus {
+  border-color: #1a237e;
+  outline: none;
+  box-shadow: 0 0 5px rgba(26, 35, 126, 0.3);
+}
+
+h3 {
+  margin-top: 10px;
+  color: #1a237e;
+  font-size: 16px;
+}
+
+/* Button */
+button {
+  margin-top: 20px;
+  background: #1a237e;
+  color: #fff;
+  border: none;
+  padding: 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 15px;
+  transition: background 0.3s;
+}
+
+button:hover {
+  background: #283593;
+}
+
+/* Responsive */
+@media (max-width: 900px) {
+  .container {
+    flex-direction: column;
+  }
+
+  .left {
+    padding: 20px;
+  }
+
+  .right {
+    padding: 30px 25px;
+  }
+}
