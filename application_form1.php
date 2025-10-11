@@ -1,53 +1,43 @@
 <?php
-// ---------------------- PHP Section (Processing) ----------------------
+session_start();
+
+// Save AF1 data to session and redirect to AF2
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
-    $conn = new mysqli("localhost", "root", "", "capstone");
-
-    if ($conn->connect_error) {
-        die("Connection failed: " . $conn->connect_error);
-    }
-
-    $first = $_POST['first_name'];
-    $middle = $_POST['middle_name'];
-    $last = $_POST['last_name'];
-    $address = $_POST['address'];
-    $age = $_POST['age'];
-    $email = $_POST['email'];
-    $birthday = $_POST['birthday'];
-    $contact = $_POST['contact'];
-    $gender = $_POST['gender'];
-    $emg_first = $_POST['emg_first'];
-    $emg_middle = $_POST['emg_middle'];
-    $emg_last = $_POST['emg_last'];
-    $emg_relation = $_POST['emg_relation'];
-    $emg_contact = $_POST['emg_contact'];
-
-    $sql = "INSERT INTO students 
-            (first_name, middle_name, last_name, address, age, email, birthday, contact_number, gender, emg_first, emg_middle, emg_last, emg_relation, emg_contact)
-            VALUES 
-            ('$first', '$middle', '$last', '$address', '$age', '$email', '$birthday', '$contact', '$gender', '$emg_first', '$emg_middle', '$emg_last', '$emg_relation', '$emg_contact')";
-
-    if ($conn->query($sql) === TRUE) {
-        echo "<script>alert('Form submitted successfully!');</script>";
-    } else {
-        echo "<script>alert('Error: " . $conn->error . "');</script>";
-    }
-
-    $conn->close();
+    $_SESSION['af1'] = [
+        'first_name'    => $_POST['first_name'],
+        'middle_name'   => $_POST['middle_name'],
+        'last_name'     => $_POST['last_name'],
+        'address'       => $_POST['address'],
+        'age'           => $_POST['age'],
+        'email'         => $_POST['email'],
+        'birthday'      => $_POST['birthday'],
+        'contact'       => $_POST['contact'],
+        'gender'        => $_POST['gender'],
+        'emg_first'     => $_POST['emg_first'],
+        'emg_middle'    => $_POST['emg_middle'],
+        'emg_last'      => $_POST['emg_last'],
+        'emg_relation'  => $_POST['emg_relation'],
+        'emg_contact'   => $_POST['emg_contact']
+    ];
+    header("Location: application_form2.php");
+    exit;
 }
+
+// Pre-fill form fields if session data exists
+$af1 = isset($_SESSION['af1']) ? $_SESSION['af1'] : [];
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>OJT Application Form</title>
+  <title>OJT Form</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <div class="container">
     <div class="left">
       <h1>OJTMS</h1>
-      <p>OJT APPLICATION FORM</p>
+      <p>  FORM</p>
       <img src="ojt_illustration.png" alt="Illustration" width="200">
     </div>
 
@@ -61,39 +51,39 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
       <!-- HTML FORM -->
       <form id="ojtForm" method="POST">
         <fieldset>
-          <input type="text" name="first_name" placeholder="First Name" required>
-          <input type="text" name="middle_name" placeholder="Middle Name">
-          <input type="text" name="last_name" placeholder="Last Name" required>
+          <input type="text" name="first_name" placeholder="First Name" required value="<?= isset($af1['first_name']) ? htmlspecialchars($af1['first_name']) : '' ?>">
+          <input type="text" name="middle_name" placeholder="Middle Name" value="<?= isset($af1['middle_name']) ? htmlspecialchars($af1['middle_name']) : '' ?>">
+          <input type="text" name="last_name" placeholder="Last Name" required value="<?= isset($af1['last_name']) ? htmlspecialchars($af1['last_name']) : '' ?>">
         </fieldset>
 
-        <input type="text" name="address" placeholder="Complete Address" required>
+        <input type="text" name="address" placeholder="Complete Address" required value="<?= isset($af1['address']) ? htmlspecialchars($af1['address']) : '' ?>">
 
         <fieldset>
-          <input type="number" name="age" id="age" placeholder="Age" min="15" max="99" required>
-          <input type="email" name="email" id="email" placeholder="Email Address" required>
-          <input type="text" name="contact" id="contact" placeholder="09XXXXXXXXX" maxlength="11" required>
+          <input type="number" name="age" id="age" placeholder="Age" min="15" max="99" required value="<?= isset($af1['age']) ? htmlspecialchars($af1['age']) : '' ?>">
+          <input type="email" name="email" id="email" placeholder="Email Address" required value="<?= isset($af1['email']) ? htmlspecialchars($af1['email']) : '' ?>">
+          <input type="text" name="contact" id="contact" placeholder="Contact Number" maxlength="11" required value="<?= isset($af1['contact']) ? htmlspecialchars($af1['contact']) : '' ?>">
         </fieldset>
 
         <fieldset>
-          <input type="date" name="birthday" id="birthday" required>
+          <input type="date" name="birthday" id="birthday" required value="<?= isset($af1['birthday']) ? htmlspecialchars($af1['birthday']) : '' ?>">
           <select name="gender" required>
-            <option value="" disabled selected>Gender</option>
-            <option value="Male">Male</option>
-            <option value="Female">Female</option>
-            <option value="Prefer not to say">Prefer not to say</option>
+            <option value="" disabled <?= !isset($af1['gender']) ? 'selected' : '' ?>>Gender</option>
+            <option value="Male" <?= (isset($af1['gender']) && $af1['gender'] == 'Male') ? 'selected' : '' ?>>Male</option>
+            <option value="Female" <?= (isset($af1['gender']) && $af1['gender'] == 'Female') ? 'selected' : '' ?>>Female</option>
+            <option value="Prefer not to say" <?= (isset($af1['gender']) && $af1['gender'] == 'Prefer not to say') ? 'selected' : '' ?>>Prefer not to say</option>
           </select>
         </fieldset>
 
         <h3>Emergency Contact</h3>
         <fieldset>
-          <input type="text" name="emg_first" placeholder="First Name" required>
-          <input type="text" name="emg_middle" placeholder="Middle Name">
-          <input type="text" name="emg_last" placeholder="Last Name" required>
+          <input type="text" name="emg_first" placeholder="First Name" required value="<?= isset($af1['emg_first']) ? htmlspecialchars($af1['emg_first']) : '' ?>">
+          <input type="text" name="emg_middle" placeholder="Middle Name" value="<?= isset($af1['emg_middle']) ? htmlspecialchars($af1['emg_middle']) : '' ?>">
+          <input type="text" name="emg_last" placeholder="Last Name" required value="<?= isset($af1['emg_last']) ? htmlspecialchars($af1['emg_last']) : '' ?>">
         </fieldset>
 
         <fieldset>
-          <input type="text" name="emg_relation" placeholder="Relationship" required>
-          <input type="text" name="emg_contact" id="emg_contact" placeholder="Contact Number" maxlength="11" required>
+          <input type="text" name="emg_relation" placeholder="Relationship" required value="<?= isset($af1['emg_relation']) ? htmlspecialchars($af1['emg_relation']) : '' ?>">
+          <input type="text" name="emg_contact" id="emg_contact" placeholder="Contact Number" maxlength="11" required value="<?= isset($af1['emg_contact']) ? htmlspecialchars($af1['emg_contact']) : '' ?>">
         </fieldset>
 
         <button type="submit">Next →</button>
