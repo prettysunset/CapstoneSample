@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: 127.0.0.1
--- Generation Time: Oct 12, 2025 at 05:36 AM
+-- Generation Time: Oct 12, 2025 at 03:35 PM
 -- Server version: 10.4.32-MariaDB
 -- PHP Version: 8.0.30
 
@@ -213,6 +213,13 @@ CREATE TABLE `ojt_applications` (
   `date_updated` date DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
+--
+-- Dumping data for table `ojt_applications`
+--
+
+INSERT INTO `ojt_applications` (`application_id`, `student_id`, `office_preference1`, `office_preference2`, `letter_of_intent`, `endorsement_letter`, `resume`, `moa_file`, `picture`, `status`, `remarks`, `date_submitted`, `date_updated`) VALUES
+(2, 2, NULL, NULL, 'uploads/1760242009_img008.jpg', 'uploads/1760242009_img008.jpg', 'uploads/1760242009_id.jpg', 'uploads/1760242009_img008.jpg', 'uploads/1760242009_id.jpg', 'pending', NULL, '2025-10-12', NULL);
+
 -- --------------------------------------------------------
 
 --
@@ -242,6 +249,14 @@ CREATE TABLE `students` (
   `status` enum('pending','ongoing','completed') DEFAULT 'pending'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
+--
+-- Dumping data for table `students`
+--
+
+INSERT INTO `students` (`student_id`, `user_id`, `first_name`, `last_name`, `address`, `contact_number`, `email`, `emergency_name`, `emergency_relation`, `emergency_contact`, `college`, `course`, `year_level`, `school_address`, `ojt_adviser`, `adviser_contact`, `total_hours_required`, `hours_rendered`, `status`) VALUES
+(1, NULL, 'Jasmine', 'Santiago', '#0546 Peter Street, Phase 2, Caingin, Malolos, Bulacan', '09454659878', 'santiagojasminem@gmail.com', 'memen', 'mother', '09134664654', 'Bulacan Polytechnic College', 'BSIS', '4', 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '08089989898', 500, 0, 'pending'),
+(2, NULL, 'Jasmine', 'Santiago', '#0546 Peter Street, Phase 2, Caingin, Malolos, Bulacan', '09454659878', 'santiagojasminem@gmail.com', 'memen', 'mother', '09134664654', 'Bulacan Polytechnic College', 'BSIS', '4', 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '08089989898', 500, 0, 'pending');
+
 -- --------------------------------------------------------
 
 --
@@ -251,11 +266,27 @@ CREATE TABLE `students` (
 CREATE TABLE `users` (
   `user_id` int(11) NOT NULL,
   `username` varchar(50) NOT NULL,
+  `first_name` varchar(50) DEFAULT NULL,
+  `middle_name` varchar(50) DEFAULT NULL,
+  `last_name` varchar(50) DEFAULT NULL,
   `password` varchar(255) NOT NULL,
-  `role` enum('student','hr_head','hr_staff','office_head') NOT NULL,
+  `role` enum('ojt','hr_head','hr_staff','office_head') NOT NULL,
+  `office_name` varchar(100) DEFAULT NULL,
   `status` enum('active','inactive') DEFAULT 'active',
   `date_created` timestamp NOT NULL DEFAULT current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Dumping data for table `users`
+--
+
+INSERT INTO `users` (`user_id`, `username`, `first_name`, `middle_name`, `last_name`, `password`, `role`, `office_name`, `status`, `date_created`) VALUES
+(5, 'hrhead', 'Cecilia', NULL, 'Ramos', '123456', 'hr_head', NULL, 'active', '2025-10-12 13:34:28'),
+(6, 'hrstaff', 'Andrea', NULL, 'Lopez', '123456', 'hr_staff', NULL, 'active', '2025-10-12 13:34:28'),
+(7, 'ojtjuan', 'Juan', NULL, 'Dela Cruz', '123456', 'ojt', 'Accounting', 'active', '2025-10-12 13:34:28'),
+(8, 'head_accounting', 'Maria', NULL, 'Santos', '123456', 'office_head', 'Accounting', 'active', '2025-10-12 13:34:28'),
+(9, 'head_it', 'Carlo', NULL, 'Reyes', '123456', 'office_head', 'IT', 'active', '2025-10-12 13:34:28'),
+(10, 'head_cityplanning', 'Angela', NULL, 'Bautista', '123456', 'office_head', 'City Planning', 'active', '2025-10-12 13:34:28');
 
 -- --------------------------------------------------------
 
@@ -456,19 +487,19 @@ ALTER TABLE `office_requests`
 -- AUTO_INCREMENT for table `ojt_applications`
 --
 ALTER TABLE `ojt_applications`
-  MODIFY `application_id` int(11) NOT NULL AUTO_INCREMENT;
+  MODIFY `application_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=3;
 
 --
 -- AUTO_INCREMENT for table `students`
 --
 ALTER TABLE `students`
-  MODIFY `student_id` int(11) NOT NULL AUTO_INCREMENT;
+  MODIFY `student_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=3;
 
 --
 -- AUTO_INCREMENT for table `users`
 --
 ALTER TABLE `users`
-  MODIFY `user_id` int(11) NOT NULL AUTO_INCREMENT;
+  MODIFY `user_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=11;
 
 --
 -- AUTO_INCREMENT for table `weekly_journal`
