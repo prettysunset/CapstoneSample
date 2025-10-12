@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  
+  <title>Internship Requirements - Malolos City Hall</title>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700;900&display=swap" rel="stylesheet" />
+  <style>
+    body {
+      font-family: 'Poppins', sans-serif;
+      margin: 0;
+      padding: 0;
+      background-color: #e6f2ff;
+      color: #333;
+    }
+    .navbar {
+    display: flex;
+    justify-content: space-between; /* logo left, links right */
+    align-items: center;           /* vertical alignment */
+    margin: 22px 33px;             /* top-bottom: 22px, left-right: 33px */
+}
+
+.logo {
+    font-weight: bold;
+    text-decoration: none;
+    color: #3a4163;
+}
+
+.logo:hover {
+    background: none;
+    color: #3a4163; /* no hover effect */
+    padding: 0;
+}
+
+.nav-links {
+    display: flex;
+    list-style: none;
+    gap: 15px;
+    margin: 0;  /* reset default */
+    padding: 0;
+    align-items: center;
+}
+
+.nav-links li {
+    cursor: pointer;
+    padding: 5px 15px;
+}
+
+.nav-links a {
+    text-decoration: none;
+    color: #3a4163;
+}
+
+/* Hover for normal links (exclude logo & login) */
+.nav-links a:hover {
+    background-color: #3a4163;
+    color: white;
+    border-radius: 15px;
+    padding: 5px 15px;
+}
+
+/* Login button */
+.navbar li.login a {
+    color: white;
+    text-decoration: none;
+    display: inline-block;
+    padding: 5px 15px;
+    background-color: #3a4163;
+    border-radius: 15px;
+        font-weight: bold;
+    transition: background-color 0.3s;
+}
+
+.navbar li.login a:hover {
+    background-color: #2a2f4f;
+}
+
+/* Active Home link */
+
+.header-container{
+    margin-bottom: 0%;
+
+}
+    h1 {
+      text-align: center;
+      padding: 50px 20px;
+      color: #2e3560;
+      font-weight: 700;
+    }
+
+    .requirements-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 20px;
+      max-width: 500px;
+      margin: 0 auto 60px auto;
+    }
+
+    .requirement {
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
+      gap: 15px;
+      background: #f5f9ff;
+      padding: 15px 20px;
+      width:75%;
+      border-radius: 10px;
+      box-shadow: 0 3px 6px rgba(0, 0, 0, 0.05);
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    .requirement:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+    }
+
+    .requirement img {
+      width: 24px;
+      height: 24px;
+    }
+
+    .requirement h4 {
+      margin: 0;
+      font-size: 16px;
+      font-weight: 600;
+      color: #000;
+    }
+    .mainbtn{
+    background-color: #4a6ff3;
+    color: white;
+    border: none;
+    padding: 8px 30px;
+    font-size: 25px;
+    border-radius: 25px;
+    cursor: pointer;
+    font-weight: bold;
+    margin-bottom: 10px;
+}
+  </style>
+</head>
+
+<body>
+
+    <div class="navbar">
+        <h1><a class="logo" href="about.php">OJT-MS</a></h1>
+
+        <div class="nav-links">
+        <li><a href="home.php">Home</a></li>
+        <li><a href="about.php">About</a></li>
+        <li><a href="contacts.php">Contacts</a></li>
+        <li><a href="offices.php">Offices</a></li>
+        <li class="login"><a href="login.php">Login</a></li>
+        </div>
+    </div>
+  <h1 style="color: #4a6ff3; padding-top: 0%;">OJT Requirements</h1>
+
+  <div class="requirements-container">
+    <div class="requirement">
+      <img src="check.png" alt="checkbox" />
+      <h4>Letter of Endorsement from School</h4>
+    </div>
+
+    <div class="requirement">
+      <img src="check.png" alt="checkbox" />
+      <h4>Memorandum of Agreement</h4>
+    </div>
+
+    <div class="requirement">
+      <img src="check.png" alt="checkbox" />
+      <h4>Letter of Intent</h4>
+    </div>
+
+    <div class="requirement">
+      <img src="check.png" alt="checkbox" />
+      <h4>Resume</h4>
+    </div>
+  </div>
+            <center><button class="mainbtn"> <a style="color:white; text-decoration:none"href="application.php ">Apply Now</a></style></button><br></center>
+
+</body>
+
+</html>

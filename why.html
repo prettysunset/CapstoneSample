@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Why Choose Malolos City Hall</title>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700;900&display=swap" rel="stylesheet" />
+    <style>
+
+        body {
+    font-family: 'Poppins', sans-serif;
+    margin: 0;
+    padding: 0;
+    background-color: #e6f2ff;
+    color: #333;
+}
+.navbar {
+    display: flex;
+    justify-content: space-between; /* logo left, links right */
+    align-items: center;           /* vertical alignment */
+    margin: 22px 33px;             /* top-bottom: 22px, left-right: 33px */
+}
+
+.logo {
+    font-weight: bold;
+    text-decoration: none;
+    color: #3a4163;
+}
+
+.logo:hover {
+    background: none;
+    color: #3a4163; /* no hover effect */
+    padding: 0;
+}
+
+.nav-links {
+    display: flex;
+    list-style: none;
+    gap: 15px;
+    margin: 0;  /* reset default */
+    padding: 0;
+    align-items: center;
+}
+
+.nav-links li {
+    cursor: pointer;
+    padding: 5px 15px;
+}
+
+.nav-links a {
+    text-decoration: none;
+    color: #3a4163;
+}
+
+/* Hover for normal links (exclude logo & login) */
+.nav-links a:hover {
+    background-color: #3a4163;
+    color: white;
+    border-radius: 15px;
+    padding: 5px 15px;
+}
+
+/* Login button */
+.navbar li.login a {
+    color: white;
+    text-decoration: none;
+    display: inline-block;
+    padding: 5px 15px;
+    background-color: #3a4163;
+    border-radius: 15px;
+        font-weight: bold;
+    transition: background-color 0.3s;
+}
+
+.navbar li.login a:hover {
+    background-color: #2a2f4f;
+}
+
+
+.header-container{
+    margin-bottom: 0%;
+
+}
+.info-section {
+    text-align: center;
+    padding: 0px 20px; /* reduced top padding */
+    background-color: #e6f2ff;
+    margin-top: 0;
+}
+
+.info-section h2 {
+    font-size: 2.2rem;
+    color: #2e3560;
+    margin-bottom: 50px;
+    font-weight: 700;
+    line-height: 1.4;
+}
+
+.info-section h2 span {
+    color: #3a63ff;
+}
+
+.info-container {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 25px;
+    max-width: 950px;
+    margin: 0 auto;
+}
+
+.info-card {
+    background: #fff;
+    border-radius: 12px;
+    padding: 30px 25px;
+    text-align: left;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.08);
+    display: flex;
+    align-items: flex-start;
+    gap: 20px;
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.info-card:hover {
+    transform: translateY(-6px);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.12);
+}
+
+.info-card img {
+    height: 45px;
+    width: auto;
+}
+
+.info-card h4 {
+    color: #2e3560;
+    margin: 0 0 8px;
+    font-size: 1.1rem;
+    font-weight: 600;
+}
+
+.info-card p {
+    margin: 0;
+    color: #555;
+    font-size: 0.95rem;
+    line-height: 1.5;
+}
+
+@media (max-width: 768px) {
+    .info-container {
+        grid-template-columns: 1fr;
+    }
+
+    .info-card {
+        text-align: center;
+        flex-direction: column;
+        align-items: center;
+    }
+}
+.mainbtn{
+    background-color: #4a6ff3;
+    color: white;
+    border: none;
+    padding: 8px 30px;
+    font-size: 25px;
+    border-radius: 25px;
+    cursor: pointer;
+    font-weight: bold;
+    margin-bottom: 10px;
+}
+.secondbtn{
+    background-color: white;
+    color: #4a6ff3;
+    border: 2px solid #4a6ff3;
+    padding: 5px 15px;
+    font-size: 15px;
+    border-radius: 25px;
+    cursor: pointer;
+    font-weight: bold;
+}
+
+
+    </style>
+</head>
+<body>
+     <div class="navbar">
+        <h1><a class="logo" href="about.php">OJT-MS</a></h1>
+
+        <div class="nav-links">
+        <li><a href="home.php">Home</a></li>
+        <li><a href="about.php">About</a></li>
+        <li><a href="contacts.php">Contacts</a></li>
+        <li><a href="offices.php">Offices</a></li>
+        <li class="login"><a href="login.php">Login</a></li>
+        </div>
+    </div>
+    <section class="info-section">
+        <h2>Why Choose Malolos City Hall<br>for Your <span>OJT</span>?</h2>
+
+        <div class="info-container">
+            <div class="info-card">
+                <img src="gear.png" alt="Skill Development">
+                <div style="display: flex; flex-direction: column;">
+                    <h4>Skill Development</h4>
+                    <p>Enhance technical, administrative, and communication skills.</p>
+                </div>
+            </div>
+
+            <div class="info-card">
+                <img src="building.png" alt="Real Government Experience">
+                <div style="display: flex; flex-direction: column;">
+                    <h4>Real Government Experience</h4>
+                    <p>Gain firsthand experience in government public service.</p>
+                </div>
+            </div>
+
+            <div class="info-card">
+                <img src="globe.png" alt="Community Impact">
+                <div style="display: flex; flex-direction: column;">
+                    <h4>Community Impact</h4>
+                    <p>Your efforts help improve lives in our municipality.</p>
+                </div>
+            </div>
+
+            <div class="info-card">
+                <img src="prof.png" alt="Professional Mentorship">
+                <div style="display: flex; flex-direction: column;">
+                    <h4>Professional Mentorship</h4>
+                    <p>Learn directly from experienced municipal government professionals.</p>
+                </div>
+            </div>
+
+           
+
+        </div>
+        <br>
+         <div class="buttons">
+            <button class="mainbtn"> <a style="color:white; text-decoration:none"href="application.php ">Apply Now</a></style></button><br>
+            <button class="secondbtn"><a style="color:#3a4163; text-decoration:none" href="requirements.html">Requirements</a> </button>
+        </div>
+    </section>
+</body>
+</html>
