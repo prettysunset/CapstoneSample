@@ -1,40 +1,79 @@
 <?php
+session_start();
+require 'conn.php';
+
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
-    $conn = new mysqli("localhost", "root", "", "capstone");
-
-    if ($conn->connect_error) {
-        die("Connection failed: " . $conn->connect_error);
-    }
-
-    $first_choice = $_POST['first_choice'];
-    $second_choice = $_POST['second_choice'];
-    $required_hours = $_POST['required_hours'];
-
-    // File uploads
-    $uploadDir = "uploads/";
-
-    $formal_pic = $uploadDir . basename($_FILES["formal_pic"]["name"]);
-    $letter_intent = $uploadDir . basename($_FILES["letter_intent"]["name"]);
-    $resume = $uploadDir . basename($_FILES["resume"]["name"]);
-    $endorsement = $uploadDir . basename($_FILES["endorsement"]["name"]);
-    $moa = $uploadDir . basename($_FILES["moa"]["name"]);
-
-    move_uploaded_file($_FILES["formal_pic"]["tmp_name"], $formal_pic);
-    move_uploaded_file($_FILES["letter_intent"]["tmp_name"], $letter_intent);
-    move_uploaded_file($_FILES["resume"]["tmp_name"], $resume);
-    move_uploaded_file($_FILES["endorsement"]["tmp_name"], $endorsement);
-    move_uploaded_file($_FILES["moa"]["tmp_name"], $moa);
-
-    $sql = "INSERT INTO requirements (first_choice, second_choice, required_hours, formal_pic, letter_intent, resume, endorsement, moa)
-            VALUES ('$first_choice', '$second_choice', '$required_hours', '$formal_pic', '$letter_intent', '$resume', '$endorsement', '$moa')";
-
-    if ($conn->query($sql) === TRUE) {
-        echo "<script>alert('Application submitted successfully!'); window.location='application_success.php';</script>";
+    // Validate required hours
+    $required_hours = intval($_POST['required_hours']);
+    if ($required_hours <= 0) {
+        echo "<script>alert('Required hours must be a positive number.');</script>";
     } else {
-        echo "<script>alert('Error: " . $conn->error . "');</script>";
-    }
+        // Prepare uploads folder
+        $uploadDir = "uploads/";
+        if (!file_exists($uploadDir)) {
+            mkdir($uploadDir, 0777, true);
+        }
 
-    $conn->close();
+        // Handle file uploads
+        function uploadFile($inputName, $uploadDir) {
+            if (!empty($_FILES[$inputName]['name'])) {
+                $fileName = time() . '_' . basename($_FILES[$inputName]['name']);
+                $targetPath = $uploadDir . $fileName;
+                move_uploaded_file($_FILES[$inputName]['tmp_name'], $targetPath);
+                return $targetPath;
+            }
+            return '';
+        }
+
+        $formal_pic      = uploadFile("formal_pic", $uploadDir);
+        $letter_intent   = uploadFile("letter_intent", $uploadDir);
+        $resume          = uploadFile("resume", $uploadDir);
+        $endorsement     = uploadFile("endorsement", $uploadDir);
+        $moa             = uploadFile("moa", $uploadDir);
+
+        // Get AF1 and AF2 data from session
+        $af1 = $_SESSION['af1'];
+        $af2 = $_SESSION['af2'];
+
+        // Insert into students table
+        $stmt = $conn->prepare("INSERT INTO students 
+            (first_name, last_name, address, contact_number, email, emergency_name, emergency_relation, emergency_contact, college, course, year_level, school_address, ojt_adviser, adviser_contact, total_hours_required, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        $stmt->bind_param("ssssssssssssssis", 
+            $af1['first_name'], $af1['last_name'], $af1['address'], $af1['contact'], $af1['email'],
+            $af1['emg_first'], $af1['emg_relation'], $af1['emg_contact'],
+            $af2['school'], $af2['course'], $af2['year_level'], $af2['school_address'],
+            $af2['adviser'], $af2['adviser_contact'], $required_hours, $status);
+        $status = 'pending';
+        $stmt->execute();
+        $student_id = $conn->insert_id;
+        $stmt->close();
+
+        // Get office IDs from office names (if needed)
+        function getOfficeId($conn, $office_name) {
+            $stmt = $conn->prepare("SELECT office_id FROM offices WHERE office_name = ?");
+            $stmt->bind_param("s", $office_name);
+            $stmt->execute();
+            $stmt->bind_result($office_id);
+            $stmt->fetch();
+            $stmt->close();
+            return $office_id ?: null;
+        }
+        $office1 = getOfficeId($conn, $_POST['first_choice']);
+        $office2 = !empty($_POST['second_choice']) ? getOfficeId($conn, $_POST['second_choice']) : null;
+
+        // Insert into ojt_applications table (save file paths here)
+        $stmt2 = $conn->prepare("INSERT INTO ojt_applications 
+            (student_id, office_preference1, office_preference2, letter_of_intent, endorsement_letter, resume, moa_file, picture, status, date_submitted)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURDATE())");
+        $status2 = 'pending';
+        $stmt2->bind_param("iisssssss", $student_id, $office1, $office2, $letter_intent, $endorsement, $resume, $moa, $formal_pic, $status2);
+        $stmt2->execute();
+        $stmt2->close();
+
+        echo "<script>alert('Application submitted successfully!'); window.location='application_form4.php';</script>";
+        exit;
+    }
 }
 ?>
 
@@ -81,7 +120,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
           </select>
         </fieldset>
 
-        <input type="number" name="required_hours" placeholder="Required Hours" required>
+        <input type="number" name="required_hours" placeholder="Required Hours" required min="1">
 
         <h3>UPLOAD REQUIREMENTS</h3>
 
