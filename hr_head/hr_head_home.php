@@ -37,10 +37,11 @@ $stmt->bind_result($rejected_count);
 $stmt->fetch();
 $stmt->close();
 
-// fetch applications for current tab
+// fetch applications for current tab (include student email)
 $statusFilter = $tab === 'rejected' ? 'rejected' : 'pending';
 $q = "SELECT oa.application_id, oa.date_submitted, oa.status,
-             s.first_name AS s_first, s.last_name AS s_last, s.address AS s_address,
+             s.student_id, s.first_name AS s_first, s.last_name AS s_last, s.address AS s_address, s.email AS s_email,
+             oa.office_preference1, oa.office_preference2,
              o1.office_name AS opt1, o2.office_name AS opt2
       FROM ojt_applications oa
       LEFT JOIN students s ON oa.student_id = s.student_id
@@ -91,6 +92,35 @@ $current_date = date("l, F j, Y");
     .actions button{border:none;background:none;cursor:pointer;font-size:16px}
     .approve{color:green} .reject{color:red} .view{color:#0b74de}
     .empty{padding:20px;text-align:center;color:#666}
+
+    /* Modal / overlay */
+    .overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(102, 51, 153, 0.18); /* light purple translucent blur look */
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+      backdrop-filter: none;
+    }
+    .modal {
+      background: #fff;
+      border-radius: 10px;
+      padding: 18px;
+      width: 420px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+      max-width: calc(100% - 40px);
+    }
+    .modal h3 { margin:0 0 12px 0; color:#3a2b6a }
+    .modal .row { margin-bottom:8px; font-size:14px }
+    .modal label { font-weight:600; font-size:13px; display:block; margin-bottom:4px }
+    .modal input[type="date"] { width:100%; padding:8px; border-radius:6px; border:1px solid #ccc }
+    .modal .values { padding:8px 10px; background:#faf7ff; border-radius:6px; color:#333; }
+    .modal .actions { display:flex; gap:8px; justify-content:flex-end; margin-top:12px }
+    .modal button { padding:8px 12px; border-radius:6px; border:none; cursor:pointer }
+    .btn-cancel { background:#eee; color:#333 }
+    .btn-send { background:#6a3db5; }
 </style>
 </head>
 <body>
@@ -141,9 +171,8 @@ $current_date = date("l, F j, Y");
 
 <?php
 // --- Office slot availability block ---
-// detect capacity column name (common variants)
 $capacityCol = null;
-$variants = ['slot_capacity','capacity','slots','max_slots'];
+$variants = ['current_limit','slot_capacity','capacity','slots','max_slots'];
 foreach ($variants as $v) {
     $res = $conn->query("SHOW COLUMNS FROM offices LIKE '".$conn->real_escape_string($v)."'");
     if ($res && $res->num_rows > 0) { $capacityCol = $v; break; }
@@ -174,32 +203,32 @@ $stmtCount = $conn->prepare("
     <?php if (empty($offices)): ?>
         <div class="empty">No offices found.</div>
     <?php else: ?>
-        <table style="margin-bottom:0">
+        <table style="width:100%;border-collapse:collapse">
             <thead>
                 <tr>
-                    <th>Office</th>
-                    <th>Capacity</th>
-                    <th>Filled</th>
-                    <th>Available</th>
+                    <th style="text-align:left;padding:8px">Office</th>
+                    <th style="padding:8px">Capacity</th>
+                    <th style="padding:8px">Filled</th>
+                    <th style="padding:8px">Available</th>
                 </tr>
             </thead>
             <tbody>
-            <?php foreach ($offices as $o): 
+            <?php foreach ($offices as $o):
                 $office_id = (int)$o['office_id'];
                 $capacity = isset($o['capacity']) ? (int)$o['capacity'] : null;
-                $filled = 0;
+
                 $stmtCount->bind_param("ii", $office_id, $office_id);
                 $stmtCount->execute();
-                $stmtCount->bind_result($filled);
-                $stmtCount->fetch();
-                $stmtCount->reset();
-                $available = is_null($capacity) ? '-' : max(0, $capacity - $filled);
+                $resCount = $stmtCount->get_result();
+                $filledRow = $resCount->fetch_assoc();
+                $filled = (int)($filledRow['filled'] ?? 0);
+                $available = $capacity === null ? '—' : max(0, $capacity - $filled);
             ?>
                 <tr>
-                    <td><?php echo htmlspecialchars($o['office_name']); ?></td>
-                    <td><?php echo is_null($capacity) ? '—' : (int)$capacity; ?></td>
-                    <td><?php echo (int)$filled; ?></td>
-                    <td><?php echo $available === '-' ? '—' : (int)$available; ?></td>
+                    <td style="padding:8px"><?= htmlspecialchars($o['office_name']) ?></td>
+                    <td style="text-align:center;padding:8px"><?= $capacity === null ? '—' : $capacity ?></td>
+                    <td style="text-align:center;padding:8px"><?= $filled ?></td>
+                    <td style="text-align:center;padding:8px"><?= htmlspecialchars((string)$available) ?></td>
                 </tr>
             <?php endforeach; ?>
             </tbody>
@@ -234,20 +263,29 @@ $stmtCount->close();
             <tbody>
                 <?php foreach ($apps as $row): ?>
                 <tr>
-                    <td><?php
-                        echo $row['date_submitted'] ? htmlspecialchars(date("M j, Y", strtotime($row['date_submitted']))) : '—';
-                    ?></td>
+                    <td><?php echo $row['date_submitted'] ? htmlspecialchars(date("M j, Y", strtotime($row['date_submitted']))) : '—'; ?></td>
                     <td><?php echo htmlspecialchars(trim(($row['s_first'] ?? '') . ' ' . ($row['s_last'] ?? '')) ?: 'N/A'); ?></td>
                     <td><?php echo htmlspecialchars($row['s_address'] ?: 'N/A'); ?></td>
                     <td><?php echo htmlspecialchars($row['opt1'] ?: 'N/A'); ?></td>
                     <td><?php echo htmlspecialchars($row['opt2'] ?: 'N/A'); ?></td>
                     <td class="actions">
-                        <form method="POST" style="display:inline">
-                            <input type="hidden" name="application_id" value="<?php echo (int)$row['application_id']; ?>">
-                            <button type="button" class="view" title="View" onclick="window.location.href='application_view.php?id=<?php echo (int)$row['application_id']; ?>'">👁️</button>
-                            <button type="button" class="approve" title="Approve" onclick="handleAction(<?php echo (int)$row['application_id']; ?>,'approve')">✔</button>
-                            <button type="button" class="reject" title="Reject" onclick="handleAction(<?php echo (int)$row['application_id']; ?>,'reject')">✖</button>
-                        </form>
+                        <button type="button" class="view" title="View" onclick="window.location.href='application_view.php?id=<?php echo (int)$row['application_id']; ?>'">👁️</button>
+
+                        <!-- approve opens modal -->
+                        <button type="button"
+                            class="approve"
+                            title="Approve"
+                            data-appid="<?php echo (int)$row['application_id']; ?>"
+                            data-name="<?php echo htmlspecialchars(trim(($row['s_first'] ?? '') . ' ' . ($row['s_last'] ?? ''))); ?>"
+                            data-email="<?php echo htmlspecialchars($row['s_email'] ?? ''); ?>"
+                            data-opt1="<?php echo htmlspecialchars($row['opt1'] ?? ''); ?>"
+                            data-opt2="<?php echo htmlspecialchars($row['opt2'] ?? ''); ?>"
+                            data-opt1-id="<?php echo (int)($row['office_preference1'] ?? 0); ?>"
+                            data-opt2-id="<?php echo (int)($row['office_preference2'] ?? 0); ?>"
+                            onclick="openApproveModal(this)"
+                        >✔</button>
+
+                        <button type="button" class="reject" title="Reject" onclick="handleAction(<?php echo (int)$row['application_id']; ?>,'reject')">✖</button>
                     </td>
                 </tr>
                 <?php endforeach; ?>
@@ -257,23 +295,208 @@ $stmtCount->close();
     </div>
 </div>
 
+<!-- Modal overlay for approval -->
+<div id="overlay" class="overlay" role="dialog" aria-hidden="true">
+  <div class="modal" role="document" aria-labelledby="approveTitle">
+    <h3 id="approveTitle">Approve Application</h3>
+
+    <div class="row">
+      <label>Student Name</label>
+      <div class="values" id="modal_name">—</div>
+    </div>
+
+    <div class="row">
+      <label>Email</label>
+      <div class="values" id="modal_email">—</div>
+    </div>
+
+    <div class="row">
+      <label>Assigned Office (from applicant)</label>
+      <div class="values" id="modal_office">—</div>
+    </div>
+
+    <div class="row">
+      <label>Orientation / Starting Date</label>
+      <input type="date" id="modal_date">
+    </div>
+
+    <!-- status message area (hidden until send result) -->
+    <div id="modal_status" class="values" style="display:none;margin-top:10px;"></div>
+
+    <div class="actions">
+      <button class="btn-cancel" onclick="closeModal()" type="button">Cancel</button>
+      <button id="btnSend" class="btn-send" type="button" onclick="sendApproval()" aria-disabled="true" disabled>Send</button>
+    </div>
+  </div>
+</div>
+
 <script>
-// handle approve/reject actions (AJAX)
-function handleAction(id, action) {
-    if (!confirm('Are you sure?')) return;
-    fetch('hr_actions.php', {
+// hold currently approving application id
+let currentAppId = null;
+
+async function openApproveModal(btn) {
+    const el = btn;
+    currentAppId = el.getAttribute('data-appid');
+    const name = el.getAttribute('data-name') || '';
+    const email = el.getAttribute('data-email') || '';
+    const opt1Name = el.getAttribute('data-opt1') || '';
+    const opt2Name = el.getAttribute('data-opt2') || '';
+    const opt1Id = parseInt(el.getAttribute('data-opt1-id') || '0', 10) || null;
+    const opt2Id = parseInt(el.getAttribute('data-opt2-id') || '0', 10) || null;
+
+    document.getElementById('modal_name').textContent = name;
+    document.getElementById('modal_email').textContent = email;
+
+    // determine assigned office by asking server (pref1 if has capacity, else pref2, else show N/A)
+    let assigned = '';
+    try {
+        const payload = { action: 'check_capacity', office1: opt1Id, office2: opt2Id };
+        const res = await fetch('../hr_actions.php', {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify(payload)
+        });
+        const json = await res.json();
+        if (json && json.success) {
+            assigned = json.assigned || '';
+        } else {
+            // fallback display: prefer opt1 name then opt2
+            assigned = opt1Name || opt2Name || 'N/A';
+        }
+    } catch (e) {
+        assigned = opt1Name || opt2Name || 'N/A';
+    }
+
+    document.getElementById('modal_office').textContent = assigned || 'N/A';
+
+    const dateInput = document.getElementById('modal_date');
+    dateInput.value = '';
+
+    // disable send until date chosen
+    const btnSend = document.getElementById('btnSend');
+    btnSend.disabled = true;
+    btnSend.setAttribute('aria-disabled', 'true');
+
+    // enable when date selected
+    dateInput.oninput = function() {
+        if (dateInput.value) {
+            btnSend.disabled = false;
+            btnSend.setAttribute('aria-disabled', 'false');
+        } else {
+            btnSend.disabled = true;
+            btnSend.setAttribute('aria-disabled', 'true');
+        }
+    };
+
+    // show overlay
+    const ov = document.getElementById('overlay');
+    ov.style.display = 'flex';
+    ov.setAttribute('aria-hidden', 'false');
+
+    dateInput.focus();
+}
+
+function closeModal(){
+    const ov = document.getElementById('overlay');
+    ov.style.display = 'none';
+    ov.setAttribute('aria-hidden', 'true');
+    currentAppId = null;
+
+    // cleanup date onchange
+    const dateInput = document.getElementById('modal_date');
+    dateInput.oninput = null;
+}
+
+function sendApproval(){
+    if (!currentAppId) return alert('Invalid application.');
+
+    const date = document.getElementById('modal_date').value;
+    const statusEl = document.getElementById('modal_status');
+
+    if (!date) {
+        return alert('Please select the orientation / starting date.');
+    }
+
+    // disable button to prevent double submit
+    const btnSend = document.getElementById('btnSend');
+    btnSend.disabled = true;
+    btnSend.setAttribute('aria-disabled', 'true');
+
+    // clear/prepare status area
+    statusEl.style.display = 'none';
+    statusEl.textContent = '';
+    statusEl.style.background = '';
+    statusEl.style.color = '';
+
+    const payload = {
+        action: 'approve_send',
+        application_id: parseInt(currentAppId,10),
+        orientation_date: date
+    };
+
+    fetch('../hr_actions.php', {
         method: 'POST',
         headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({application_id: id, action: action})
+        body: JSON.stringify(payload)
     }).then(r => r.json())
       .then(res => {
           if (res.success) {
-              alert('Action completed.');
-              location.reload();
+              // show inline status based on mail result
+              if (res.mail && res.mail === 'sent') {
+                  statusEl.style.display = 'block';
+                  statusEl.style.background = '#e6f9ee';
+                  statusEl.style.color = '#0b7a3a';
+                  statusEl.textContent = 'Email sent.';
+              } else {
+                  statusEl.style.display = 'block';
+                  statusEl.style.background = '#fff4f4';
+                  statusEl.style.color = '#a00';
+                  statusEl.textContent = 'Email not sent (' + (res.mail || 'failed') + ').';
+                  if (res.debug) statusEl.textContent += ' See debug.';
+                  console.warn(res.debug || res.error || '');
+              }
+
+              // give user a short moment to see the message, then close modal and reload to reflect DB status change
+              setTimeout(() => {
+                  closeModal();
+                  location.reload();
+              }, 900);
           } else {
-              alert('Error: ' + (res.message || 'Unknown'));
+              // server returned success=false
+              alert('Error: ' + (res.message || 'Unknown') + (res.error ? '\n' + res.error : ''));
+              // re-enable send on failure
+              btnSend.disabled = false;
+              btnSend.setAttribute('aria-disabled', 'false');
           }
-      }).catch(err => alert('Request failed'));
+      }).catch(err => {
+          alert('Request failed.');
+          console.error(err);
+          btnSend.disabled = false;
+          btnSend.setAttribute('aria-disabled', 'false');
+      });
+}
+
+// existing handleAction for reject (uses hr_actions.php)
+function handleAction(id, action) {
+    if (!confirm('Are you sure?')) return;
+    fetch('../hr_actions.php', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({application_id: id, action: action})
+    })
+    .then(response => response.json())
+    .then(res => {
+        if (res.success) {
+            alert('Action completed.');
+            location.reload();
+        } else {
+            alert('Error: ' + (res.message || 'Unknown'));
+        }
+    })
+    .catch(err => {
+        console.error(err);
+        alert('Request failed');
+    });
 }
 </script>
 

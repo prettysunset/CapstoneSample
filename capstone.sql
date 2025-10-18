@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: 127.0.0.1
--- Generation Time: Oct 12, 2025 at 03:35 PM
+-- Generation Time: Oct 17, 2025 at 02:31 AM
 -- Server version: 10.4.32-MariaDB
 -- PHP Version: 8.0.30
 
@@ -153,12 +153,23 @@ CREATE TABLE `notifications` (
 CREATE TABLE `offices` (
   `office_id` int(11) NOT NULL,
   `office_name` varchar(150) DEFAULT NULL,
-  `address` varchar(255) DEFAULT NULL,
-  `contact_number` varchar(20) DEFAULT NULL,
   `current_limit` int(11) DEFAULT 0,
   `updated_limit` int(11) DEFAULT 0,
+  `requested_limit` int(11) DEFAULT NULL,
+  `reason` varchar(255) DEFAULT NULL,
   `status` enum('open','full') DEFAULT 'open'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Dumping data for table `offices`
+--
+
+INSERT INTO `offices` (`office_id`, `office_name`, `current_limit`, `updated_limit`, `requested_limit`, `reason`, `status`) VALUES
+(1, 'Accounting Office', 15, 15, 20, 'Increase slots due to high number of applicants', 'open'),
+(2, 'IT Office', 8, 8, 10, 'Need additional interns for system updates', 'full'),
+(3, 'Human Resources', 10, 10, 12, 'Assist in employee profiling and documentation', 'open'),
+(4, 'City Planning Office', 6, 6, 8, 'Assist with mapping and data digitization', 'full'),
+(5, 'Treasury Office', 12, 12, 15, 'Help with financial records encoding', 'open');
 
 -- --------------------------------------------------------
 
@@ -218,7 +229,8 @@ CREATE TABLE `ojt_applications` (
 --
 
 INSERT INTO `ojt_applications` (`application_id`, `student_id`, `office_preference1`, `office_preference2`, `letter_of_intent`, `endorsement_letter`, `resume`, `moa_file`, `picture`, `status`, `remarks`, `date_submitted`, `date_updated`) VALUES
-(2, 2, NULL, NULL, 'uploads/1760242009_img008.jpg', 'uploads/1760242009_img008.jpg', 'uploads/1760242009_id.jpg', 'uploads/1760242009_img008.jpg', 'uploads/1760242009_id.jpg', 'pending', NULL, '2025-10-12', NULL);
+(2, 2, NULL, NULL, 'uploads/1760242009_img008.jpg', 'uploads/1760242009_img008.jpg', 'uploads/1760242009_id.jpg', 'uploads/1760242009_img008.jpg', 'uploads/1760242009_id.jpg', 'pending', NULL, '2025-10-12', NULL),
+(3, 3, NULL, NULL, 'uploads/1760619363_slip.jpg', 'uploads/1760619363_slip.jpg', 'uploads/1760619363_slip.jpg', '', 'uploads/1760619363_slip.jpg', 'pending', NULL, '2025-10-16', NULL);
 
 -- --------------------------------------------------------
 
@@ -255,7 +267,8 @@ CREATE TABLE `students` (
 
 INSERT INTO `students` (`student_id`, `user_id`, `first_name`, `last_name`, `address`, `contact_number`, `email`, `emergency_name`, `emergency_relation`, `emergency_contact`, `college`, `course`, `year_level`, `school_address`, `ojt_adviser`, `adviser_contact`, `total_hours_required`, `hours_rendered`, `status`) VALUES
 (1, NULL, 'Jasmine', 'Santiago', '#0546 Peter Street, Phase 2, Caingin, Malolos, Bulacan', '09454659878', 'santiagojasminem@gmail.com', 'memen', 'mother', '09134664654', 'Bulacan Polytechnic College', 'BSIS', '4', 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '08089989898', 500, 0, 'pending'),
-(2, NULL, 'Jasmine', 'Santiago', '#0546 Peter Street, Phase 2, Caingin, Malolos, Bulacan', '09454659878', 'santiagojasminem@gmail.com', 'memen', 'mother', '09134664654', 'Bulacan Polytechnic College', 'BSIS', '4', 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '08089989898', 500, 0, 'pending');
+(2, NULL, 'Jasmine', 'Santiago', '#0546 Peter Street, Phase 2, Caingin, Malolos, Bulacan', '09454659878', 'santiagojasminem@gmail.com', 'memen', 'mother', '09134664654', 'Bulacan Polytechnic College', 'BSIS', '4', 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '08089989898', 500, 0, 'pending'),
+(3, NULL, 'John Paul', 'Sayo', 'Pulilan', '09457842558', 'jasmine.santiago@bpc.edu.ph', 'Jampol', 'Father', '09345646546', 'Bulacan Polytechnic College', 'BSIS', '4', 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '08089989898', 500, 0, 'pending');
 
 -- --------------------------------------------------------
 
@@ -469,7 +482,7 @@ ALTER TABLE `notifications`
 -- AUTO_INCREMENT for table `offices`
 --
 ALTER TABLE `offices`
-  MODIFY `office_id` int(11) NOT NULL AUTO_INCREMENT;
+  MODIFY `office_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=6;
 
 --
 -- AUTO_INCREMENT for table `office_heads`
@@ -487,13 +500,13 @@ ALTER TABLE `office_requests`
 -- AUTO_INCREMENT for table `ojt_applications`
 --
 ALTER TABLE `ojt_applications`
-  MODIFY `application_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=3;
+  MODIFY `application_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=4;
 
 --
 -- AUTO_INCREMENT for table `students`
 --
 ALTER TABLE `students`
-  MODIFY `student_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=3;
+  MODIFY `student_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=4;
 
 --
 -- AUTO_INCREMENT for table `users`
