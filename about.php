@@ -83,7 +83,7 @@
 
         <div class="nav-links">
         <li><a href="home.php">Home</a></li>
-        <li><a href="about.php">About</a></li>
+        <li class="home">About</li>
         <li><a href="contacts.php">Contacts</a></li>
         <li><a href="offices.php">Offices</a></li>
         <li class="login"><a href="login.php">Login</a></li>
@@ -93,7 +93,6 @@
         <h1 style="margin:0; color:#3a4163; font-size:2rem; line-height:1.2; font-weight:800;">
             Vision, Mission, and Core Values
         </h1>
-        
         <h1 style="margin:8px 0 0; color:#3a4163; font-size:2rem; font-weight:800">of</h1>
         <h1 style="margin:8px 0 0; color:#4a6ff3; font-size:2rem; line-height:1.1; font-weight:800;">
             Malolos City - City Hall
@@ -108,7 +107,7 @@
             flex-wrap:wrap;
             gap:20px;
             max-width:1000px;
-            margin:20px auto;
+            margin:0 auto;
             justify-content:center;
         }
         .vmv-box{

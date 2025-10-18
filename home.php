@@ -40,7 +40,7 @@
             <!-- Apply Now Button -->
             <div style="width:100%; display:flex; justify-content:center;">
                 <button class="mainbtn">
-                    <a style="color:white; text-decoration:none; display:inline-block; padding:10px 20px;" href="why.html">
+                    <a style="color:white; text-decoration:none; display:inline-block; padding:10px 10px;" href="why.html">
                         Apply Now
                     </a>
                 </button>
