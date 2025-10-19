@@ -26,11 +26,11 @@
                 background-position: center; 
                 padding: 35px 0 45px 0; /* reduced padding to make header shorter */">
 
-        <p style="font-size: 58px; margin: 10px 0 8px 0; text-shadow: 4px 4px white;" class="header">
+        <p style="font-size: 58px; margin: 10px 0 8px 0; text-shadow: 2px 2px white;" class="header">
             Welcome to the<br> Malolos City - OJT <br>Management <br>System
         </p>
 
-        <p class="subheader" style="margin-top: 4px;">
+        <p class="subheader" style="margin-top: 4px; text-shadow: 1px 1px white;">
             Your Pathway to Growth and <br>Service starts here
         </p>
 
