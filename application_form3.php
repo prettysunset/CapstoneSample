@@ -122,7 +122,123 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
   <title>OJT Application Form - Requirements</title>
   <link rel="stylesheet" href="style.css">
 </head>
+<style>
+    body {
+      font-family: 'Poppins', sans-serif;
+      margin: 0;
+      padding: 0;
+      background-color: #e6f2ff;
+      color: #333;
+      /* reserve space for fixed navbar so content isn't hidden */
+      padding-top: 80px;
+      box-sizing: border-box;
+    }
+
+    .navbar {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 1000;
+      display: flex;
+      justify-content: space-between; /* logo left, links right */
+      align-items: center;           /* vertical alignment */
+      height: 64px;
+      padding: 12px 33px;
+      background: #ffffff;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+    }
+
+    .logo {
+      font-weight: bold;
+      text-decoration: none;
+      color: #3a4163;
+      font-size: 20px;
+    }
+
+    .logo:hover {
+      background: none;
+      color: #3a4163; /* no hover effect */
+      padding: 0;
+    }
+
+    .nav-links {
+      display: flex;
+      list-style: none;
+      gap: 15px;
+      margin: 0;  /* reset default */
+      padding: 0;
+      align-items: center;
+    }
+
+    .nav-links li {
+      cursor: pointer;
+      padding: 5px 15px;
+      list-style: none;
+    }
+
+    .nav-links a {
+      text-decoration: none;
+      color: #3a4163;
+    }
+
+    /* Hover for normal links (exclude logo & login) */
+    .nav-links a:hover {
+      background-color: #3a4163;
+      color: white;
+      border-radius: 15px;
+      padding: 5px 15px;
+    }
+
+    /* Login button */
+    .navbar li.login a {
+      color: white;
+      text-decoration: none;
+      display: inline-block;
+      padding: 5px 15px;
+      background-color: #3a4163;
+      border-radius: 15px;
+      font-weight: bold;
+      transition: background-color 0.3s;
+    }
+
+    .navbar li.login a:hover {
+      background-color: #2a2f4f;
+    }
+
+    /* Ensure main layout isn't crowded under the navbar */
+    .container {
+      max-width: 1100px;
+      margin: 20px auto;
+      padding: 20px;
+    }
+
+    @media (max-width: 600px) {
+      .navbar {
+        padding: 10px 16px;
+        height: auto;
+      }
+      body {
+        padding-top: 72px;
+      }
+    }
+  </style>
+</head>
 <body>
+
+          <div class="navbar">
+        <h1><a class="logo" href="about.php">OJT-MS</a></h1>
+
+        <div class="nav-links">
+        <li><a href="home.php">Home</a></li>
+        <li class="home">About</li>
+        <li><a href="contacts.php">Contacts</a></li>
+        <li><a href="offices.php">Offices</a></li>
+        <li class="login"><a href="login.php">Login</a></li>
+        </div>
+    </div>
+
+
   <div class="container">
     <!-- LEFT SIDE -->
     <div class="left">
