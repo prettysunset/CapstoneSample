@@ -156,7 +156,7 @@ if ($action === 'approve_send') {
     $to = $res['email'];
     $student_name = trim(($res['first_name'] ?? '') . ' ' . ($res['last_name'] ?? ''));
 
-    // Determine assignment (prefer first, fallback to second) - keep simple here
+    // Determine assignment (prefer first, fallback to second)
     $pref1 = !empty($res['office_preference1']) ? (int)$res['office_preference1'] : null;
     $pref2 = !empty($res['office_preference2']) ? (int)$res['office_preference2'] : null;
     $assignedOfficeName = '';
@@ -188,7 +188,65 @@ if ($action === 'approve_send') {
 
     if (!$ok) respond(['success' => false, 'message' => 'Failed to update application.']);
 
-    // update student status optionally
+    // create user account for student if not already linked
+    $createdAccount = false;
+    $createdUsername = '';
+    $createdPlainPassword = '';
+
+    // check existing user_id in students
+    $chk = $conn->prepare("SELECT user_id FROM students WHERE student_id = ?");
+    $chk->bind_param("i", $student_id);
+    $chk->execute();
+    $rowChk = $chk->get_result()->fetch_assoc();
+    $chk->close();
+
+    if (empty($rowChk['user_id'])) {
+        // helper to build unique username base
+        $emailLocal = '';
+        if (!empty($to) && strpos($to, '@') !== false) $emailLocal = strtolower(explode('@', $to)[0]);
+        $base = $emailLocal ?: strtolower(preg_replace('/[^a-z0-9]/', '', substr($res['first_name'],0,1) . $res['last_name']));
+
+        if ($base === '') $base = 'student' . $student_id;
+
+        // ensure uniqueness
+        $username = $base;
+        $i = 0;
+        $existsStmt = $conn->prepare("SELECT user_id FROM users WHERE username = ?");
+        while (true) {
+            $existsStmt->bind_param("s", $username);
+            $existsStmt->execute();
+            $er = $existsStmt->get_result()->fetch_assoc();
+            if (!$er) break;
+            $i++;
+            $username = $base . $i;
+        }
+        $existsStmt->close();
+
+        // generate random password (plain for email, store plain to match current login.php)
+        $createdPlainPassword = substr(bin2hex(random_bytes(5)), 0, 10);
+        // NOTE: storing plaintext — kept to match your current login.php. Replace with hashed value later.
+        $passwordPlainToStore = $createdPlainPassword;
+
+        // insert into users (store plaintext password to match existing login logic)
+        $officeForUser = $assignedOfficeName ?: null;
+        $ins = $conn->prepare("INSERT INTO users (username, password, role, office_name, date_created) VALUES (?, ?, 'ojt', ?, NOW())");
+        $ins->bind_param("sss", $username, $passwordPlainToStore, $officeForUser);
+        $insOk = $ins->execute();
+        if ($insOk) {
+            $newUserId = $ins->insert_id;
+            // link to students.user_id
+            $updS = $conn->prepare("UPDATE students SET user_id = ? WHERE student_id = ?");
+            $updS->bind_param("ii", $newUserId, $student_id);
+            $updS->execute();
+            $updS->close();
+
+            $createdAccount = true;
+            $createdUsername = $username;
+        }
+        $ins->close();
+    }
+
+    // update student status to ongoing (optional business rule)
     $u2 = $conn->prepare("UPDATE students SET status = 'ongoing' WHERE student_id = ?");
     $u2->bind_param("i", $student_id);
     $u2->execute();
@@ -199,9 +257,19 @@ if ($action === 'approve_send') {
     $html = "<p>Hi <strong>" . htmlspecialchars($student_name) . "</strong>,</p>"
           . "<p>Your OJT application has been <strong>approved</strong>.</p>"
           . "<p><strong>Orientation / Starting Date:</strong> " . htmlspecialchars($orientation) . "</p>"
-          . ($assignedOfficeName ? "<p><strong>Assigned Office:</strong> " . htmlspecialchars($assignedOfficeName) . "</p>" : "")
-          . "<p>Please follow instructions sent by HR. Thank you.</p>"
-          . "<p>— HR Department</p>";
+          . ($assignedOfficeName ? "<p><strong>Assigned Office:</strong> " . htmlspecialchars($assignedOfficeName) . "</p>" : "");
+
+    if ($createdAccount) {
+        $html .= "<p><strong>Your student account has been created:</strong></p>"
+              . "<p>Username: <code>" . htmlspecialchars($createdUsername) . "</code><br>"
+              . "Password: <code>" . htmlspecialchars($createdPlainPassword) . "</code></p>"
+              . "<p>Please login and change your password as soon as possible.</p>";
+    } else {
+        $html .= "<p>If you already have an account, use your existing credentials to login.</p>";
+    }
+
+    $html .= "<p>Please follow instructions sent by HR. Thank you.</p>"
+           . "<p>— HR Department</p>";
 
     // send with PHPMailer and capture debug output
     $mailSent = false;
@@ -218,7 +286,7 @@ if ($action === 'approve_send') {
         $mail->Port       = SMTP_PORT;
         $mail->CharSet    = 'UTF-8';
 
-        // debugging - set to 2 during troubleshooting, set to 0 afterwards
+        // debugging - set to 0 once working
         $mail->SMTPDebug = 2;
         $mail->Debugoutput = function($str, $level) use (&$debugLog) {
             $debugLog .= trim($str) . "\n";
@@ -247,7 +315,7 @@ if ($action === 'approve_send') {
         if (!$mailSent) $debugLog .= "PHP mail() fallback failed\n";
     }
 
-    respond(['success' => true, 'mail' => $mailSent ? 'sent' : 'failed', 'debug' => $debugLog]);
+    respond(['success' => true, 'mail' => $mailSent ? 'sent' : 'failed', 'debug' => $debugLog, 'account_created' => $createdAccount, 'username' => $createdUsername]);
 }
 
 // quick reject/approve endpoints (no email)
