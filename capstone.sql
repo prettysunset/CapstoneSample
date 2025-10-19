@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: 127.0.0.1
--- Generation Time: Oct 19, 2025 at 07:38 AM
+-- Generation Time: Oct 19, 2025 at 09:01 AM
 -- Server version: 10.4.32-MariaDB
 -- PHP Version: 8.0.30
 
@@ -31,10 +31,10 @@ CREATE TABLE `dtr` (
   `dtr_id` int(11) NOT NULL,
   `student_id` int(11) NOT NULL,
   `log_date` date NOT NULL,
-  `am_in` time DEFAULT NULL,
-  `am_out` time DEFAULT NULL,
-  `pm_in` time DEFAULT NULL,
-  `pm_out` time DEFAULT NULL,
+  `am_in` char(5) DEFAULT NULL,
+  `am_out` char(5) DEFAULT NULL,
+  `pm_in` char(5) DEFAULT NULL,
+  `pm_out` char(5) DEFAULT NULL,
   `hours` int(11) DEFAULT 0,
   `minutes` int(11) DEFAULT 0
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
@@ -443,7 +443,7 @@ ALTER TABLE `weekly_journal`
 -- AUTO_INCREMENT for table `dtr`
 --
 ALTER TABLE `dtr`
-  MODIFY `dtr_id` int(11) NOT NULL AUTO_INCREMENT;
+  MODIFY `dtr_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=19;
 
 --
 -- AUTO_INCREMENT for table `evaluations`

@@ -43,18 +43,28 @@ if ($student_id) {
     $res = $q->get_result();
     while ($r = $res->fetch_assoc()) {
         $d = (int)date('j', strtotime($r['log_date']));
-        $hours = isset($r['hours']) ? (int)$r['hours'] : 0;
-        $minutes = isset($r['minutes']) ? (int)$r['minutes'] : 0;
-        $total_hours = $hours + ($minutes / 60);
+
+        // Trim times to HH:MM (remove seconds) and do NOT recalculate/persist on page load.
+        $am_in = !empty($r['am_in']) ? substr($r['am_in'], 0, 5) : null;
+        $am_out = !empty($r['am_out']) ? substr($r['am_out'], 0, 5) : null;
+        $pm_in = !empty($r['pm_in']) ? substr($r['pm_in'], 0, 5) : null;
+        $pm_out = !empty($r['pm_out']) ? substr($r['pm_out'], 0, 5) : null;
+
+        // read stored hours/minutes (persisted only by time_out endpoint)
+        $hoursStored = isset($r['hours']) ? (int)$r['hours'] : 0;
+        $minutesStored = isset($r['minutes']) ? (int)$r['minutes'] : 0;
+
+        $total_hours = ($hoursStored || $minutesStored) ? ($hoursStored + ($minutesStored / 60)) : 0.0;
+
         $dtrMap[$d] = [
             'dtr_id' => (int)$r['dtr_id'],
             'log_date' => $r['log_date'],
-            'am_in' => $r['am_in'],
-            'am_out' => $r['am_out'],
-            'pm_in' => $r['pm_in'],
-            'pm_out' => $r['pm_out'],
-            'hours' => $hours,
-            'minutes' => $minutes,
+            'am_in' => $am_in,
+            'am_out' => $am_out,
+            'pm_in' => $pm_in,
+            'pm_out' => $pm_out,
+            'hours' => $hoursStored,
+            'minutes' => $minutesStored,
             'total_hours' => $total_hours
         ];
     }
@@ -172,10 +182,8 @@ if ($student_id) {
       border: 1px solid #000;
       padding: 6px 4px;
       text-align: center;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
       font-size: 12px;
+      /* allow the full HH:MM / text to show — do not ellipsize time columns */
     }
     th { background: #f0f0f0; font-weight: 600; font-size: 12px; }
     tfoot td { font-weight: bold; text-align: right; padding:8px; }
@@ -216,6 +224,7 @@ if ($student_id) {
 
       <div class="datetime">
         <h1><?php echo date("F d, Y"); ?></h1>
+        <!-- render initial clock with seconds so client update won't visibly jump -->
         <h2 id="clock"><?php echo date("h:i:s A"); ?></h2>
       </div>
 
@@ -244,17 +253,35 @@ if ($student_id) {
         <tbody>
           <?php
           $totalHours = 0;
+          // helper inline: format "HH:MM" -> "h:i A" safely
+          function fmt_hm($hm) {
+              if (empty($hm)) return '';
+              $hm = trim($hm);
+              // normalize to "HH:MM" even if input is "HH:MM:SS"
+              if (strpos($hm, ':') !== false) {
+                  $parts = explode(':', $hm);
+                  // take first two segments (hours and minutes)
+                  $hm = sprintf('%02d:%02d', intval($parts[0] ?? 0), intval($parts[1] ?? 0));
+              }
+              $dt = DateTime::createFromFormat('H:i', $hm);
+              // show hour:minute only (no AM/PM)
+              return $dt ? $dt->format('h:i') : htmlspecialchars($hm);
+          }
+
           for ($d = 1; $d <= $daysInMonth; $d++) {
             // make sure $row is an array to avoid "offset on null" warnings
             $row = isset($dtrMap[$d]) && is_array($dtrMap[$d]) ? $dtrMap[$d] : [];
 
-            $amArrival = !empty($row['am_in']) ? date('h:i A', strtotime($row['am_in'])) : '';
-            $amDepart  = !empty($row['am_out']) ? date('h:i A', strtotime($row['am_out'])) : '';
-            $pmArrival = !empty($row['pm_in']) ? date('h:i A', strtotime($row['pm_in'])) : '';
-            $pmDepart  = !empty($row['pm_out']) ? date('h:i A', strtotime($row['pm_out'])) : '';
+            // use trimmed HH:MM values already stored in $dtrMap
+            $amArrival = fmt_hm($row['am_in'] ?? null);
+            $amDepart  = fmt_hm($row['am_out'] ?? null);
+            $pmArrival = fmt_hm($row['pm_in'] ?? null);
+            $pmDepart  = fmt_hm($row['pm_out'] ?? null);
 
-            $hours = (isset($row['hours']) && $row['hours'] !== 0) ? (int)$row['hours'] : '';
-            $minutes = (isset($row['minutes']) && $row['minutes'] !== 0) ? (int)$row['minutes'] : '';
+            $hasRow = !empty($row['dtr_id']);
+            // show persisted hours/minutes (including 0) only when there is a row (time_out should have set these)
+            $hours = $hasRow ? (int)($row['hours'] ?? 0) : '';
+            $minutes = $hasRow ? (int)($row['minutes'] ?? 0) : '';
 
             // add to total safely
             $totalHours += isset($row['total_hours']) ? (float)$row['total_hours'] : 0.0;
@@ -362,14 +389,16 @@ if ($student_id) {
           tr.querySelector('.pm-arrival').textContent = row.pm_in ? formatTime(row.pm_in) : '';
           tr.querySelector('.pm-depart').textContent  = row.pm_out ? formatTime(row.pm_out) : '';
 
-          if (typeof row.hours !== 'undefined' && typeof row.minutes !== 'undefined') {
-            tr.querySelector('.hours').textContent = row.hours ? row.hours : '';
-            tr.querySelector('.minutes').textContent = row.minutes ? row.minutes : '';
-          } else if (typeof row.total_hours !== 'undefined') {
-            const h = Math.floor(row.total_hours);
-            const m = Math.round((row.total_hours - h) * 60);
-            tr.querySelector('.hours').textContent = h || '';
-            tr.querySelector('.minutes').textContent = m || '';
+          // ALWAYS show hours/minutes when server returned numeric values (including 0)
+          if (row.hours !== null && row.hours !== undefined) {
+            tr.querySelector('.hours').textContent = String(row.hours);
+          } else {
+            tr.querySelector('.hours').textContent = '';
+          }
+          if (row.minutes !== null && row.minutes !== undefined) {
+            tr.querySelector('.minutes').textContent = String(row.minutes);
+          } else {
+            tr.querySelector('.minutes').textContent = '';
           }
         }
 
@@ -384,18 +413,6 @@ if ($student_id) {
         // on error, re-fetch to restore correct state
         fetchTodayRow();
       }
-    }
-
-    function formatTime(timeStr) {
-      if (!timeStr) return '';
-      // accept "HH:MM" or "HH:MM:SS"
-      const p = timeStr.split(':');
-      if (p.length < 2) return timeStr;
-      let hh = parseInt(p[0],10);
-      const mm = (p[1] || '00').padStart(2,'0');
-      const ampm = hh >= 12 ? 'PM' : 'AM';
-      hh = ((hh + 11) % 12) + 1;
-      return hh + ':' + mm + ' ' + ampm;
     }
 
     // TIME IN: disable inputs immediately to avoid double clicks, call action, then final state will be set from server response
@@ -417,6 +434,18 @@ if ($student_id) {
 
     // init
     fetchTodayRow();
+
+    // replace formatTime with:
+    function formatTime(timeStr) {
+      if (!timeStr) return '';
+      // accept "HH:MM" or "HH:MM:SS" and use only HH:MM
+      const parts = timeStr.split(':');
+      let hh = parseInt(parts[0], 10) || 0;
+      const mm = (parts[1] || '00').padStart(2, '0');
+      // convert to 12-hour display but without AM/PM
+      hh = ((hh + 11) % 12) + 1;
+      return String(hh).padStart(2,'0') + ':' + mm;
+    }
   </script>
 </body>
 </html>
