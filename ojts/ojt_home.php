@@ -36,13 +36,27 @@ $daysInMonth = (int)date('t', strtotime("$year-$month-01"));
 
 $dtrMap = []; // day => row
 if ($student_id) {
-    $q = $conn->prepare("SELECT log_date, time_in, time_out, total_hours FROM dtr WHERE student_id = ? AND MONTH(log_date)=? AND YEAR(log_date)=? ORDER BY log_date");
+    // select actual columns including am/pm in/out and hours/minutes
+    $q = $conn->prepare("SELECT dtr_id, log_date, am_in, am_out, pm_in, pm_out, hours, minutes FROM dtr WHERE student_id = ? AND MONTH(log_date)=? AND YEAR(log_date)=? ORDER BY log_date");
     $q->bind_param("iii", $student_id, $month, $year);
     $q->execute();
     $res = $q->get_result();
     while ($r = $res->fetch_assoc()) {
         $d = (int)date('j', strtotime($r['log_date']));
-        $dtrMap[$d] = $r;
+        $hours = isset($r['hours']) ? (int)$r['hours'] : 0;
+        $minutes = isset($r['minutes']) ? (int)$r['minutes'] : 0;
+        $total_hours = $hours + ($minutes / 60);
+        $dtrMap[$d] = [
+            'dtr_id' => (int)$r['dtr_id'],
+            'log_date' => $r['log_date'],
+            'am_in' => $r['am_in'],
+            'am_out' => $r['am_out'],
+            'pm_in' => $r['pm_in'],
+            'pm_out' => $r['pm_out'],
+            'hours' => $hours,
+            'minutes' => $minutes,
+            'total_hours' => $total_hours
+        ];
     }
     $q->close();
 }
@@ -111,8 +125,23 @@ if ($student_id) {
     .datetime h2 { font-size: 28px; font-weight: 700; }
 
     .buttons { display: flex; justify-content: center; gap: 16px; }
-    .buttons button { width: 140px; padding: 12px 0; border: none; border-radius: 20px; font-size: 15px; cursor: pointer; color: white; }
-    .timein { background: #5b5f89; } .timeout { background: #c3c3c3; color: #333; }
+    .buttons button { width: 140px; padding: 12px 0; border: none; border-radius: 20px; font-size: 15px; cursor: pointer; color: white; transition: opacity .12s ease, transform .06s ease, background .12s ease; }
+    /* enabled appearance (both buttons look the same when enabled) */
+    .timein, .timeout { background: #5b5f89; color: #fff; box-shadow: 0 4px 10px rgba(90,95,140,0.12); }
+
+    /* disabled visual state - uniform for both buttons */
+    .buttons button[disabled], .buttons button.btn-disabled {
+      background: #c3c3c3 !important;
+      color: #333 !important;
+      opacity: 0.9;
+      filter: none;
+      cursor: not-allowed;
+      transform: none;
+      pointer-events: none;
+      box-shadow: none;
+    }
+    /* small active feedback for enabled buttons */
+    .buttons button:not([disabled]):active { transform: translateY(1px); }
 
     /* DTR Section */
     .dtr-section {
@@ -216,22 +245,26 @@ if ($student_id) {
           <?php
           $totalHours = 0;
           for ($d = 1; $d <= $daysInMonth; $d++) {
-            $row = $dtrMap[$d] ?? null;
-            $time_in = $row['time_in'] ?? '';
-            $time_out = $row['time_out'] ?? '';
-            $total = $row['total_hours'] ?? '';
-            // map single time_in/time_out into AM arrival and PM departure (if you later track AM/PM separately adjust)
-            $amArrival = $time_in ? date('h:i A', strtotime($time_in)) : '';
-            $pmDeparture = $time_out ? date('h:i A', strtotime($time_out)) : '';
-            $hours = $total ? floor((float)$total) : '';
-            $minutes = $total ? round(((float)$total - floor((float)$total)) * 60) : '';
-            if ($total) $totalHours += (float)$total;
+            // make sure $row is an array to avoid "offset on null" warnings
+            $row = isset($dtrMap[$d]) && is_array($dtrMap[$d]) ? $dtrMap[$d] : [];
+
+            $amArrival = !empty($row['am_in']) ? date('h:i A', strtotime($row['am_in'])) : '';
+            $amDepart  = !empty($row['am_out']) ? date('h:i A', strtotime($row['am_out'])) : '';
+            $pmArrival = !empty($row['pm_in']) ? date('h:i A', strtotime($row['pm_in'])) : '';
+            $pmDepart  = !empty($row['pm_out']) ? date('h:i A', strtotime($row['pm_out'])) : '';
+
+            $hours = (isset($row['hours']) && $row['hours'] !== 0) ? (int)$row['hours'] : '';
+            $minutes = (isset($row['minutes']) && $row['minutes'] !== 0) ? (int)$row['minutes'] : '';
+
+            // add to total safely
+            $totalHours += isset($row['total_hours']) ? (float)$row['total_hours'] : 0.0;
+
             echo "<tr data-day=\"$d\">
                     <td>{$d}</td>
                     <td class='am-arrival'>".htmlspecialchars($amArrival)."</td>
-                    <td class='am-depart'></td>
-                    <td class='pm-arrival'></td>
-                    <td class='pm-depart'>".htmlspecialchars($pmDeparture)."</td>
+                    <td class='am-depart'>".htmlspecialchars($amDepart)."</td>
+                    <td class='pm-arrival'>".htmlspecialchars($pmArrival)."</td>
+                    <td class='pm-depart'>".htmlspecialchars($pmDepart)."</td>
                     <td class='hours'>".($hours !== '' ? $hours : '')."</td>
                     <td class='minutes'>".($minutes !== '' ? $minutes : '')."</td>
                   </tr>";
@@ -257,17 +290,24 @@ if ($student_id) {
     const btnIn = document.getElementById('btnTimeIn');
     const btnOut = document.getElementById('btnTimeOut');
 
+    function setButtonState(inDisabled, outDisabled) {
+      btnIn.disabled = inDisabled;
+      btnOut.disabled = outDisabled;
+      btnIn.setAttribute('aria-disabled', inDisabled ? 'true' : 'false');
+      btnOut.setAttribute('aria-disabled', outDisabled ? 'true' : 'false');
+    }
+
+    // determine if there is an unmatched IN (am_in without am_out or pm_in without pm_out)
+    function hasUnmatchedIn(row) {
+      if (!row) return false;
+      return (row.am_in && !row.am_out) || (row.pm_in && !row.pm_out);
+    }
+
     // set initial button state based on today's row
     function refreshButtonsState(todayRow) {
-      if (!todayRow) {
-        btnIn.disabled = false;
-        btnOut.disabled = true;
-        return;
-      }
-      const hasIn = !!todayRow.time_in;
-      const hasOut = !!todayRow.time_out;
-      btnIn.disabled = !!hasIn;
-      btnOut.disabled = !hasIn || !!hasOut;
+      const unmatched = hasUnmatchedIn(todayRow);
+      // when unmatched=true -> TIME IN disabled, TIME OUT enabled
+      setButtonState(unmatched, !unmatched);
     }
 
     // fetch today's dtr row to init
@@ -280,9 +320,14 @@ if ($student_id) {
         const j = await res.json();
         if (j.success) {
           refreshButtonsState(j.row || null);
+        } else {
+          // default: allow TIME IN, disable TIME OUT
+          setButtonState(false, true);
         }
       } catch (e) {
         console.error(e);
+        // network error: be conservative
+        setButtonState(false, true);
       }
     }
 
@@ -296,46 +341,79 @@ if ($student_id) {
         const j = await res.json();
         if (!j.success) {
           alert('Error: ' + (j.message || 'Unknown'));
+          // refresh state from server after failure
+          fetchTodayRow();
           return;
         }
-        const row = j.row; // { log_date, time_in, time_out, total_hours }
+        const row = j.row; // { log_date, am_in, am_out, pm_in, pm_out, hours, minutes, total_hours }
+        if (!row) {
+          // nothing to update
+          fetchTodayRow();
+          return;
+        }
+
         // update table row for the day
         const d = new Date(row.log_date);
         const day = d.getDate();
         const tr = document.querySelector('#dtrTable tbody tr[data-day="'+day+'"]');
         if (tr) {
-          tr.querySelector('.am-arrival').textContent = row.time_in ? formatTime(row.time_in) : '';
-          tr.querySelector('.pm-depart').textContent = row.time_out ? formatTime(row.time_out) : '';
-          if (row.total_hours !== null) {
+          tr.querySelector('.am-arrival').textContent = row.am_in ? formatTime(row.am_in) : '';
+          tr.querySelector('.am-depart').textContent  = row.am_out ? formatTime(row.am_out) : '';
+          tr.querySelector('.pm-arrival').textContent = row.pm_in ? formatTime(row.pm_in) : '';
+          tr.querySelector('.pm-depart').textContent  = row.pm_out ? formatTime(row.pm_out) : '';
+
+          if (typeof row.hours !== 'undefined' && typeof row.minutes !== 'undefined') {
+            tr.querySelector('.hours').textContent = row.hours ? row.hours : '';
+            tr.querySelector('.minutes').textContent = row.minutes ? row.minutes : '';
+          } else if (typeof row.total_hours !== 'undefined') {
             const h = Math.floor(row.total_hours);
             const m = Math.round((row.total_hours - h) * 60);
-            tr.querySelector('.hours').textContent = h;
-            tr.querySelector('.minutes').textContent = m;
+            tr.querySelector('.hours').textContent = h || '';
+            tr.querySelector('.minutes').textContent = m || '';
           }
         }
+
         // update total
         document.getElementById('totalHours').textContent = j.month_total || document.getElementById('totalHours').textContent;
-        // update button states
+
+        // update button states according to server row
         refreshButtonsState(row);
       } catch (e) {
         console.error(e);
         alert('Request failed');
+        // on error, re-fetch to restore correct state
+        fetchTodayRow();
       }
     }
 
     function formatTime(timeStr) {
-      // timeStr is "HH:MM:SS" — convert to h:i A
+      if (!timeStr) return '';
+      // accept "HH:MM" or "HH:MM:SS"
       const p = timeStr.split(':');
       if (p.length < 2) return timeStr;
       let hh = parseInt(p[0],10);
-      const mm = p[1].padStart(2,'0');
+      const mm = (p[1] || '00').padStart(2,'0');
       const ampm = hh >= 12 ? 'PM' : 'AM';
       hh = ((hh + 11) % 12) + 1;
       return hh + ':' + mm + ' ' + ampm;
     }
 
-    btnIn.onclick = () => handleAction('time_in');
-    btnOut.onclick = () => handleAction('time_out');
+    // TIME IN: disable inputs immediately to avoid double clicks, call action, then final state will be set from server response
+    btnIn.onclick = async () => {
+      // prevent clicking when already disabled
+      if (btnIn.disabled) return;
+      setButtonState(true, true);
+      await handleAction('time_in');
+    };
+
+    // TIME OUT: require confirmation, then proceed; disable immediately to avoid double clicks
+    btnOut.onclick = async () => {
+      if (btnOut.disabled) return;
+      const ok = confirm('Are you sure you want to TIME OUT now?');
+      if (!ok) return;
+      setButtonState(true, true);
+      await handleAction('time_out');
+    };
 
     // init
     fetchTodayRow();

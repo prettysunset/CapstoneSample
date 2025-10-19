@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: 127.0.0.1
--- Generation Time: Oct 17, 2025 at 02:31 AM
+-- Generation Time: Oct 19, 2025 at 07:38 AM
 -- Server version: 10.4.32-MariaDB
 -- PHP Version: 8.0.30
 
@@ -29,13 +29,14 @@ SET time_zone = "+00:00";
 
 CREATE TABLE `dtr` (
   `dtr_id` int(11) NOT NULL,
-  `student_id` int(11) DEFAULT NULL,
-  `log_date` date DEFAULT NULL,
-  `time_in` time DEFAULT NULL,
-  `time_out` time DEFAULT NULL,
-  `total_hours` decimal(5,2) DEFAULT NULL,
-  `status` enum('on-time','late','absent') DEFAULT 'on-time',
-  `remarks` text DEFAULT NULL
+  `student_id` int(11) NOT NULL,
+  `log_date` date NOT NULL,
+  `am_in` time DEFAULT NULL,
+  `am_out` time DEFAULT NULL,
+  `pm_in` time DEFAULT NULL,
+  `pm_out` time DEFAULT NULL,
+  `hours` int(11) DEFAULT 0,
+  `minutes` int(11) DEFAULT 0
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- --------------------------------------------------------
@@ -229,8 +230,10 @@ CREATE TABLE `ojt_applications` (
 --
 
 INSERT INTO `ojt_applications` (`application_id`, `student_id`, `office_preference1`, `office_preference2`, `letter_of_intent`, `endorsement_letter`, `resume`, `moa_file`, `picture`, `status`, `remarks`, `date_submitted`, `date_updated`) VALUES
-(2, 2, NULL, NULL, 'uploads/1760242009_img008.jpg', 'uploads/1760242009_img008.jpg', 'uploads/1760242009_id.jpg', 'uploads/1760242009_img008.jpg', 'uploads/1760242009_id.jpg', 'pending', NULL, '2025-10-12', NULL),
-(3, 3, NULL, NULL, 'uploads/1760619363_slip.jpg', 'uploads/1760619363_slip.jpg', 'uploads/1760619363_slip.jpg', '', 'uploads/1760619363_slip.jpg', 'pending', NULL, '2025-10-16', NULL);
+(4, 4, 1, 5, 'uploads/1760661601_slip.jpg', 'uploads/1760661601_slip.jpg', 'uploads/1760661601_slip.jpg', '', 'uploads/1760661601_slip.jpg', 'approved', 'Orientation/Start: 2025-11-05 | Assigned Office: Accounting Office', '2025-10-17', '2025-10-19'),
+(5, 5, 2, 5, 'uploads/1760669191_slip.jpg', 'uploads/1760669191_slip.jpg', 'uploads/1760669191_slip.jpg', '', 'uploads/1760669191_slip.jpg', 'approved', 'Orientation/Start: 2025-11-07 | Assigned Office: IT Office', '2025-10-17', '2025-10-19'),
+(6, 6, 4, 1, 'uploads/1760782138_slip.jpg', 'uploads/1760782138_slip.jpg', 'uploads/1760782138_slip.jpg', '', 'uploads/1760782138_slip.jpg', 'approved', 'Orientation/Start: 2025-10-31 | Assigned Office: City Planning Office', '2025-10-18', '2025-10-18'),
+(7, 7, 5, 1, 'uploads/1760844427_slip.jpg', 'uploads/1760844427_slip.jpg', 'uploads/1760844427_slip.jpg', '', 'uploads/1760844427_slip.jpg', 'approved', 'Orientation/Start: 2025-10-30 | Assigned Office: Treasury Office', '2025-10-19', '2025-10-19');
 
 -- --------------------------------------------------------
 
@@ -268,7 +271,11 @@ CREATE TABLE `students` (
 INSERT INTO `students` (`student_id`, `user_id`, `first_name`, `last_name`, `address`, `contact_number`, `email`, `emergency_name`, `emergency_relation`, `emergency_contact`, `college`, `course`, `year_level`, `school_address`, `ojt_adviser`, `adviser_contact`, `total_hours_required`, `hours_rendered`, `status`) VALUES
 (1, NULL, 'Jasmine', 'Santiago', '#0546 Peter Street, Phase 2, Caingin, Malolos, Bulacan', '09454659878', 'santiagojasminem@gmail.com', 'memen', 'mother', '09134664654', 'Bulacan Polytechnic College', 'BSIS', '4', 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '08089989898', 500, 0, 'pending'),
 (2, NULL, 'Jasmine', 'Santiago', '#0546 Peter Street, Phase 2, Caingin, Malolos, Bulacan', '09454659878', 'santiagojasminem@gmail.com', 'memen', 'mother', '09134664654', 'Bulacan Polytechnic College', 'BSIS', '4', 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '08089989898', 500, 0, 'pending'),
-(3, NULL, 'John Paul', 'Sayo', 'Pulilan', '09457842558', 'jasmine.santiago@bpc.edu.ph', 'Jampol', 'Father', '09345646546', 'Bulacan Polytechnic College', 'BSIS', '4', 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '08089989898', 500, 0, 'pending');
+(3, NULL, 'John Paul', 'Sayo', 'Pulilan', '09457842558', 'jasmine.santiago@bpc.edu.ph', 'Jampol', 'Father', '09345646546', 'Bulacan Polytechnic College', 'BSIS', '4', 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '08089989898', 500, 0, 'pending'),
+(4, 11, 'Jasmine', 'Santiago', '#0546 Peter Street, Phase 2, Caingin, Malolos, Bulacan', '09454659878', 'santiagojasminem@gmail.com', 'memen', 'mother', '09134664654', 'Bulacan Polytechnic College', 'BSIS', '4', 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '08089989898', 500, 0, 'ongoing'),
+(5, NULL, 'Blair', 'Santiago', '#0546 Peter Street, Phase 2, Caingin, Malolos, Bulacan', '09454659878', 'santiagojasminem@gmail.com', 'memen', 'mother', '09134664654', 'Bulacan Polytechnic College', 'BSIS', '4', 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '08089989898', 500, 0, 'ongoing'),
+(6, NULL, 'Jasmine', 'Santiago', '#0546 Peter Street, Phase 2, Caingin, Malolos, Bulacan', '09457842558', 'santiagojasminem@gmail.com', 'memen', 'mother', '09134664654', 'Bulacan Polytechnic College', 'BSIS', '4', 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '08089989898', 500, 0, 'ongoing'),
+(7, 12, 'John Paul', 'Sayo', 'Pulilan', '09454659878', 'santiagojasminem@gmail.com', 'Jampol', 'Father', '09345646546', 'Bulacan Polytechnic College', 'BSIS', '4', 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '08089989898', 500, 0, 'ongoing');
 
 -- --------------------------------------------------------
 
@@ -299,7 +306,9 @@ INSERT INTO `users` (`user_id`, `username`, `first_name`, `middle_name`, `last_n
 (7, 'ojtjuan', 'Juan', NULL, 'Dela Cruz', '123456', 'ojt', 'Accounting', 'active', '2025-10-12 13:34:28'),
 (8, 'head_accounting', 'Maria', NULL, 'Santos', '123456', 'office_head', 'Accounting', 'active', '2025-10-12 13:34:28'),
 (9, 'head_it', 'Carlo', NULL, 'Reyes', '123456', 'office_head', 'IT', 'active', '2025-10-12 13:34:28'),
-(10, 'head_cityplanning', 'Angela', NULL, 'Bautista', '123456', 'office_head', 'City Planning', 'active', '2025-10-12 13:34:28');
+(10, 'head_cityplanning', 'Angela', NULL, 'Bautista', '123456', 'office_head', 'City Planning', 'active', '2025-10-12 13:34:28'),
+(11, 'santiagojasminem', NULL, NULL, NULL, '$2y$10$J9oKj44vbZTs9DlbPngg9OJwjxCTPvXjuM7B5lVx/PiSkkqHkvUUy', 'ojt', 'Accounting Office', 'active', '2025-10-19 03:15:03'),
+(12, 'santiagojasminem1', NULL, NULL, NULL, '8fbe6a7954', 'ojt', 'Treasury Office', 'active', '2025-10-19 03:27:30');
 
 -- --------------------------------------------------------
 
@@ -500,19 +509,19 @@ ALTER TABLE `office_requests`
 -- AUTO_INCREMENT for table `ojt_applications`
 --
 ALTER TABLE `ojt_applications`
-  MODIFY `application_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=4;
+  MODIFY `application_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=8;
 
 --
 -- AUTO_INCREMENT for table `students`
 --
 ALTER TABLE `students`
-  MODIFY `student_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=4;
+  MODIFY `student_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=8;
 
 --
 -- AUTO_INCREMENT for table `users`
 --
 ALTER TABLE `users`
-  MODIFY `user_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=11;
+  MODIFY `user_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=13;
 
 --
 -- AUTO_INCREMENT for table `weekly_journal`
@@ -528,7 +537,7 @@ ALTER TABLE `weekly_journal`
 -- Constraints for table `dtr`
 --
 ALTER TABLE `dtr`
-  ADD CONSTRAINT `dtr_ibfk_1` FOREIGN KEY (`student_id`) REFERENCES `students` (`student_id`);
+  ADD CONSTRAINT `dtr_ibfk_1` FOREIGN KEY (`student_id`) REFERENCES `users` (`user_id`);
 
 --
 -- Constraints for table `evaluations`
