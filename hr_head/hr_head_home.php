@@ -137,7 +137,7 @@ $current_date = date("l, F j, Y");
 
     <div class="nav">
         <a href="#" class="active">🏠 Home</a>
-        <a href="#">👥 OJTs</a>
+        <a href="hr_head_ojts.php">👥 OJTs</a>
         <a href="#">🕒 DTR</a>
         <a href="#">⚙️ Accounts</a>
         <a href="#">📊 Reports</a>
@@ -257,7 +257,9 @@ $stmtCount->close();
                     <th>Address</th>
                     <th>1st Option</th>
                     <th>2nd Option</th>
-                    <th style="text-align:center">Action</th>
+                    <?php if ($tab !== 'rejected'): ?>
+                        <th style="text-align:center">Action</th>
+                    <?php endif; ?>
                 </tr>
             </thead>
             <tbody>
@@ -268,10 +270,9 @@ $stmtCount->close();
                     <td><?php echo htmlspecialchars($row['s_address'] ?: 'N/A'); ?></td>
                     <td><?php echo htmlspecialchars($row['opt1'] ?: 'N/A'); ?></td>
                     <td><?php echo htmlspecialchars($row['opt2'] ?: 'N/A'); ?></td>
+                    <?php if ($tab !== 'rejected'): ?>
                     <td class="actions">
                         <button type="button" class="view" title="View" onclick="window.location.href='application_view.php?id=<?php echo (int)$row['application_id']; ?>'">👁️</button>
-
-                        <!-- approve opens modal -->
                         <button type="button"
                             class="approve"
                             title="Approve"
@@ -284,9 +285,16 @@ $stmtCount->close();
                             data-opt2-id="<?php echo (int)($row['office_preference2'] ?? 0); ?>"
                             onclick="openApproveModal(this)"
                         >✔</button>
-
-                        <button type="button" class="reject" title="Reject" onclick="handleAction(<?php echo (int)$row['application_id']; ?>,'reject')">✖</button>
+                        <button type="button"
+                            class="reject"
+                            title="Reject"
+                            data-appid="<?php echo (int)$row['application_id']; ?>"
+                            data-name="<?php echo htmlspecialchars(trim(($row['s_first'] ?? '') . ' ' . ($row['s_last'] ?? ''))); ?>"
+                            data-email="<?php echo htmlspecialchars($row['s_email'] ?? ''); ?>"
+                            onclick="openRejectModal(this)"
+                        >✖</button>
                     </td>
+                    <?php endif; ?>
                 </tr>
                 <?php endforeach; ?>
             </tbody>
@@ -326,6 +334,30 @@ $stmtCount->close();
     <div class="actions">
       <button class="btn-cancel" onclick="closeModal()" type="button">Cancel</button>
       <button id="btnSend" class="btn-send" type="button" onclick="sendApproval()" aria-disabled="true" disabled>Send</button>
+    </div>
+  </div>
+</div>
+
+<!-- Reject Modal overlay -->
+<div id="rejectOverlay" class="overlay" role="dialog" aria-hidden="true">
+  <div class="modal" role="document" aria-labelledby="rejectTitle">
+    <h3 id="rejectTitle">Reject Application</h3>
+    <div class="row">
+      <label>Student Name</label>
+      <div class="values" id="reject_name">—</div>
+    </div>
+    <div class="row">
+      <label>Email</label>
+      <div class="values" id="reject_email">—</div>
+    </div>
+    <div class="row">
+      <label>Reason for Rejection <span style="color:red">*</span></label>
+      <textarea id="reject_reason" rows="3" style="width:100%;padding:8px;border-radius:6px;border:1px solid #ccc" required></textarea>
+    </div>
+    <div id="reject_status" class="values" style="display:none;margin-top:10px;"></div>
+    <div class="actions">
+      <button class="btn-cancel" onclick="closeRejectModal()" type="button">Cancel</button>
+      <button id="btnRejectSend" class="btn-send" type="button" onclick="sendReject()" aria-disabled="true" disabled>Reject</button>
     </div>
   </div>
 </div>
@@ -476,6 +508,91 @@ function sendApproval(){
       });
 }
 
+// Reject modal functions
+let currentRejectId = null;
+
+function openRejectModal(btn) {
+    currentRejectId = btn.getAttribute('data-appid');
+    document.getElementById('reject_name').textContent = btn.getAttribute('data-name') || '';
+    document.getElementById('reject_email').textContent = btn.getAttribute('data-email') || '';
+    document.getElementById('reject_reason').value = '';
+    document.getElementById('reject_status').style.display = 'none';
+    document.getElementById('btnRejectSend').disabled = true;
+    document.getElementById('btnRejectSend').setAttribute('aria-disabled', 'true');
+    document.getElementById('rejectOverlay').style.display = 'flex';
+    document.getElementById('rejectOverlay').setAttribute('aria-hidden', 'false');
+    document.getElementById('reject_reason').focus();
+}
+
+// Enable Reject button only if reason is filled
+document.addEventListener('input', function(e){
+    if (e.target && e.target.id === 'reject_reason') {
+        const btn = document.getElementById('btnRejectSend');
+        if (e.target.value.trim().length > 0) {
+            btn.disabled = false;
+            btn.setAttribute('aria-disabled', 'false');
+        } else {
+            btn.disabled = true;
+            btn.setAttribute('aria-disabled', 'true');
+        }
+    }
+});
+
+function closeRejectModal(){
+    document.getElementById('rejectOverlay').style.display = 'none';
+    document.getElementById('rejectOverlay').setAttribute('aria-hidden', 'true');
+    currentRejectId = null;
+}
+
+function sendReject(){
+    const reason = document.getElementById('reject_reason').value.trim();
+    if (!currentRejectId || !reason) {
+        alert('Please provide a reason for rejection.');
+        return;
+    }
+    const statusEl = document.getElementById('reject_status');
+    statusEl.style.display = 'none';
+    statusEl.textContent = '';
+    statusEl.style.background = '';
+    statusEl.style.color = '';
+
+    const btn = document.getElementById('btnRejectSend');
+    btn.disabled = true;
+    btn.setAttribute('aria-disabled', 'true');
+
+    fetch('../hr_actions.php', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({
+            application_id: parseInt(currentRejectId,10),
+            action: 'reject',
+            reason: reason
+        })
+    })
+    .then(r => r.json())
+    .then(res => {
+        if (res.success) {
+            statusEl.style.display = 'block';
+            statusEl.style.background = '#fff4f4';
+            statusEl.style.color = '#a00';
+            statusEl.textContent = 'Application rejected.';
+            setTimeout(() => {
+                closeRejectModal();
+                location.reload();
+            }, 900);
+        } else {
+            alert('Error: ' + (res.message || 'Unknown'));
+            btn.disabled = false;
+            btn.setAttribute('aria-disabled', 'false');
+        }
+    })
+    .catch(err => {
+        alert('Request failed');
+        btn.disabled = false;
+        btn.setAttribute('aria-disabled', 'false');
+    });
+}
+
 // existing handleAction for reject (uses hr_actions.php)
 function handleAction(id, action) {
     if (!confirm('Are you sure?')) return;
@@ -485,7 +602,7 @@ function handleAction(id, action) {
         body: JSON.stringify({application_id: id, action: action})
     })
     .then(response => response.json())
-    .then(res => {
+    .then res => {
         if (res.success) {
             alert('Action completed.');
             location.reload();

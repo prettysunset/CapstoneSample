@@ -1,16 +1,32 @@
 <?php
 session_start();
 
+function compute_age_php($dob) {
+    if (empty($dob)) return null;
+    // expect YYYY-MM-DD from <input type="date">
+    $d = DateTime::createFromFormat('Y-m-d', $dob);
+    if (!$d) {
+        $ts = strtotime($dob);
+        if ($ts === false) return null;
+        $d = (new DateTime())->setTimestamp($ts);
+    }
+    $now = new DateTime();
+    return $now->diff($d)->y;
+}
+
 // Save AF1 data to session and redirect to AF2
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
+    $birthday = $_POST['birthday'] ?? '';
+    $age_computed = compute_age_php($birthday);
+
     $_SESSION['af1'] = [
         'first_name'    => $_POST['first_name'],
         'middle_name'   => $_POST['middle_name'],
         'last_name'     => $_POST['last_name'],
         'address'       => $_POST['address'],
-        'age'           => $_POST['age'],
+        'age'           => $age_computed,               // computed server-side
         'email'         => $_POST['email'],
-        'birthday'      => $_POST['birthday'],
+        'birthday'      => $birthday,
         'contact'       => $_POST['contact'],
         'gender'        => $_POST['gender'],
         'emg_first'     => $_POST['emg_first'],
@@ -132,6 +148,51 @@ $af1 = isset($_SESSION['af1']) ? $_SESSION['af1'] : [];
         padding-top: 72px;
       }
     }
+
+    /* birthday fake placeholder (CSS only) */
+    .input-with-placeholder { position: relative; }
+    .input-with-placeholder input[type="date"]{
+      width:100%;
+      padding:10px 12px;
+      border-radius:6px;
+      border:1px solid #ddd;
+      background:#fff;
+      appearance: none;
+      /* default: hide native hint text when empty */
+      color: transparent;
+    }
+    /* make date and gender visually match other inputs */
+    .input-with-placeholder input[type="date"],
+    select[name="gender"] {
+      padding:10px 12px;
+      border-radius:6px;
+      border:1px solid #ddd;
+      font-size:14px;
+      height:42px;
+      background:#fff;
+      box-sizing:border-box;
+    }
+    .input-with-placeholder input[type="date"].has-value,
+    .input-with-placeholder input[type="date"]:focus {
+      /* show typed / selected date when focused or has value */
+      color: #222;
+    }
+    .input-with-placeholder label.placeholder{
+      position:absolute;
+      left:12px;
+      top:50%;
+      transform:translateY(-50%);
+      color:#8b8f9f;
+      pointer-events:none;
+      font-size:14px;
+      transition:0.12s opacity;
+    }
+    /* hide placeholder when input has a value or is focused */
+    .input-with-placeholder input[type="date"]:focus + label.placeholder,
+    .input-with-placeholder input[type="date"].has-value + label.placeholder{
+      opacity:0;
+      visibility:hidden;
+    }
   </style>
 </head>
 <body>
@@ -176,19 +237,25 @@ $af1 = isset($_SESSION['af1']) ? $_SESSION['af1'] : [];
         <input type="text" name="address" placeholder="Complete Address" required value="<?= isset($af1['address']) ? htmlspecialchars($af1['address']) : '' ?>">
 
         <fieldset>
-          <input type="number" name="age" id="age" placeholder="Age" min="15" max="99" required value="<?= isset($af1['age']) ? htmlspecialchars($af1['age']) : '' ?>">
+          <!-- removed manual age input; age will be computed from birthday -->
           <input type="email" name="email" id="email" placeholder="Email Address" required value="<?= isset($af1['email']) ? htmlspecialchars($af1['email']) : '' ?>">
           <input type="text" name="contact" id="contact" placeholder="Contact Number" maxlength="11" required value="<?= isset($af1['contact']) ? htmlspecialchars($af1['contact']) : '' ?>">
         </fieldset>
 
         <fieldset>
-          <input type="date" name="birthday" id="birthday" required value="<?= isset($af1['birthday']) ? htmlspecialchars($af1['birthday']) : '' ?>">
+          <!-- birthday input (visible "Birthday" label over native date input) -->
+          <div class="input-with-placeholder" style="margin-bottom:8px;">
+            <input type="date" name="birthday" id="birthday" required value="<?= isset($af1['birthday']) ? htmlspecialchars($af1['birthday']) : '' ?>">
+            <label class="placeholder">Birthday</label>
+          </div>
           <select name="gender" required>
             <option value="" disabled <?= !isset($af1['gender']) ? 'selected' : '' ?>>Gender</option>
             <option value="Male" <?= (isset($af1['gender']) && $af1['gender'] == 'Male') ? 'selected' : '' ?>>Male</option>
             <option value="Female" <?= (isset($af1['gender']) && $af1['gender'] == 'Female') ? 'selected' : '' ?>>Female</option>
             <option value="Prefer not to say" <?= (isset($af1['gender']) && $af1['gender'] == 'Prefer not to say') ? 'selected' : '' ?>>Prefer not to say</option>
           </select>
+
+          <!-- age is removed from the form (computed server-side) -->
         </fieldset>
 
         <h3>Emergency Contact</h3>
@@ -210,47 +277,83 @@ $af1 = isset($_SESSION['af1']) ? $_SESSION['af1'] : [];
 
   <!-- JavaScript Validation Section -->
   <script>
-    // Disable future dates for birthday
-    const today = new Date().toISOString().split('T')[0];
-    document.getElementById('birthday').setAttribute('max', today);
-
-    // Contact number validation (only digits, 11 max)
-    const contactInput = document.getElementById('contact');
-    const emgContact = document.getElementById('emg_contact');
-
-    [contactInput, emgContact].forEach(input => {
-      input.addEventListener('input', function() {
-        this.value = this.value.replace(/[^0-9]/g, ''); // only numbers
-        if (this.value.length > 11) {
-          this.value = this.value.slice(0, 11); // limit 11 digits
+    (function(){
+      // compute age from birthday
+      function computeAgeFromDOB(dobStr) {
+        if (!dobStr) return '';
+        const b = new Date(dobStr);
+        if (isNaN(b.getTime())) return '';
+        const today = new Date();
+        let age = today.getFullYear() - b.getFullYear();
+        const m = today.getMonth() - b.getMonth();
+        if (m < 0 || (m === 0 && today.getDate() < b.getDate())) {
+          age--;
         }
+        return age;
+      }
+
+      // Disable future dates for birthday
+      const today = new Date().toISOString().split('T')[0];
+      const birthdayInput = document.getElementById('birthday');
+      if (birthdayInput) birthdayInput.setAttribute('max', today);
+
+      // Toggle visual state so native mm/dd/yyyy hint is hidden until user focuses or selects
+      function refreshDateState() {
+        if (!birthdayInput) return;
+        if (birthdayInput.value) {
+          birthdayInput.classList.add('has-value');
+        } else {
+          birthdayInput.classList.remove('has-value');
+        }
+      }
+      if (birthdayInput) {
+        birthdayInput.addEventListener('input', refreshDateState);
+        birthdayInput.addEventListener('change', refreshDateState);
+        birthdayInput.addEventListener('focus', refreshDateState);
+        birthdayInput.addEventListener('blur', refreshDateState);
+        // init
+        refreshDateState();
+      }
+
+      // Contact number validation (only digits, 11 max)
+      const contactInput = document.getElementById('contact');
+      const emgContact = document.getElementById('emg_contact');
+      [contactInput, emgContact].forEach(input => {
+        if (!input) return;
+        input.addEventListener('input', function() {
+          this.value = this.value.replace(/[^0-9]/g, ''); // only numbers
+          if (this.value.length > 11) this.value = this.value.slice(0, 11);
+        });
       });
-    });
 
-    // Email validation + contact + age checks before submit
-    document.getElementById('ojtForm').addEventListener('submit', function(e) {
-      const email = document.getElementById('email').value;
-      const emailPattern = /^[a-zA-Z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/;
-      if (!emailPattern.test(email)) {
-        alert('Please enter a valid email address.');
-        e.preventDefault();
-        return false;
-      }
+      // Form submit validation
+      const form = document.getElementById('ojtForm');
+      if (form) {
+        form.addEventListener('submit', function(e) {
+          const email = document.getElementById('email').value || '';
+          const emailPattern = /^[a-zA-Z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/;
+          if (!emailPattern.test(email)) {
+            alert('Please enter a valid email address.');
+            e.preventDefault();
+            return false;
+          }
 
-      const contact = document.getElementById('contact').value;
-      if (contact.length !== 11) {
-        alert('Contact number must be exactly 11 digits.');
-        e.preventDefault();
-        return false;
-      }
+          const contact = contactInput ? contactInput.value : '';
+          if (contact.length !== 11) {
+            alert('Contact number must be exactly 11 digits.');
+            e.preventDefault();
+            return false;
+          }
 
-      const age = document.getElementById('age').value;
-      if (age < 15 || age > 99) {
-        alert('Please enter a valid age between 15 and 99.');
-        e.preventDefault();
-        return false;
+          const ageVal = computeAgeFromDOB(birthdayInput ? birthdayInput.value : '');
+          if (ageVal === '' || ageVal < 15 || ageVal > 99) {
+            alert('Please ensure birthday produces an age between 15 and 99.');
+            e.preventDefault();
+            return false;
+          }
+        });
       }
-    });
+    })();
   </script>
 </body>
 </html>

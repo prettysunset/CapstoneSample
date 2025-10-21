@@ -323,11 +323,80 @@ if ($action === 'reject' || $action === 'approve') {
     $app_id = isset($input['application_id']) ? (int)$input['application_id'] : 0;
     if ($app_id <= 0) respond(['success' => false, 'message' => 'Invalid application id.']);
     $newStatus = $action === 'reject' ? 'rejected' : 'approved';
-    $stmt = $conn->prepare("UPDATE ojt_applications SET status = ?, date_updated = CURDATE() WHERE application_id = ?");
-    $stmt->bind_param("si", $newStatus, $app_id);
+
+    $remarks = null;
+    if ($action === 'reject') {
+        $remarks = trim($input['reason'] ?? '');
+        if ($remarks === '') $remarks = 'No reason provided.';
+    }
+
+    // Get student info for email if rejecting
+    $student_email = '';
+    $student_name = '';
+    if ($action === 'reject') {
+        $stmt = $conn->prepare("SELECT s.email, s.first_name, s.last_name
+                                FROM ojt_applications oa
+                                JOIN students s ON oa.student_id = s.student_id
+                                WHERE oa.application_id = ?");
+        $stmt->bind_param("i", $app_id);
+        $stmt->execute();
+        $row = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+        if ($row) {
+            $student_email = $row['email'];
+            $student_name = trim(($row['first_name'] ?? '') . ' ' . ($row['last_name'] ?? ''));
+        }
+    }
+
+    // Update application status and remarks
+    if ($remarks !== null) {
+        $stmt = $conn->prepare("UPDATE ojt_applications SET status = ?, remarks = ?, date_updated = CURDATE() WHERE application_id = ?");
+        $stmt->bind_param("ssi", $newStatus, $remarks, $app_id);
+    } else {
+        $stmt = $conn->prepare("UPDATE ojt_applications SET status = ?, date_updated = CURDATE() WHERE application_id = ?");
+        $stmt->bind_param("si", $newStatus, $app_id);
+    }
     $ok = $stmt->execute();
     $stmt->close();
-    respond(['success' => (bool)$ok]);
+
+    // Send rejection email if needed
+    $mailSent = null;
+    $mailError = '';
+    if ($action === 'reject' && $ok && filter_var($student_email, FILTER_VALIDATE_EMAIL)) {
+        try {
+            $mail = new PHPMailer(true);
+            $mail->isSMTP();
+            $mail->Host       = SMTP_HOST;
+            $mail->SMTPAuth   = true;
+            $mail->Username   = SMTP_USER;
+            $mail->Password   = SMTP_PASS;
+            $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
+            $mail->Port       = SMTP_PORT;
+            $mail->CharSet    = 'UTF-8';
+            $mail->setFrom(SMTP_FROM_EMAIL, SMTP_FROM_NAME);
+            $mail->addAddress($student_email, $student_name);
+
+            $mail->isHTML(true);
+            $mail->Subject = "OJT Application Rejected";
+            $mail->Body    = "<p>Dear <strong>" . htmlspecialchars($student_name) . "</strong>,</p>"
+                . "<p>We regret to inform you that your OJT application has been <strong>rejected</strong>.</p>"
+                . "<p><strong>Reason:</strong> " . nl2br(htmlspecialchars($remarks)) . "</p>"
+                . "<p>If you have questions, please contact the HR department.</p>"
+                . "<p>— HR Department</p>";
+
+            $mail->send();
+            $mailSent = true;
+        } catch (Exception $e) {
+            $mailError = $mail->ErrorInfo ?? $e->getMessage();
+            $mailSent = false;
+        }
+    }
+
+    respond([
+        'success' => (bool)$ok,
+        'mail' => $mailSent,
+        'mail_error' => $mailError
+    ]);
 }
 
 respond(['success' => false, 'message' => 'Unknown action.']);

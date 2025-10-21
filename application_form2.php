@@ -163,12 +163,18 @@ $af2 = isset($_SESSION['af2']) ? $_SESSION['af2'] : [];
       <form method="POST">
         <h3>YOUR SCHOOL INFORMATION</h3>
 
-        <select name="school" required>
-          <option value="" disabled <?= !isset($af2['school']) ? 'selected' : '' ?>>School</option>
-          <option value="Bulacan Polytechnic College" <?= (isset($af2['school']) && $af2['school'] == 'Bulacan Polytechnic College') ? 'selected' : '' ?>>Bulacan Polytechnic College</option>
-          <option value="Bulacan State University" <?= (isset($af2['school']) && $af2['school'] == 'Bulacan State University') ? 'selected' : '' ?>>Bulacan State University</option>
-          <option value="La Consolacion University" <?= (isset($af2['school']) && $af2['school'] == 'La Consolacion University') ? 'selected' : '' ?>>La Consolacion University</option>
-        </select>
+        <!-- replace the <select name="school"> with this searchable input + datalist -->
+<input
+  type="text"
+  name="school"
+  id="schoolInput"
+  list="schoolsList"
+  placeholder="School"
+  required
+  value="<?= isset($af2['school']) ? htmlspecialchars($af2['school']) : '' ?>"
+  style="width:100%;padding:10px;border-radius:6px;border:1px solid #ccc;margin-bottom:12px;"
+>
+<datalist id="schoolsList"></datalist>
 
         <input type="text" name="school_address" placeholder="School Address" required value="<?= isset($af2['school_address']) ? htmlspecialchars($af2['school_address']) : '' ?>">
 
@@ -194,5 +200,100 @@ $af2 = isset($_SESSION['af2']) ? $_SESSION['af2'] : [];
       </form>
     </div>
   </div>
+
+  <script>
+(function(){
+  // PH schools list you provided
+  const schools = [
+    "Bulacan Polytechnic College",
+    "Bulacan State University",
+    "La Consolacion University Philippines",
+    "Centro Escolar University – Malolos Campus",
+    "ABE International Business College – Malolos",
+    "STI College – Malolos",
+    "Baliuag University",
+    "College of Our Lady of Mercy of Pulilan Foundation",
+    "Meycauayan College",
+    "St. Mary’s College of Meycauayan",
+    "Immaculate Conception International College of Arts and Technology",
+    "Asian Institute of Computer Studies – Malolos",
+    "La Verdad Christian College – Apalit",
+    "AMA Computer College – Malolos",
+    "Philippine College of Science and Technology – Bulacan Branch"
+  ];
+
+  const input = document.getElementById('schoolInput');
+  const datalist = document.getElementById('schoolsList');
+
+  function populateList(filter) {
+    datalist.innerHTML = '';
+    const q = (filter || '').trim().toLowerCase();
+    const matches = q === '' ? schools.slice(0,50) : schools.filter(s => s.toLowerCase().includes(q)).slice(0,50);
+    matches.forEach(s => {
+      const opt = document.createElement('option');
+      opt.value = s;
+      datalist.appendChild(opt);
+    });
+  }
+
+  function clearList(){
+    datalist.innerHTML = '';
+  }
+
+  // State: whether last mousedown was on arrow area (right side)
+  let openedByArrow = false;
+
+  // When user presses mouse down on input, detect if it's the arrow area.
+  input.addEventListener('mousedown', function(e){
+    const rect = input.getBoundingClientRect();
+    const clickX = e.clientX - rect.left;
+    // approximate arrow area: last 28px of control (adjust if needed)
+    if (clickX >= rect.width - 28) {
+      openedByArrow = true;
+      // populate full list so browser will show it on arrow click
+      populateList('');
+      // let browser open the datalist dropdown naturally
+    } else {
+      // clicking the textbox itself — do not show full list
+      openedByArrow = false;
+      // clear datalist to avoid showing the full list on focus
+      clearList();
+    }
+  });
+
+  // On focus: only show list if it was opened by arrow mousedown
+  input.addEventListener('focus', function(){
+    if (openedByArrow) {
+      populateList('');
+    } else {
+      clearList();
+    }
+  });
+
+  // Typing: always populate with filtered matches (but hide full list if empty input and not openedByArrow)
+  input.addEventListener('input', function(e){
+    const q = e.target.value || '';
+    if (q.trim() === '') {
+      // if user cleared input and didn't use arrow, keep it hidden
+      if (openedByArrow) populateList('');
+      else clearList();
+    } else {
+      populateList(q);
+      // typing means user didn't click arrow to open full list
+      openedByArrow = false;
+    }
+  });
+
+  // On blur hide list
+  input.addEventListener('blur', function(){
+    // small timeout so option click registers before clear
+    setTimeout(clearList, 120);
+    openedByArrow = false;
+  });
+
+  // initial state: prefill filtered options if there's a value
+  if (input.value && input.value.trim() !== '') populateList(input.value);
+})();
+</script>
 </body>
 </html>

@@ -20,7 +20,21 @@ if ($user_id) {
     }
 }
 if (empty($name)) $name = "Jasmine Santiago";
-$role = "OJT";
+
+// determine office for this logged-in user and show in sidebar as "OJT - <Office>"
+$office_display = '';
+if (!empty($user_id)) {
+    $su = $conn->prepare("SELECT office_name FROM users WHERE user_id = ? LIMIT 1");
+    $su->bind_param("i", $user_id);
+    $su->execute();
+    $urow = $su->get_result()->fetch_assoc();
+    $su->close();
+    if (!empty($urow['office_name'])) {
+        // remove trailing " Office" if present (e.g., "IT Office" -> "IT")
+        $office_display = preg_replace('/\s+Office\s*$/i', '', trim($urow['office_name']));
+    }
+}
+$role = $office_display ? "OJT - " . $office_display : "OJT";
 
 // sample hours values — ideally read from DB students.hours_rendered / total_hours_required
 $hours_completed = 180;

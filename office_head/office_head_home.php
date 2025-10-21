@@ -69,6 +69,16 @@ if (!$office) {
     ];
 }
 
+// helper: return short display name (remove trailing " Office")
+function short_office_name($name) {
+    if (empty($name)) return '';
+    // remove trailing " Office" (case-insensitive) and trim
+    return preg_replace('/\s+Office\s*$/i', '', trim($name));
+}
+
+// display-only name
+$office_display = short_office_name($office['office_name'] ?? 'Unknown Office');
+
 // counts (use correct role/status values from your schema)
 $office_name_for_query = $office['office_name'] ?? '';
 
@@ -216,7 +226,7 @@ $late_dtr_res = $late_dtr->get_result();
 
 <div class="sidebar">
     <h3><?= htmlspecialchars($user_name) ?></h3>
-    <p>Office Head</p>
+    <p>Office Head - <?= htmlspecialchars($office_display) ?></p>
     <a href="#" class="active">🏠 Home</a>
     <a href="#">👥 OJT</a>
     <a href="#">📊 Reports</a>
@@ -244,35 +254,100 @@ $late_dtr_res = $late_dtr->get_result();
     </div>
 
     <div class="table-section">
-        <h3>Office Information</h3>
-        <div class="edit-section">
-            <input type="text" value="<?= htmlspecialchars($office['current_limit']) ?>" readonly>
-            <input type="text" value="<?= $active_ojts ?>" readonly>
-            <input type="text" value="<?= max((int)$office['current_limit'] - $active_ojts, 0) ?>" readonly>
-            <input type="text" value="<?= htmlspecialchars($office['requested_limit']) ?>" readonly>
-            <input type="text" value="<?= htmlspecialchars($office['reason']) ?>" readonly>
-            <input type="text" value="<?= ucfirst($office['status']) ?>" readonly>
+        <div style="display:flex;align-items:center;justify-content:space-between">
+            <!-- keep only the Edit button (no heading text) -->
+            <div></div>
+            <button id="btnEditOffice" style="padding:6px 10px;border-radius:6px;border:1px solid #ccc;background:#fff;cursor:pointer">Edit</button>
         </div>
+
+        <!-- Office Information table with headers -->
+        <div style="margin-top:12px; overflow-x:auto;">
+          <table style="width:100%; border-collapse:collapse; text-align:center;">
+            <thead>
+              <tr>
+                <th style="padding:8px; background:#f7f7f7; border:1px solid #e0e0e0;">Current Limit</th>
+                <th style="padding:8px; background:#f7f7f7; border:1px solid #e0e0e0;">Active OJTs</th>
+                <th style="padding:8px; background:#f7f7f7; border:1px solid #e0e0e0;">Available Slots</th>
+                <th style="padding:8px; background:#f7f7f7; border:1px solid #e0e0e0;">Requested Limit</th>
+                <th style="padding:8px; background:#f7f7f7; border:1px solid #e0e0e0;">Reason</th>
+                <th style="padding:8px; background:#f7f7f7; border:1px solid #e0e0e0;">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td style="padding:8px; border:1px solid #e0e0e0;">
+                  <input id="ci_current_limit" type="text" value="<?= htmlspecialchars($office['current_limit']) ?>" readonly style="width:70px;border:0;background:transparent;text-align:center;">
+                </td>
+                <td style="padding:8px; border:1px solid #e0e0e0;">
+                  <input id="ci_active_ojts" type="text" value="<?= $active_ojts ?>" readonly style="width:70px;border:0;background:transparent;text-align:center;">
+                </td>
+                <td style="padding:8px; border:1px solid #e0e0e0;">
+                  <input id="ci_available_slots" type="text" value="<?= max((int)$office['current_limit'] - $active_ojts, 0) ?>" readonly style="width:70px;border:0;background:transparent;text-align:center;">
+                </td>
+                <td style="padding:8px; border:1px solid #e0e0e0;">
+                  <input id="ci_requested_limit" type="text" value="<?= htmlspecialchars($office['requested_limit']) ?>" readonly style="width:90px;border:0;background:transparent;text-align:center;">
+                </td>
+                <td style="padding:8px; border:1px solid #e0e0e0; max-width:300px;">
+                  <input id="ci_reason" type="text" value="<?= htmlspecialchars($office['reason']) ?>" readonly style="width:100%;border:0;background:transparent;text-align:left;">
+                </td>
+                <td style="padding:8px; border:1px solid #e0e0e0;">
+                  <input id="ci_status" type="text" value="<?= ucfirst($office['status']) ?>" readonly style="width:90px;border:0;background:transparent;text-align:center;">
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Edit Modal (unchanged) -->
+        <div id="officeModal" style="display:none;position:fixed;left:0;top:0;right:0;bottom:0;background:rgba(0,0,0,0.35);align-items:center;justify-content:center;">
+            <div style="background:#fff;padding:18px;border-radius:8px;width:420px;box-shadow:0 8px 30px rgba(0,0,0,0.12);">
+                <h4 style="margin:0 0 8px 0">Request Change - <?= htmlspecialchars($office_display) ?></h4>
+                <div style="display:grid;gap:8px;margin-top:8px">
+                    <label>Current Limit <input id="m_current_limit" readonly style="width:100%;padding:8px;border-radius:6px;border:1px solid #ddd"></label>
+                    <label>Active OJTs <input id="m_active_ojts" readonly style="width:100%;padding:8px;border-radius:6px;border:1px solid #ddd"></label>
+                    <label>Available Slots <input id="m_available_slots" readonly style="width:100%;padding:8px;border-radius:6px;border:1px solid #ddd"></label>
+                    <label>Requested Limit <input id="m_requested_limit" type="number" min="0" style="width:100%;padding:8px;border-radius:6px;border:1px solid #ddd"></label>
+                    <label>Reason <textarea id="m_reason" rows="3" style="width:100%;padding:8px;border-radius:6px;border:1px solid #ddd"></textarea></label>
+                    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:6px">
+                        <button id="m_cancel" style="padding:8px 10px;border-radius:6px;border:1px solid #ccc;background:#fff;cursor:pointer">Cancel</button>
+                        <button id="m_request" style="padding:8px 12px;border-radius:6px;border:none;background:#5b5f89;color:#fff;cursor:pointer">Request</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <input type="hidden" id="oh_office_id" value="<?= (int)$office['office_id'] ?>">
     </div>
 
     <div class="table-section">
-        <h3>Late DTR Submissions</h3>
-        <table>
-            <tr>
+        <div style="display:flex;align-items:center;justify-content:space-between">
+            <h3>Late DTR Submissions</h3>
+            <div style="display:flex;align-items:center;gap:8px">
+                <!-- date picker (native calendar icon used by browser) -->
+                <input id="lateDate" type="date" value="<?= date('Y-m-d') ?>" style="padding:6px;border-radius:6px;border:1px solid #ddd;">
+            </div>
+        </div>
+
+        <!-- add explicit id's so JS updates only this table -->
+        <table id="lateDtrTable">
+            <thead>
+              <tr>
                 <th>NAME</th>
                 <th colspan="2">A.M.</th>
                 <th colspan="2">P.M.</th>
                 <th>HOURS</th>
-            </tr>
-            <tr>
+                <th>STATUS</th>
+              </tr>
+              <tr>
                 <th></th>
                 <th>ARRIVAL</th>
                 <th>DEPARTURE</th>
                 <th>ARRIVAL</th>
                 <th>DEPARTURE</th>
                 <th></th>
-            </tr>
-
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="lateDtrTbody">
             <?php while ($row = $late_dtr_res->fetch_assoc()): ?>
             <tr>
                 <td><?= htmlspecialchars($row['first_name'] . ' ' . $row['last_name']) ?></td>
@@ -281,10 +356,114 @@ $late_dtr_res = $late_dtr->get_result();
                 <td><?= $row['pm_in'] ? htmlspecialchars(date('H:i', strtotime($row['pm_in']))) : '' ?></td>
                 <td><?= $row['pm_out'] ? htmlspecialchars(date('H:i', strtotime($row['pm_out']))) : '' ?></td>
                 <td><?= htmlspecialchars($row['hours']) ?></td>
+                <td><?= (!empty($row['hours']) ? 'Validated' : '') ?></td>
             </tr>
             <?php endwhile; ?>
+            </tbody>
         </table>
     </div>
+
+    <script>
+    (function(){
+      const btn = document.getElementById('btnEditOffice');
+      const modal = document.getElementById('officeModal');
+      const cancel = document.getElementById('m_cancel');
+      const requestBtn = document.getElementById('m_request');
+      const officeId = document.getElementById('oh_office_id').value;
+
+      function openModal(){
+        document.getElementById('m_current_limit').value = document.getElementById('ci_current_limit').value;
+        document.getElementById('m_active_ojts').value = document.getElementById('ci_active_ojts').value;
+        document.getElementById('m_available_slots').value = document.getElementById('ci_available_slots').value;
+        document.getElementById('m_requested_limit').value = document.getElementById('ci_requested_limit').value || '';
+        document.getElementById('m_reason').value = document.getElementById('ci_reason').value || '';
+        modal.style.display = 'flex';
+      }
+      function closeModal(){ modal.style.display = 'none'; }
+
+      btn.addEventListener('click', openModal);
+      cancel.addEventListener('click', closeModal);
+
+      requestBtn.addEventListener('click', function(){
+        const reqLimit = document.getElementById('m_requested_limit').value;
+        const reason = document.getElementById('m_reason').value.trim();
+        // basic validation
+        if (reqLimit === '' || isNaN(reqLimit)) { alert('Please enter requested limit'); return; }
+        // send AJAX
+        fetch('office_head_action.php', {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ action: 'request_limit', office_id: parseInt(officeId,10), requested_limit: parseInt(reqLimit,10), reason })
+        }).then(r=>r.json()).then(j=>{
+          if (!j || !j.success) { alert('Request failed: '+(j?.message||'unknown')); return; }
+          // update UI fields
+          document.getElementById('ci_requested_limit').value = j.data.requested_limit;
+          document.getElementById('ci_reason').value = j.data.reason;
+          document.getElementById('ci_status').value = j.data.status.charAt(0).toUpperCase() + j.data.status.slice(1);
+          closeModal();
+        }).catch(e=>{
+          console.error(e);
+          alert('Request failed');
+        });
+      });
+    })();
+    </script>
+
+    <script>
+    (function(){
+      const dateInput = document.getElementById('lateDate');
+      const tbody = document.getElementById('lateDtrTbody'); // target the second table explicitly
+      const officeId = document.getElementById('oh_office_id').value;
+
+      function renderRows(rows) {
+        tbody.innerHTML = '';
+        if (!rows || rows.length === 0) {
+          const tr = document.createElement('tr');
+          const td = document.createElement('td');
+          td.colSpan = 7;
+          td.textContent = 'No records found for selected date.';
+          tr.appendChild(td);
+          tbody.appendChild(tr);
+          return;
+        }
+        rows.forEach(r=>{
+          const tr = document.createElement('tr');
+          function td(text){ const el = document.createElement('td'); el.textContent = text || ''; return el; }
+          tr.appendChild(td((r.first_name || '') + ' ' + (r.last_name || '')));
+          tr.appendChild(td(r.am_in ? r.am_in : ''));
+          tr.appendChild(td(r.am_out ? r.am_out : ''));
+          tr.appendChild(td(r.pm_in ? r.pm_in : ''));
+          tr.appendChild(td(r.pm_out ? r.pm_out : ''));
+          tr.appendChild(td(r.hours !== null && r.hours !== undefined ? String(r.hours) : ''));
+          tr.appendChild(td(r.status || (r.hours ? 'Validated' : '')));
+          tbody.appendChild(tr);
+        });
+      }
+
+      function fetchForDate(d) {
+        fetch('office_head_action.php', {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ action: 'get_late_dtr', office_id: parseInt(officeId,10), date: d })
+        }).then(r=>r.json()).then(j=>{
+          if (!j || !j.success) {
+            console.error('Fetch late dtr failed', j);
+            renderRows([]);
+            return;
+          }
+          renderRows(j.data || []);
+        }).catch(err=>{
+          console.error(err);
+          renderRows([]);
+        });
+      }
+
+      dateInput.addEventListener('change', function(){ fetchForDate(this.value); });
+
+      // initial load for today's date
+      fetchForDate(dateInput.value);
+    })();
+    </script>
 </div>
 
 </body>
