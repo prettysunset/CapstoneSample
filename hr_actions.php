@@ -1,4 +1,5 @@
 <?php
+session_start();
 // Development helpers: return JSON on any error/exception so frontend won't get "Request failed"
 ini_set('display_errors', 1);
 error_reporting(E_ALL);
@@ -652,6 +653,71 @@ if ($action === 'get_dtr_by_date') {
     $stmt->close();
 
     respond(['success' => true, 'date' => $date, 'rows' => $rows]);
+}
+
+/* new: create_account action
+   Request body: { action: 'create_account', username: <string>, password: <string>, first_name: <string>, last_name: <string>, email: <string|null>, role: <string>, office: <string|null> }
+   Response: { success: true, user_id: <int> } or error details
+*/
+if ($action === 'create_account') {
+    $callerId = (int)($_SESSION['user_id'] ?? 0);
+    // permission check
+    $st = $conn->prepare("SELECT role FROM users WHERE user_id = ? LIMIT 1");
+    $st->bind_param("i", $callerId);
+    $st->execute();
+    $r = $st->get_result()->fetch_assoc();
+    $st->close();
+    if (!$r || !in_array($r['role'], ['hr_head','hr_staff'])) {
+        respond(['success'=>false,'message'=>'Permission denied.']);
+    }
+
+    $username   = trim($input['username'] ?? '');
+    $password   = trim($input['password'] ?? '');
+    $first_name = trim($input['first_name'] ?? '');
+    $last_name  = trim($input['last_name'] ?? '');
+    $email      = trim($input['email'] ?? '') ?: null;
+    // force role to office_head for this endpoint (ignore any role passed)
+    $role       = 'office_head';
+    $office     = trim($input['office'] ?? '') ?: null;
+
+    if ($username === '' || $password === '') {
+        respond(['success'=>false,'message'=>'Missing required fields (username, password).']);
+    }
+
+    // ensure username unique
+    $chk = $conn->prepare("SELECT user_id FROM users WHERE username = ? LIMIT 1");
+    $chk->bind_param("s", $username);
+    $chk->execute();
+    if ($chk->get_result()->num_rows > 0) {
+        $chk->close();
+        respond(['success'=>false,'message'=>'Username already exists.']);
+    }
+    $chk->close();
+
+    // NOTE: storing plain password per request (INSECURE) - per your request
+    $plain = $password;
+    $ins = $conn->prepare("INSERT INTO users (username, first_name, last_name, password, role, office_name, email, status, date_created) VALUES (?, ?, ?, ?, ?, ?, ?, 'active', NOW())");
+    $ins->bind_param("sssssss", $username, $first_name, $last_name, $plain, $role, $office, $email);
+    $ok = $ins->execute();
+    if (!$ok) {
+        $ins->close();
+        respond(['success'=>false,'message'=>'DB insert failed: '.$conn->error]);
+    }
+    $newId = $conn->insert_id;
+    $ins->close();
+
+    // only attempt to create office_heads row if table exists
+    $tblCheck = $conn->query("SHOW TABLES LIKE 'office_heads'");
+    if ($tblCheck && $tblCheck->num_rows > 0) {
+        $fullname = trim($first_name . ' ' . $last_name);
+        $oh = $conn->prepare("INSERT INTO office_heads (user_id, full_name, email) VALUES (?, ?, ?)");
+        $oh->bind_param("iss", $newId, $fullname, $email);
+        $oh->execute();
+        $oh->close();
+    }
+
+    // return credentials so frontend can display (do NOT expose in logs)
+    respond(['success'=>true,'user_id'=>$newId,'username'=>$username,'password'=>$plain]);
 }
 
 respond(['success' => false, 'message' => 'Unknown action.']);

@@ -27,19 +27,25 @@ if ($user_name === '') $user_name = 'Office Head';
 
 // find the office assigned to this office head via office_heads -> offices
 $office = null;
-$s = $conn->prepare("
-    SELECT o.* 
-    FROM office_heads oh
-    JOIN offices o ON oh.office_id = o.office_id
-    WHERE oh.user_id = ?
-    LIMIT 1
-");
-$s->bind_param("i", $user_id);
-$s->execute();
-$office = $s->get_result()->fetch_assoc();
-$s->close();
 
-// fallback: try to find office by users.office_name if office_heads row missing
+// if office_heads table exists, use it; otherwise fallback to users.office_name
+$tblCheck = $conn->query("SHOW TABLES LIKE 'office_heads'");
+if ($tblCheck && $tblCheck->num_rows > 0) {
+    $s = $conn->prepare("
+        SELECT o.* 
+        FROM office_heads oh
+        JOIN offices o ON oh.office_id = o.office_id
+        WHERE oh.user_id = ?
+        LIMIT 1
+    ");
+    $s->bind_param("i", $user_id);
+    if ($s->execute()) {
+        $office = $s->get_result()->fetch_assoc();
+    }
+    $s->close();
+}
+
+// fallback: try to find office by users.office_name if office_heads row missing or table absent
 if (!$office) {
     $su = $conn->prepare("SELECT office_name FROM users WHERE user_id = ? LIMIT 1");
     $su->bind_param("i", $user_id);

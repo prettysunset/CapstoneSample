@@ -17,13 +17,12 @@ $stmtU->close();
 $full_name = trim(($user['first_name'] ?? '') . ' ' . ($user['middle_name'] ?? '') . ' ' . ($user['last_name'] ?? ''));
 $role_label = !empty($user['role']) ? ucwords(str_replace('_',' ', $user['role'])) : 'User';
 
-// fetch office head accounts (users.role = 'office_head') with email from office_heads when available
+// fetch office head accounts (users.role = 'office_head') with email from users table
 $officeHeads = [];
 $q1 = $conn->prepare("
   SELECT u.user_id, u.username, u.first_name, u.last_name, u.office_name, u.status,
-         oh.email AS oh_email
+         u.email AS oh_email
   FROM users u
-  LEFT JOIN office_heads oh ON oh.user_id = u.user_id
   WHERE u.role = 'office_head'
   ORDER BY u.first_name, u.last_name
 ");
@@ -88,7 +87,7 @@ $q2->close();
       <a href="hr_head_ojts.php">👥 OJTs</a>
       <a href="hr_head_dtr.php">🕒 DTR</a>
       <a href="hr_head_accounts.php" class="active">👤 Accounts</a>
-      <a href="#">📊 Reports</a>
+      <a href="hr_head_reports.php">📊 Reports</a>
     </nav>
     <div style="margin-top:auto;font-weight:700">OJT-MS</div>
   </div>
@@ -199,9 +198,9 @@ $q2->close();
     });
   });
 
-  // add account (navigate to generic add page)
+  // open modal instead of navigating
   document.getElementById('btnAdd').addEventListener('click', ()=> {
-    window.location.href = 'account_create.php';
+    openAdd();
   });
 
 })();
@@ -233,6 +232,110 @@ async function toggleStatus(userId, btn) {
     console.error(e);
     alert('Request failed');
     btn.disabled = false;
+  }
+}
+</script>
+
+<!-- Add Account Modal -->
+<div id="addModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.35);align-items:center;justify-content:center;z-index:9999">
+  <div style="background:#fff;padding:18px;border-radius:10px;width:520px;max-width:94%;box-shadow:0 12px 30px rgba(0,0,0,0.15)">
+    <h3 style="margin:0 0 12px">Create Office Head Account</h3>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
+      <input id="m_first" placeholder="First name" style="padding:10px;border:1px solid #ddd;border-radius:8px" />
+      <input id="m_last" placeholder="Last name" style="padding:10px;border:1px solid #ddd;border-radius:8px" />
+      <input id="m_email" placeholder="Email" style="padding:10px;border:1px solid #ddd;border-radius:8px;grid-column:span 2" />
+      <!-- replaced dropdown with free-text office input -->
+      <input id="m_office" placeholder="Office" style="padding:10px;border:1px solid #ddd;border-radius:8px;grid-column:span 2" />
+    </div>
+
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button onclick="closeAdd()" class="btn" type="button">Cancel</button>
+      <button onclick="submitAdd()" class="btn btn-add" type="button">Create</button>
+    </div>
+    <div id="addModalStatus" style="margin-top:10px;display:none;padding:8px;border-radius:6px"></div>
+  </div>
+</div>
+
+<script>
+function openAdd(){
+  document.getElementById('addModal').style.display = 'flex';
+  // reset fields
+  document.getElementById('m_first').value = '';
+  document.getElementById('m_last').value = '';
+  document.getElementById('m_email').value = '';
+  document.getElementById('m_office').value = '';
+  const st = document.getElementById('addModalStatus');
+  st.style.display = 'none'; st.textContent = '';
+}
+
+function closeAdd(){
+  document.getElementById('addModal').style.display = 'none';
+}
+
+function randomPassword(len = 10){
+  const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  let s = '';
+  for (let i=0;i<len;i++) s += chars[Math.floor(Math.random()*chars.length)];
+  return s;
+}
+
+async function submitAdd(){
+  const first_name = (document.getElementById('m_first').value || '').trim();
+  const last_name = (document.getElementById('m_last').value || '').trim();
+  const email = (document.getElementById('m_email').value || '').trim();
+  const office = (document.getElementById('m_office').value || '').trim();
+
+  if (!first_name || !last_name || !email) {
+    alert('Please fill first name, last name and email.');
+    return;
+  }
+
+  // generate simple username + password fallback (backend should ideally generate properly)
+  const unameBase = (first_name.charAt(0) + last_name).toLowerCase().replace(/[^a-z0-9]/g,'');
+  const username = unameBase + Math.floor(Math.random()*900 + 100);
+  const password = randomPassword(10);
+
+  const payload = {
+    action: 'create_account',
+    username: username,
+    password: password,
+    first_name: first_name,
+    last_name: last_name,
+    email: email,
+    role: 'office_head',
+    office: office
+  };
+
+  const statusEl = document.getElementById('addModalStatus');
+  statusEl.style.display = 'block';
+  statusEl.style.background = '#fffbe6';
+  statusEl.style.color = '#333';
+  statusEl.textContent = 'Creating account...';
+
+  try {
+    const res = await fetch('../hr_actions.php', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(payload)
+    });
+    const j = await res.json();
+    if (!j || !j.success) {
+      statusEl.style.background = '#fff4f4';
+      statusEl.style.color = '#a00';
+      statusEl.textContent = 'Failed: ' + (j?.message || 'Unknown error');
+      return;
+    }
+    statusEl.style.background = '#e6f9ee';
+    statusEl.style.color = '#0b7a3a';
+    statusEl.textContent = 'Account created successfully.';
+    // close after short delay and reload to show new account
+    setTimeout(()=>{ closeAdd(); location.reload(); }, 900);
+  } catch (err) {
+    console.error(err);
+    statusEl.style.background = '#fff4f4';
+    statusEl.style.color = '#a00';
+    statusEl.textContent = 'Request failed.';
   }
 }
 </script>
