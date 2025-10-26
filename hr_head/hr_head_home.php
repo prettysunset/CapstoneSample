@@ -121,6 +121,46 @@ $current_date = date("l, F j, Y");
     .modal button { padding:8px 12px; border-radius:6px; border:none; cursor:pointer }
     .btn-cancel { background:#eee; color:#333 }
     .btn-send { background:#6a3db5; }
+
+    /* View Application Modal specific styles */
+    #view_name { font-weight:700; font-size:18px; }
+    #view_status { color:#666; font-size:13px; }
+    #view_avatar {
+      width:120px;
+      height:120px;
+      border-radius:50%;
+      background:#e9e9e9;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      font-size:44px;
+      color:#777;
+      margin:0 auto 12px auto;
+    }
+    #view_approve_btn, #view_reject_btn {
+      background:#fff;
+      border:2px solid;
+      padding:8px 14px;
+      border-radius:24px;
+      cursor:pointer;
+      font-weight:500;
+      display:inline-flex;
+      align-items:center;
+      gap:6px;
+    }
+    #view_approve_btn {
+      color:#28a745;
+      border-color:#28a745;
+    }
+    #view_reject_btn {
+      color:#dc3545;
+      border-color:#dc3545;
+    }
+    #view_attachments {
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+    }
 </style>
 </head>
 <body>
@@ -272,7 +312,7 @@ $stmtCount->close();
                     <td><?php echo htmlspecialchars($row['opt2'] ?: 'N/A'); ?></td>
                     <?php if ($tab !== 'rejected'): ?>
                     <td class="actions">
-                        <button type="button" class="view" title="View" onclick="window.location.href='application_view.php?id=<?php echo (int)$row['application_id']; ?>'">👁️</button>
+                        <button type="button" class="view" title="View" onclick="openViewModal(<?= (int)$row['application_id'] ?>)">👁️</button>
                         <button type="button"
                             class="approve"
                             title="Approve"
@@ -358,6 +398,64 @@ $stmtCount->close();
     <div class="actions">
       <button class="btn-cancel" onclick="closeRejectModal()" type="button">Cancel</button>
       <button id="btnRejectSend" class="btn-send" type="button" onclick="sendReject()" aria-disabled="true" disabled>Reject</button>
+    </div>
+  </div>
+</div>
+
+<!-- View Application Modal -->
+<div id="viewOverlay" class="overlay" role="dialog" aria-hidden="true" style="display:none;align-items:center;justify-content:center;">
+  <div class="modal" style="width:900px;max-width:calc(100% - 24px);">
+    <div style="display:flex;gap:18px;">
+      <div style="flex:0 0 220px;">
+        <div style="display:flex;flex-direction:column;align-items:center;gap:12px;">
+          <div style="width:120px;height:120px;border-radius:50%;background:#e9e9e9;display:flex;align-items:center;justify-content:center;font-size:44px;color:#777" id="view_avatar">👤</div>
+          <div style="text-align:center">
+            <div id="view_name" style="font-weight:700;font-size:18px">Name</div>
+            <div id="view_status" style="color:#666;font-size:13px">Status | hours</div>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:8px">
+            <button style="background:#fff;border:2px solid #28a745;color:#28a745;padding:8px 14px;border-radius:24px;cursor:pointer" id="view_approve_btn">APPROVE</button>
+            <button style="background:#fff;border:2px solid #dc3545;color:#dc3545;padding:8px 14px;border-radius:24px;cursor:pointer" id="view_reject_btn">REJECT</button>
+          </div>
+        </div>
+      </div>
+
+      <div style="flex:1;display:flex;gap:18px;">
+        <div style="flex:1;border-right:1px solid #eee;padding-right:12px">
+          <table style="width:100%;border-collapse:collapse">
+            <tbody style="font-size:14px">
+              <tr><td style="width:140px;font-weight:700">Age</td><td id="view_age"></td></tr>
+              <tr><td style="font-weight:700">Birthday</td><td id="view_birthday"></td></tr>
+              <tr><td style="font-weight:700">Address</td><td id="view_address"></td></tr>
+              <tr><td style="font-weight:700">Phone</td><td id="view_phone"></td></tr>
+              <tr><td style="font-weight:700">Email</td><td id="view_email"></td></tr>
+
+              <tr><td style="height:8px"></td><td></td></tr>
+
+              <tr><td style="font-weight:700">College/University</td><td id="view_college"></td></tr>
+              <tr><td style="font-weight:700">Course</td><td id="view_course"></td></tr>
+              <tr><td style="font-weight:700">Year level</td><td id="view_year"></td></tr>
+              <tr><td style="font-weight:700">School Address</td><td id="view_school_address"></td></tr>
+              <tr><td style="font-weight:700">OJT Adviser</td><td id="view_adviser"></td></tr>
+
+              <tr><td style="height:8px"></td><td></td></tr>
+
+              <tr><td style="font-weight:700">Emergency Contact</td><td id="view_emg_name"></td></tr>
+              <tr><td style="font-weight:700">Relationship</td><td id="view_emg_relation"></td></tr>
+              <tr><td style="font-weight:700">Contact Number</td><td id="view_emg_contact"></td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div style="width:320px;padding-left:12px">
+          <div style="font-weight:700;margin-bottom:8px">Attachments</div>
+          <div id="view_attachments" style="display:flex;flex-direction:column;gap:8px"></div>
+        </div>
+      </div>
+    </div>
+
+    <div style="display:flex;justify-content:flex-end;margin-top:12px;gap:8px">
+      <button class="btn-cancel" onclick="closeViewModal()" type="button">Close</button>
     </div>
   </div>
 </div>
@@ -602,7 +700,7 @@ function handleAction(id, action) {
         body: JSON.stringify({application_id: id, action: action})
     })
     .then(response => response.json())
-    .then res => {
+    .then(res => {
         if (res.success) {
             alert('Action completed.');
             location.reload();
@@ -614,6 +712,114 @@ function handleAction(id, action) {
         console.error(err);
         alert('Request failed');
     });
+}
+
+/* View Application Modal scripts */
+async function openViewModal(appId) {
+  const overlay = document.getElementById('viewOverlay');
+  // clear
+  ['view_name','view_status','view_age','view_birthday','view_address','view_phone','view_email',
+   'view_college','view_course','view_year','view_school_address','view_adviser',
+   'view_emg_name','view_emg_relation','view_emg_contact','view_attachments'].forEach(id=> {
+     const el = document.getElementById(id);
+     if (el) el.textContent = '';
+  });
+
+  overlay.style.display = 'flex';
+  overlay.setAttribute('aria-hidden','false');
+
+  try {
+    const res = await fetch('../hr_actions.php', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ action: 'get_application', application_id: appId })
+    });
+    const json = await res.json();
+    if (!json.success) {
+      alert('Error: ' + (json.message || 'Failed to load'));
+      closeViewModal();
+      return;
+    }
+    const d = json.data;
+    const s = d.student || {};
+    document.getElementById('view_name').textContent = (s.first_name + ' ' + s.last_name).trim();
+    document.getElementById('view_status').textContent = (d.status || '') + (d.office1 ? ' | ' + d.office1 + (d.office2 ? ' | ' + d.office2 : '') : '');
+    document.getElementById('view_age').textContent = s.age !== null && s.age !== undefined ? s.age : (s.age === 0 ? 0 : '—');
+    document.getElementById('view_birthday').textContent = s.birthday || '—';
+    document.getElementById('view_address').textContent = s.address || '—';
+    document.getElementById('view_phone').textContent = s.contact_number || '—';
+    document.getElementById('view_email').textContent = s.email || '—';
+    document.getElementById('view_college').textContent = s.college || '—';
+    document.getElementById('view_course').textContent = s.course || '—';
+    document.getElementById('view_year').textContent = s.year_level || '—';
+    document.getElementById('view_school_address').textContent = s.school_address || '—';
+    document.getElementById('view_adviser').textContent = (s.ojt_adviser || '') + (s.adviser_contact ? ' | ' + s.adviser_contact : '');
+
+    document.getElementById('view_emg_name').textContent = s.emergency_name || '—';
+    document.getElementById('view_emg_relation').textContent = s.emergency_relation || '—';
+    document.getElementById('view_emg_contact').textContent = s.emergency_contact || '—';
+
+    // attachments
+    const attRoot = document.getElementById('view_attachments');
+    attRoot.innerHTML = '';
+    const attachments = [
+      {key:'letter_of_intent', label:'Letter of Intent', file:d.letter_of_intent},
+      {key:'endorsement_letter', label:'Endorsement Letter', file:d.endorsement_letter},
+      {key:'resume', label:'Resume', file:d.resume},
+      {key:'moa_file', label:'MOA', file:d.moa_file},
+      {key:'picture', label:'Picture', file:d.picture}
+    ];
+    attachments.forEach(a=>{
+      if (a.file) {
+        const wrap = document.createElement('div'); wrap.style.display='flex'; wrap.style.justifyContent='space-between'; wrap.style.alignItems='center';
+        const name = document.createElement('div'); name.textContent = a.label + ' — ' + a.file.split('/').pop();
+        const actions = document.createElement('div');
+        const viewBtn = document.createElement('button'); viewBtn.textContent = '👁️'; viewBtn.style.marginRight='6px';
+        viewBtn.onclick = ()=> window.open('../' + a.file, '_blank');
+        const dlBtn = document.createElement('button'); dlBtn.textContent = '⬇'; dlBtn.onclick = ()=> {
+          const link = document.createElement('a'); link.href = '../' + a.file; link.download = ''; document.body.appendChild(link); link.click(); link.remove();
+        };
+        actions.appendChild(viewBtn); actions.appendChild(dlBtn);
+        wrap.appendChild(name); wrap.appendChild(actions);
+        attRoot.appendChild(wrap);
+      }
+    });
+
+    // wire approve/reject buttons (open existing modals with this app id)
+    document.getElementById('view_approve_btn').onclick = function(){ closeViewModal(); openApproveModal({ getAttribute: () => appId, getAttribute:function(){}, }); /* fallback: openApproveModal expects element; we instead call openApproveModal with a small shim below */ };
+    // better: call openApproveModal by creating a dummy element with required attributes
+    document.getElementById('view_approve_btn').onclick = function(){
+      closeViewModal();
+      const el = document.createElement('button');
+      el.setAttribute('data-appid', appId);
+      el.setAttribute('data-name', (s.first_name + ' ' + s.last_name).trim());
+      el.setAttribute('data-email', s.email || '');
+      el.setAttribute('data-opt1', d.office1 || '');
+      el.setAttribute('data-opt2', d.office2 || '');
+      el.setAttribute('data-opt1-id', d.office_preference1 || 0);
+      el.setAttribute('data-opt2-id', d.office_preference2 || 0);
+      openApproveModal(el);
+    };
+    document.getElementById('view_reject_btn').onclick = function(){
+      closeViewModal();
+      const el = document.createElement('button');
+      el.setAttribute('data-appid', appId);
+      el.setAttribute('data-name', (s.first_name + ' ' + s.last_name).trim());
+      el.setAttribute('data-email', s.email || '');
+      openRejectModal(el);
+    };
+
+  } catch (err) {
+    console.error(err);
+    alert('Failed to load application.');
+    closeViewModal();
+  }
+}
+
+function closeViewModal(){
+  const overlay = document.getElementById('viewOverlay');
+  overlay.style.display = 'none';
+  overlay.setAttribute('aria-hidden','true');
 }
 </script>
 

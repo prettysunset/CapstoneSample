@@ -43,6 +43,39 @@ $stmt->close();
 
 $current_time = date("g:i A");
 $current_date = date("l, F j, Y");
+
+// --- NEW: fetch offices + requested limits + active OJTs count ---
+$offices_for_requests = [];
+$off_q = $conn->query("SELECT office_id, office_name, current_limit, requested_limit, reason, status FROM offices ORDER BY office_name");
+if ($off_q) {
+    $stmtCount = $conn->prepare("
+        SELECT COUNT(DISTINCT student_id) AS filled
+        FROM ojt_applications
+        WHERE (office_preference1 = ? OR office_preference2 = ?) AND status = 'approved'
+    ");
+    while ($r = $off_q->fetch_assoc()) {
+        $office_id = (int)$r['office_id'];
+        $stmtCount->bind_param("ii", $office_id, $office_id);
+        $stmtCount->execute();
+        $cnt = $stmtCount->get_result()->fetch_assoc();
+        $filled = (int)($cnt['filled'] ?? 0);
+        $capacity = is_null($r['current_limit']) ? null : (int)$r['current_limit'];
+        $available = is_null($capacity) ? '—' : max(0, $capacity - $filled);
+
+        $offices_for_requests[] = [
+            'office_id' => $office_id,
+            'office_name' => $r['office_name'],
+            'current_limit' => $capacity,
+            'active_ojts' => $filled,
+            'available_slots' => $available,
+            'requested_limit' => is_null($r['requested_limit']) ? '' : (int)$r['requested_limit'],
+            'reason' => $r['reason'] ?? '',
+            'status' => $r['status'] ?? ''
+        ];
+    }
+    $stmtCount->close();
+    $off_q->free();
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -122,30 +155,37 @@ $current_date = date("l, F j, Y");
         </div>
     </div>
     <div class="table-container">
-        <div style="display:flex;align-items:center;gap:24px;margin-bottom:8px;">
-            <div style="font-size:20px;font-weight:600;">On-the-Job Trainees (<?= count($students) ?>)</div>
-            <div style="flex:1"></div>
-            <div class="ojt-table-searchbar">
-                <input type="text" id="searchInput" placeholder="Search">
-                <select id="yearFilter">
-                    <option value="">Year</option>
-                    <option value="1">1</option>
-                    <option value="2">2</option>
-                    <option value="3">3</option>
-                    <option value="4">4</option>
-                </select>
-                <select id="sortBy">
-                    <option value="">Sort by</option>
-                    <option value="name">Name</option>
-                    <option value="office">Office</option>
-                    <option value="school">School</option>
-                    <option value="course">Course</option>
-                    <option value="year">Year Level</option>
-                    <option value="hours">Hours</option>
-                    <option value="status">Status</option>
-                </select>
-            </div>
+    <div class="tabs" role="tablist" aria-label="OJT Tabs" style="display:flex;align-items:flex-end;gap:24px;margin-bottom:12px;">
+        <button class="tab active" data-tab="ojts" role="tab" aria-selected="true" aria-controls="tab-ojts">On-the-Job Trainees (<?= count($students) ?>)</button>
+        <button class="tab" data-tab="requested" role="tab" aria-selected="false" aria-controls="tab-requested">Requested OJTs</button>
+        <div style="flex:1"></div>
+        <div class="ojt-table-searchbar" style="margin-left:auto;">
+            <input type="text" id="searchInput" placeholder="Search">
+            <select id="yearFilter">
+                <option value="">Year</option>
+                <option value="1">1</option>
+                <option value="2">2</option>
+                <option value="3">3</option>
+                <option value="4">4</option>
+            </select>
+            <select id="sortBy">
+                <option value="">Sort by</option>
+                <option value="name">Name</option>
+                <option value="office">Office</option>
+                <option value="school">School</option>
+                <option value="course">Course</option>
+                <option value="year">Year Level</option>
+                <option value="hours">Hours</option>
+                <option value="status">Status</option>
+            </select>
         </div>
+    </div>
+
+    <!-- underline bar -->
+    <div id="tabsUnderline" aria-hidden="true" style="height:3px;background:#2f3850;border-radius:3px;width:180px;transition:all .25s;margin-bottom:12px;"></div>
+
+    <!-- Tab panels -->
+    <div id="tab-ojts" class="tab-panel" role="tabpanel" aria-labelledby="tab-ojts" style="display:block;">
         <div style="overflow-x:auto;">
         <table id="ojtTable">
             <thead>
@@ -164,7 +204,6 @@ $current_date = date("l, F j, Y");
             <?php if (empty($students)): ?>
                 <tr><td colspan="8" class="empty">No OJT trainees found.</td></tr>
             <?php else: foreach ($students as $row):
-                // Office: prefer office_preference1 if approved, else office_preference2
                 $office = $row['office1'] ?: ($row['office2'] ?: '—');
                 $name = trim(($row['first_name'] ?? '') . ' ' . ($row['last_name'] ?? ''));
                 $school = $row['college'] ?? '—';
@@ -183,7 +222,7 @@ $current_date = date("l, F j, Y");
                     <td><?= htmlspecialchars($hours) ?></td>
                     <td class="<?= $statusClass ?>"><?= ucfirst($status) ?></td>
                     <td>
-                        <button class="view-btn" title="View" onclick="window.location.href='application_view.php?id=<?= (int)$row['application_id'] ?>'">👁️</button>
+                        <button class="view-btn" title="View" onclick="openViewModal(<?= (int)$row['application_id'] ?>)">👁️</button>
                     </td>
                 </tr>
             <?php endforeach; endif; ?>
@@ -191,47 +230,120 @@ $current_date = date("l, F j, Y");
         </table>
         </div>
     </div>
+
+    <div id="tab-requested" class="tab-panel" role="tabpanel" aria-labelledby="tab-requested" style="display:none;">
+        <!-- Requested OJTs panel content -->
+        <div style="overflow-x:auto;padding:12px">
+          <?php if (count($offices_for_requests) === 0): ?>
+            <div class="empty">No office requests found.</div>
+          <?php else: ?>
+            <table class="request-table" role="table" aria-label="Requested OJTs">
+              <thead>
+                <tr>
+                  <th>Office</th>
+                  <th style="text-align:center">Current Limit</th>
+                  <th style="text-align:center">Active OJTs</th>
+                  <th style="text-align:center">Available Slots</th>
+                  <th style="text-align:center">Requested Limit</th>
+                  <th>Reason</th>
+                  <th style="text-align:center">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                <?php foreach ($offices_for_requests as $of): ?>
+                  <tr>
+                    <td><?= htmlspecialchars($of['office_name']) ?></td>
+                    <td style="text-align:center"><?= $of['current_limit'] === null ? '—' : (int)$of['current_limit'] ?></td>
+                    <td style="text-align:center"><?= (int)$of['active_ojts'] ?></td>
+                    <td style="text-align:center"><?= htmlspecialchars((string)$of['available_slots']) ?></td>
+                    <td style="text-align:center"><?= $of['requested_limit'] === '' ? '—' : (int)$of['requested_limit'] ?></td>
+                    <td><?= htmlspecialchars($of['reason'] ?: '—') ?></td>
+                    <td style="text-align:center">
+                      <?php if (strtolower($of['status']) === 'approved' || strtolower($of['status']) === 'Approved'): ?>
+                        <span class="action-ok">Approved</span>
+                      <?php elseif (strtolower($of['status']) === 'declined' || strtolower($of['status']) === 'Declined'): ?>
+                        <span style="color:#a00;font-weight:700">Declined</span>
+                      <?php else: ?>
+                        <span class="action-pending">
+                          <button type="button" class="ok" onclick="handleOfficeRequest(<?= (int)$of['office_id'] ?>, 'approve')" title="Approve" aria-label="Approve">✔</button>
+                          <button type="button" class="no" onclick="handleOfficeRequest(<?= (int)$of['office_id'] ?>, 'decline')" title="Decline" aria-label="Decline">✖</button>
+                        </span>
+                      <?php endif; ?>
+                    </td>
+                  </tr>
+                <?php endforeach; ?>
+              </tbody>
+            </table>
+          <?php endif; ?>
+        </div>
+    </div>
 </div>
+
 <script>
-// Simple search, filter, and sort for the table
-const searchInput = document.getElementById('searchInput');
-const yearFilter = document.getElementById('yearFilter');
-const sortBy = document.getElementById('sortBy');
-const table = document.getElementById('ojtTable');
-const rows = Array.from(table.tBodies[0].rows);
+(function(){
+    // tabs underline positioning
+    const tabs = Array.from(document.querySelectorAll('.tabs .tab'));
+    const underline = document.getElementById('tabsUnderline');
+    function positionUnderline(btn){
+        const rect = btn.getBoundingClientRect();
+        const containerRect = btn.parentElement.getBoundingClientRect();
+        underline.style.width = Math.max(80, rect.width) + 'px';
+        underline.style.transform = `translateX(${rect.left - containerRect.left}px)`;
+    }
+    // init
+    const active = document.querySelector('.tabs .tab.active') || tabs[0];
+    if (active) positionUnderline(active);
 
-function filterTable() {
-    const search = (searchInput.value || '').toLowerCase();
-    const year = yearFilter.value;
-    rows.forEach(row => {
-        const cells = row.cells;
-        let show = true;
-        if (search && !Array.from(cells).some(td => td.textContent.toLowerCase().includes(search))) show = false;
-        if (year && cells[4].textContent.trim() !== year) show = false;
-        row.style.display = show ? '' : 'none';
+    tabs.forEach(btn=>{
+        btn.addEventListener('click', function(){
+            // toggle active class
+            tabs.forEach(t=>{ t.classList.remove('active'); t.setAttribute('aria-selected','false'); });
+            this.classList.add('active');
+            this.setAttribute('aria-selected','true');
+            // panels
+            const tab = this.getAttribute('data-tab');
+            document.querySelectorAll('.tab-panel').forEach(p=>{
+                p.style.display = p.id === 'tab-'+tab ? 'block' : 'none';
+            });
+            positionUnderline(this);
+        });
     });
-}
-searchInput.addEventListener('input', filterTable);
-yearFilter.addEventListener('change', filterTable);
 
-sortBy.addEventListener('change', function(){
-    const idx = {
-        name: 0, office: 1, school: 2, course: 3, year: 4, hours: 5, status: 6
-    }[sortBy.value];
-    if (idx === undefined) return;
-    const sorted = rows.slice().sort((a,b)=>{
-        const ta = a.cells[idx].textContent.trim().toLowerCase();
-        const tb = b.cells[idx].textContent.trim().toLowerCase();
-        if (sortBy.value === 'hours') {
-            // sort by rendered hours (parse int)
-            const ha = parseInt(ta), hb = parseInt(tb);
-            return ha - hb;
+    // reposition underline on resize
+    window.addEventListener('resize', ()=> {
+        const cur = document.querySelector('.tabs .tab.active') || tabs[0];
+        if (cur) positionUnderline(cur);
+    });
+
+    // expose simple view open used elsewhere
+    window.openViewModal = window.openViewModal || function(appId){
+        // fallback: navigate to application_view.php if modal endpoint not available
+        window.location.href = 'application_view.php?id=' + encodeURIComponent(appId);
+    };
+
+    // call backend to approve/decline office requested limits
+    window.handleOfficeRequest = async function(officeId, action) {
+      if (!confirm(`Are you sure you want to ${action} the requested limit for office #${officeId}?`)) return;
+      try {
+        const res = await fetch('../hr_actions.php', {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ action: 'respond_office_request', office_id: parseInt(officeId,10), response: action })
+        });
+        const j = await res.json();
+        if (!j || !j.success) {
+          alert('Failed: ' + (j?.message || 'Unknown error'));
+          return;
         }
-        return ta.localeCompare(tb);
-    });
-    sorted.forEach(tr=>table.tBodies[0].appendChild(tr));
-});
-
+        // success — reload so HR + Office Head pages reflect updated limits/status
+        alert('Request processed: ' + (j.message || 'OK'));
+        location.reload();
+      } catch (err) {
+        console.error(err);
+        alert('Request failed');
+      }
+    }
+})();
 </script>
 </body>
 </html>

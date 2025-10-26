@@ -399,5 +399,209 @@ if ($action === 'reject' || $action === 'approve') {
     ]);
 }
 
+/* new: get_application action
+   Request body: { action: 'get_application', application_id: <int> }
+   Response: { success: true, data: { ...application and student details... } }
+*/
+if ($action === 'get_application') {
+    $app_id = isset($input['application_id']) ? (int)$input['application_id'] : 0;
+    if ($app_id <= 0) respond(['success' => false, 'message' => 'Invalid application id.']);
+
+    $stmt = $conn->prepare("
+        SELECT oa.application_id, oa.office_preference1, oa.office_preference2,
+               oa.letter_of_intent, oa.endorsement_letter, oa.resume, oa.moa_file, oa.picture,
+               oa.status, oa.remarks, oa.date_submitted, oa.date_updated,
+               s.student_id, s.first_name, s.last_name, s.address, s.contact_number, s.email,
+               s.emergency_name, s.emergency_relation, s.emergency_contact,
+               s.college, s.course, s.year_level, s.school_address, s.ojt_adviser, s.adviser_contact,
+               s.birthday, s.hours_rendered, s.total_hours_required
+        FROM ojt_applications oa
+        LEFT JOIN students s ON oa.student_id = s.student_id
+        WHERE oa.application_id = ?
+        LIMIT 1
+    ");
+    $stmt->bind_param("i", $app_id);
+    $stmt->execute();
+    $row = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+
+    if (!$row) respond(['success' => false, 'message' => 'Application not found.']);
+
+    // fetch office names
+    $officeNames = [];
+    foreach (['office_preference1','office_preference2'] as $col) {
+        $id = isset($row[$col]) ? (int)$row[$col] : 0;
+        if ($id > 0) {
+            $r = $conn->prepare("SELECT office_name FROM offices WHERE office_id = ? LIMIT 1");
+            $r->bind_param("i", $id);
+            $r->execute();
+            $o = $r->get_result()->fetch_assoc();
+            $r->close();
+            $officeNames[$col] = $o ? $o['office_name'] : '';
+        } else $officeNames[$col] = '';
+    }
+
+    // compute age if birthday exists (expect YYYY-MM-DD)
+    $age = null;
+    if (!empty($row['birthday'])) {
+        try {
+            $dob = new DateTime($row['birthday']);
+            $now = new DateTime();
+            $age = $now->diff($dob)->y;
+        } catch (Exception $e) { $age = null; }
+    }
+
+    $data = [
+        'application_id' => (int)$row['application_id'],
+        'status' => $row['status'],
+        'remarks' => $row['remarks'],
+        'date_submitted' => $row['date_submitted'],
+        'date_updated' => $row['date_updated'],
+        // include both name and numeric ids so the modal can decide assignment
+        'office1' => $officeNames['office_preference1'] ?? '',
+        'office2' => $officeNames['office_preference2'] ?? '',
+        'office_preference1' => (int)($row['office_preference1'] ?? 0),
+        'office_preference2' => (int)($row['office_preference2'] ?? 0),
+        'letter_of_intent' => $row['letter_of_intent'] ?? '',
+        'endorsement_letter' => $row['endorsement_letter'] ?? '',
+        'resume' => $row['resume'] ?? '',
+        'moa_file' => $row['moa_file'] ?? '',
+        'picture' => $row['picture'] ?? '',
+        'student' => [
+            'id' => (int)($row['student_id'] ?? 0),
+            'first_name' => $row['first_name'] ?? '',
+            'last_name' => $row['last_name'] ?? '',
+            'address' => $row['address'] ?? '',
+            'contact_number' => $row['contact_number'] ?? '',
+            'email' => $row['email'] ?? '',
+            'emergency_name' => $row['emergency_name'] ?? '',
+            'emergency_relation' => $row['emergency_relation'] ?? '',
+            'emergency_contact' => $row['emergency_contact'] ?? '',
+            'college' => $row['college'] ?? '',
+            'course' => $row['course'] ?? '',
+            'year_level' => $row['year_level'] ?? '',
+            'school_address' => $row['school_address'] ?? '',
+            'ojt_adviser' => $row['ojt_adviser'] ?? '',
+            'adviser_contact' => $row['adviser_contact'] ?? '',
+            'birthday' => $row['birthday'] ?? '',
+            'age' => $age,
+            'hours_rendered' => (int)($row['hours_rendered'] ?? 0),
+            'total_hours_required' => (int)($row['total_hours_required'] ?? 0),
+        ]
+    ];
+
+    respond(['success' => true, 'data' => $data]);
+}
+
+/* new: respond_office_request action
+   Request body: { action: 'respond_office_request', office_id: <int>, response: 'approve'|'decline' }
+   Response: { success: true, message: 'Request processed.', ... }
+*/
+if ($action === 'respond_office_request') {
+    $office_id = isset($input['office_id']) ? (int)$input['office_id'] : 0;
+    $response  = isset($input['response']) ? strtolower(trim($input['response'])) : '';
+
+    if ($office_id <= 0 || !in_array($response, ['approve','decline'])) {
+        respond(['success'=>false,'message'=>'Invalid payload']);
+    }
+
+    // find latest pending request for this office
+    $rq = $conn->prepare("SELECT request_id, old_limit, new_limit, reason, status FROM office_requests WHERE office_id = ? AND status = 'pending' ORDER BY date_requested DESC LIMIT 1");
+    $rq->bind_param("i", $office_id);
+    $rq->execute();
+    $pending = $rq->get_result()->fetch_assoc();
+    $rq->close();
+
+    // If no explicit office_requests row exists, but offices.requested_limit is set,
+    // create a request row automatically so HR can approve/decline it.
+    if (!$pending) {
+        $o2 = $conn->prepare("SELECT current_limit, requested_limit, reason FROM offices WHERE office_id = ? LIMIT 1");
+        $o2->bind_param("i", $office_id);
+        $o2->execute();
+        $offRow2 = $o2->get_result()->fetch_assoc();
+        $o2->close();
+
+        $requested_limit = $offRow2['requested_limit'] ?? null;
+        $reason_from_office = $offRow2['reason'] ?? '';
+        $old_limit_val = isset($offRow2['current_limit']) ? (int)$offRow2['current_limit'] : 0;
+
+        if ($requested_limit === null || $requested_limit === '') {
+            respond(['success'=>false,'message'=>'No pending office request found for this office.']);
+        }
+
+        // insert a pending office_requests row
+        $ins = $conn->prepare("INSERT INTO office_requests (office_id, old_limit, new_limit, reason, status, date_requested) VALUES (?, ?, ?, ?, 'pending', CURDATE())");
+        if (!$ins) {
+            respond(['success'=>false,'message'=>'DB prepare failed for inserting request: '.$conn->error]);
+        }
+        $new_limit_val = (int)$requested_limit;
+        $ins->bind_param("iiis", $office_id, $old_limit_val, $new_limit_val, $reason_from_office);
+        $ins_ok = $ins->execute();
+        if (!$ins_ok) {
+            $ins->close();
+            respond(['success'=>false,'message'=>'Failed to create office request: '.$ins->error]);
+        }
+        $newReqId = $conn->insert_id;
+        $ins->close();
+
+        // set $pending to the newly created row so processing continues below
+        $pending = [
+            'request_id' => (int)$newReqId,
+            'old_limit'  => $old_limit_val,
+            'new_limit'  => $new_limit_val,
+            'reason'     => $reason_from_office,
+            'status'     => 'pending'
+        ];
+    }
+
+    // get current offices.requested_limit as fallback
+    $o = $conn->prepare("SELECT requested_limit FROM offices WHERE office_id = ? LIMIT 1");
+    $o->bind_param("i", $office_id);
+    $o->execute();
+    $offRow = $o->get_result()->fetch_assoc();
+    $o->close();
+
+    $requested_limit = $pending['new_limit'] ?? $offRow['requested_limit'] ?? null;
+    if ($response === 'approve' && ($requested_limit === null || $requested_limit === '')) {
+        respond(['success'=>false,'message'=>'Requested limit not found.']);
+    }
+
+    // perform DB updates in transaction
+    $conn->begin_transaction();
+    try {
+        if ($response === 'approve') {
+            // update offices: set current_limit= requested, updated_limit, clear requested_limit, set status Approved
+            $upd = $conn->prepare("UPDATE offices SET current_limit = ?, updated_limit = ?, requested_limit = NULL, reason = NULL, status = 'Approved' WHERE office_id = ?");
+            $rl = (int)$requested_limit;
+            $upd->bind_param("iii", $rl, $rl, $office_id);
+            $upd_ok = $upd->execute();
+            $upd->close();
+            if (!$upd_ok) throw new Exception('Failed to update offices.');
+            // set corresponding office_requests row status to approved
+            $u2 = $conn->prepare("UPDATE office_requests SET status = 'approved' WHERE request_id = ?");
+            $u2->bind_param("i", $pending['request_id']);
+            $u2->execute();
+            $u2->close();
+        } else { // decline
+            // set offices.status = 'Declined' and keep requested_limit (optional) or clear it - we'll clear requested_limit but keep reason
+            $decl = $conn->prepare("UPDATE offices SET status = 'Declined' WHERE office_id = ?");
+            $decl->bind_param("i", $office_id);
+            $decl->execute();
+            $decl->close();
+            // mark office_requests row rejected
+            $u3 = $conn->prepare("UPDATE office_requests SET status = 'rejected' WHERE request_id = ?");
+            $u3->bind_param("i", $pending['request_id']);
+            $u3->execute();
+            $u3->close();
+        }
+
+        $conn->commit();
+        respond(['success'=>true,'message'=>'Request processed.','action'=>$response,'office_id'=>$office_id,'new_limit'=> $response==='approve' ? (int)$requested_limit : null]);
+    } catch (Exception $e) {
+        $conn->rollback();
+        respond(['success'=>false,'message'=>'Database error: '.$e->getMessage()]);
+    }
+}
+
 respond(['success' => false, 'message' => 'Unknown action.']);
 ?>

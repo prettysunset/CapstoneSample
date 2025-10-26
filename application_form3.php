@@ -81,30 +81,159 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 $af1 = $_SESSION['af1'] ?? [];
                 $af2 = $_SESSION['af2'] ?? [];
 
-                // Insert into students table
-                $stmt = $conn->prepare("INSERT INTO students 
-                    (first_name, last_name, address, contact_number, email, emergency_name, emergency_relation, emergency_contact, college, course, year_level, school_address, ojt_adviser, adviser_contact, total_hours_required, status)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-                $stmt->bind_param("ssssssssssssssis", 
-                    $af1['first_name'], $af1['last_name'], $af1['address'], $af1['contact'], $af1['email'],
-                    $af1['emg_first'], $af1['emg_relation'], $af1['emg_contact'],
-                    $af2['school'], $af2['course'], $af2['year_level'], $af2['school_address'],
-                    $af2['adviser'], $af2['adviser_contact'], $required_hours, $status);
+                $emergency_name = trim(($af1['emg_first'] ?? '') . ' ' . ($af1['emg_last'] ?? ''));
+                $total_hours = 500;
+                $hours_rendered = 0;
                 $status = 'pending';
-                $stmt->execute();
-                $student_id = $conn->insert_id;
+
+                // Prepare variables for binding (mysqli requires variables, not expressions)
+                $s_first = $af1['first_name'] ?? '';
+                $s_last = $af1['last_name'] ?? '';
+                $s_address = $af1['address'] ?? '';
+                $s_contact = $af1['contact'] ?? '';
+                $s_email = $af1['email'] ?? '';
+                // birthday from AF1 (YYYY-MM-DD or null)
+                $s_birthday = !empty($af1['birthday']) ? $af1['birthday'] : null;
+                $s_emergency_name = $emergency_name;
+                $s_emergency_relation = $af1['emg_relation'] ?? '';
+                $s_emergency_contact = $af1['emg_contact'] ?? '';
+                $s_college = $af2['school'] ?? $af2['college'] ?? '';
+                $s_course = $af2['course'] ?? '';
+                $s_year_level = $af2['year_level'] ?? '';
+                $s_school_address = $af2['school_address'] ?? '';
+                $s_ojt_adviser = $af2['ojt_adviser'] ?? $af2['adviser'] ?? '';
+                $s_adviser_contact = $af2['adviser_contact'] ?? '';
+                $s_total_hours = (int)$total_hours;
+                $s_hours_rendered = (int)$hours_rendered;
+                $s_status = $status;
+
+                // Insert into students table (include birthday)
+                $stmt = $conn->prepare("
+                  INSERT INTO students (
+                    first_name, last_name,
+                    address, contact_number, email, birthday,
+                    emergency_name, emergency_relation, emergency_contact,
+                    college, course, year_level, school_address,
+                    ojt_adviser, adviser_contact,
+                    total_hours_required, hours_rendered, status
+                  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ");
+
+                if (!$stmt) {
+                    echo "<script>alert('Database error (students prepare): " . addslashes($conn->error) . "');</script>";
+                    exit;
+                }
+
+                // 15 strings (including birthday), 2 ints, 1 string -> total 18 params
+                $types = str_repeat('s', 15) . 'iis';
+
+                $bind_ok = $stmt->bind_param(
+                  $types,
+                  $s_first,
+                  $s_last,
+                  $s_address,
+                  $s_contact,
+                  $s_email,
+                  $s_birthday,
+                  $s_emergency_name,
+                  $s_emergency_relation,
+                  $s_emergency_contact,
+                  $s_college,
+                  $s_course,
+                  $s_year_level,
+                  $s_school_address,
+                  $s_ojt_adviser,
+                  $s_adviser_contact,
+                  $s_total_hours,
+                  $s_hours_rendered,
+                  $s_status
+                );
+
+                if (!$bind_ok) {
+                    echo "<script>alert('Database bind error (students): " . addslashes($stmt->error) . "');</script>";
+                    exit;
+                }
+
+                $exec_ok = $stmt->execute();
+                if (!$exec_ok) {
+                    echo "<script>alert('Database execute error (students): " . addslashes($stmt->error) . "');</script>";
+                    $stmt->close();
+                    exit;
+                }
+
+                $student_id = $conn->insert_id; // ensure we have student_id for application
                 $stmt->close();
 
                 // Insert into ojt_applications table (save file paths here)
-                $stmt2 = $conn->prepare("INSERT INTO ojt_applications 
-                    (student_id, office_preference1, office_preference2, letter_of_intent, endorsement_letter, resume, moa_file, picture, status, date_submitted)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURDATE())");
                 $status2 = 'pending';
-                // bind parameters - ensure variables exist
-                $office1_param = $office1;
-                $office2_param = $office2;
-                $stmt2->bind_param("iisssssss", $student_id, $office1_param, $office2_param, $letter_intent, $endorsement, $resume, $moa, $formal_pic, $status2);
-                $stmt2->execute();
+
+                if (is_null($office2)) {
+                    // office2 NULL path
+                    $stmt2 = $conn->prepare("INSERT INTO ojt_applications 
+                        (student_id, office_preference1, office_preference2, letter_of_intent, endorsement_letter, resume, moa_file, picture, status, date_submitted)
+                        VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, CURDATE())");
+                    if (!$stmt2) {
+                        echo "<script>alert('Database error (applications prepare NULL): " . addslashes($conn->error) . "');</script>";
+                        exit;
+                    }
+
+                    // placeholders: student_id(i), office1(i), then 6 strings (letter,end,resume,moa,pic,status) => "iissssss"
+                    $bind_ok2 = $stmt2->bind_param(
+                        "iissssss",
+                        $student_id,
+                        $office1,
+                        $letter_intent,
+                        $endorsement,
+                        $resume,
+                        $moa,
+                        $formal_pic,
+                        $status2
+                    );
+
+                    if (!$bind_ok2) {
+                        echo "<script>alert('Database bind error (applications NULL): " . addslashes($stmt2->error) . "');</script>";
+                        $stmt2->close();
+                        exit;
+                    }
+
+                } else {
+                    // office2 provided
+                    $stmt2 = $conn->prepare("INSERT INTO ojt_applications 
+                        (student_id, office_preference1, office_preference2, letter_of_intent, endorsement_letter, resume, moa_file, picture, status, date_submitted)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURDATE())");
+                    if (!$stmt2) {
+                        echo "<script>alert('Database error (applications prepare): " . addslashes($conn->error) . "');</script>";
+                        exit;
+                    }
+
+                    // placeholders: i i i s s s s s s => "iiissssss"
+                    $bind_ok2 = $stmt2->bind_param(
+                        "iiissssss",
+                        $student_id,
+                        $office1,
+                        $office2,
+                        $letter_intent,
+                        $endorsement,
+                        $resume,
+                        $moa,
+                        $formal_pic,
+                        $status2
+                    );
+
+                    if (!$bind_ok2) {
+                        echo "<script>alert('Database bind error (applications): " . addslashes($stmt2->error) . "');</script>";
+                        $stmt2->close();
+                        exit;
+                    }
+                }
+
+                $exec2 = $stmt2->execute();
+                if (!$exec2) {
+                    echo "<script>alert('Database execute error (applications): " . addslashes($stmt2->error) . "');</script>";
+                    $stmt2->close();
+                    exit;
+                }
+
                 $stmt2->close();
 
                 echo "<script>alert('Application submitted successfully!'); window.location='application_form4.php';</script>";
