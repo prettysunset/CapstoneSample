@@ -603,5 +603,56 @@ if ($action === 'respond_office_request') {
     }
 }
 
+/* new: get_dtr_by_date action
+   Request body: { action: 'get_dtr_by_date', date: 'YYYY-MM-DD' }
+   Response: { success: true, date: 'YYYY-MM-DD', rows: [ { ...dtr details... } ] }
+*/
+if ($action === 'get_dtr_by_date') {
+    $date = trim($input['date'] ?? '');
+    if ($date === '' || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+        respond(['success' => false, 'message' => 'Invalid date. Use YYYY-MM-DD']);
+    }
+
+    $stmt = $conn->prepare("
+        SELECT d.dtr_id, d.log_date, d.am_in, d.am_out, d.pm_in, d.pm_out, d.hours, d.minutes,
+               COALESCE(st.first_name, u.first_name, '') AS first_name,
+               COALESCE(st.last_name, u.last_name, '') AS last_name,
+               COALESCE(st.college, '') AS school,
+               COALESCE(st.course, '') AS course,
+               COALESCE(st.year_level, '') AS year_level,
+               COALESCE(u.office_name, '') AS office
+        FROM dtr d
+        LEFT JOIN students st ON st.user_id = d.student_id
+        LEFT JOIN users u ON u.user_id = d.student_id
+        WHERE d.log_date = ?
+        ORDER BY u.office_name ASC, COALESCE(st.last_name, u.username) ASC, COALESCE(st.first_name, '') ASC
+    ");
+    $stmt->bind_param("s", $date);
+    $stmt->execute();
+    $res = $stmt->get_result();
+    $rows = [];
+    while ($r = $res->fetch_assoc()) {
+        $rows[] = [
+            'dtr_id' => (int)$r['dtr_id'],
+            'log_date' => $r['log_date'],
+            'am_in' => $r['am_in'],
+            'am_out' => $r['am_out'],
+            'pm_in' => $r['pm_in'],
+            'pm_out' => $r['pm_out'],
+            'hours' => (int)($r['hours'] ?? 0),
+            'minutes' => (int)($r['minutes'] ?? 0),
+            'first_name' => $r['first_name'],
+            'last_name' => $r['last_name'],
+            'school' => $r['school'],
+            'course' => $r['course'],
+            'year_level' => $r['year_level'],
+            'office' => $r['office']
+        ];
+    }
+    $stmt->close();
+
+    respond(['success' => true, 'date' => $date, 'rows' => $rows]);
+}
+
 respond(['success' => false, 'message' => 'Unknown action.']);
 ?>

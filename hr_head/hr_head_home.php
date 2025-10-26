@@ -178,9 +178,9 @@ $current_date = date("l, F j, Y");
     <div class="nav">
         <a href="#" class="active">🏠 Home</a>
         <a href="hr_head_ojts.php">👥 OJTs</a>
-        <a href="#">🕒 DTR</a>
-        <a href="#">⚙️ Accounts</a>
-        <a href="#">📊 Reports</a>
+        <a href="hr_head_dtr.php">🕒 DTR</a>
+        <a href="hr_head_accounts.php">⚙️ Accounts</a>
+        <a href="hr_head_reports.php">📊 Reports</a>
     </div>
 
     <p style="margin-top:auto;font-weight:600">OJT-MS</p>
