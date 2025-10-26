@@ -373,7 +373,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     <div class="left">
       <h1>OJTMS</h1>
       <p>OJT APPLICATION FORM</p>
-      <img src="ojt_illustration.png" alt="Illustration" width="200">
+      <img src="O.png" alt="Illustration" width="400" >
     </div>
 
     <!-- RIGHT SIDE -->

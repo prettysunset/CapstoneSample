@@ -149,7 +149,7 @@ $af2 = isset($_SESSION['af2']) ? $_SESSION['af2'] : [];
     <div class="left">
       <h1>OJTMS</h1>
       <p>OJT APPLICATION FORM</p>
-      <img src="ojt_illustration.png" alt="Illustration" width="200">
+      <img src="O.png" alt="Illustration" width="400" height="300">
     </div>
 
     <!-- RIGHT SIDE -->
