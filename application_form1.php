@@ -216,7 +216,7 @@ $af1 = isset($_SESSION['af1']) ? $_SESSION['af1'] : [];
     <div class="left">
       <h1>OJTMS</h1>
       <p>  FORM</p>
-      <img src="ojt_illustration.png" alt="Illustration" width="200">
+      <img src="O.png" alt="Illustration" width="400" height="300">
     </div>
 
     <div class="right">
