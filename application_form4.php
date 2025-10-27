@@ -1,164 +1,98 @@
+<?php
+session_start();
+?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Application Submitted | OJTMS</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <link rel="stylesheet" href="styles.css">
   <style>
-    body {
+    body { 
+      opacity: 0; 
+      transition: opacity 0.45s ease; 
       font-family: 'Poppins', sans-serif;
-      background-color: #f9fafc;
-      margin: 0;
-      padding: 0;
-      display: flex;
+      background-color: #e6f2ff;
+      margin:0;
+      padding:0;
     }
 
-    .left-section {
-      width: 35%;
-      background-color: #e8f1ff;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      text-align: center;
-      padding: 40px;
+    /* navbar */
+    .navbar {
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      padding:12px 33px;
+      background:#fff;
+      box-shadow: 0 2px 10px rgba(10,15,40,0.06);
+      position:fixed;
+      top:0;
+      left:0;
+      right:0;
+      z-index:1000;
+    }
+    .logo { font-weight:bold; text-decoration:none; color:#3a4163; }
+    .nav-links { display:flex; list-style:none; gap:15px; margin:0; padding:0; align-items:center; }
+    .nav-links li { cursor:pointer; padding:5px 15px; }
+    .nav-links a { text-decoration:none; color:#3a4163; }
+    .nav-links a:hover { background-color:#3a4163; color:white; border-radius:15px; padding:5px 15px; }
+    .nav-links a.login { background:#3a4163; color:white; border-radius:15px; font-weight:bold; transition:0.3s; }
+    .nav-links a.login:hover { background:#2a2f4f; }
+
+    /* confirmation card with gap from navbar */
+    .confirm-card {
+      max-width:900px;
+      margin: 150px auto 48px; /* gap from navbar like other forms */
+      padding:28px;
+      background:white;
+      border-radius:16px;
+      box-shadow:0 10px 30px rgba(10,15,40,0.06);
+      display:flex;
+      gap:24px;
+      align-items:center;
+      flex-direction:column;
+      text-align:center;
     }
 
-    .left-section img {
-      width: 180px;
-      margin-bottom: 20px;
-    }
+    .confirm-right img { width:90px; margin-bottom:12px; }
+    .confirm-right h2 { color:#3a4163; margin:4px 0 8px; }
+    .btn-home { background:#3a4163; color:#fff; padding:10px 26px; border-radius:20px; border:0; cursor:pointer; margin-top:20px; }
+    .btn-home:hover { background:#2a2f4f; }
 
-    .left-section h2 {
-      margin: 0;
-      font-size: 22px;
-      color: #1e1e2f;
-      font-weight: 600;
-    }
+    @media (max-width:900px){ .confirm-card{ margin:100px 12px; } }
 
-    .right-section {
-      width: 65%;
-      background-color: #fff;
-      border-radius: 20px 0 0 20px;
-      padding: 50px 80px;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-    }
-
-    /* Progress Bar */
-    .progress-container {
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      gap: 80px;
-      margin-bottom: 40px;
-      color: #888;
-      font-weight: 500;
-      font-size: 14px;
-    }
-
-    .progress-step {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-    }
-
-    .progress-step .circle {
-      width: 28px;
-      height: 28px;
-      border-radius: 50%;
-      border: 2px solid #555;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      margin-bottom: 8px;
-    }
-
-    .progress-step.completed .circle {
-      background-color: #2b2b6d;
-      color: #fff;
-      border-color: #2b2b6d;
-    }
-
-    .progress-step.completed span {
-      color: #2b2b6d;
-    }
-
-    /* Center Content */
-    .content {
-      text-align: center;
-      max-width: 450px;
-    }
-
-    .content img {
-      width: 90px;
-      margin-bottom: 20px;
-    }
-
-    .content h2 {
-      color: #2b2b6d;
-      font-size: 22px;
-      margin-bottom: 10px;
-    }
-
-    .content p {
-      font-size: 15px;
-      color: #333;
-      line-height: 1.6;
-    }
-
-    .btn-home {
-      background-color: #2b2b6d;
-      color: #fff;
-      border: none;
-      padding: 10px 30px;
-      border-radius: 25px;
-      margin-top: 25px;
-      font-size: 15px;
-      cursor: pointer;
-      transition: background 0.3s ease;
-    }
-
-    .btn-home:hover {
-      background-color: #42427f;
-    }
   </style>
 </head>
 <body>
 
-  <div class="left-section">
-    <img src="your_logo.png" alt="OJTMS Logo">
-    <h2>OJT APPLICATION FORM</h2>
+  <div class="navbar">
+    <a class="logo" href="about.php">OJT-MS</a>
+    <ul class="nav-links">
+      <li><a href="home.php">Home</a></li>
+      <li><a href="about.php">About</a></li>
+      <li><a href="contacts.php">Contacts</a></li>
+      <li><a href="offices.php">Offices</a></li>
+      <li><a class="login" href="login.php">Login</a></li>
+    </ul>
   </div>
 
-  <div class="right-section">
-    <div class="progress-container">
-      <div class="progress-step completed">
-        <div class="circle">✓</div>
-        <span>Personal Information</span>
-      </div>
-      <div class="progress-step completed">
-        <div class="circle">✓</div>
-        <span>School Information</span>
-      </div>
-      <div class="progress-step completed">
-        <div class="circle">✓</div>
-        <span>Requirements</span>
-      </div>
-    </div>
-
-    <div class="content">
+  <div class="confirm-card" role="status">
+    <div class="confirm-right">
       <img src="https://cdn-icons-png.flaticon.com/512/845/845646.png" alt="Check">
       <h2>Application Submitted</h2>
       <p>Thank you for submitting your OJT application.<br>
       Your request has been successfully received.<br>
-      Please wait for an email notification from the<br>
-      HR Head regarding approval status.</p>
-      <button class="btn-home" onclick="window.location.href='index.php'">Back to Home Page</button>
+      Please wait for an email notification from the HR Head regarding approval status.</p>
+      <button class="btn-home" onclick="window.location.href='home.php'">Back to Home Page</button>
     </div>
   </div>
+
+<script>
+  window.addEventListener('load', () => {
+    document.body.style.opacity = 1;
+  });
+</script>
 
 </body>
 </html>

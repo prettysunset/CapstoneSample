@@ -1,4 +1,4 @@
-<?php
+<?php 
 session_start();
 require 'conn.php';
 
@@ -177,7 +177,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                         exit;
                     }
 
-                    // placeholders: student_id(i), office1(i), then 6 strings (letter,end,resume,moa,pic,status) => "iissssss"
                     $bind_ok2 = $stmt2->bind_param(
                         "iissssss",
                         $student_id,
@@ -206,7 +205,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                         exit;
                     }
 
-                    // placeholders: i i i s s s s s s => "iiissssss"
                     $bind_ok2 = $stmt2->bind_param(
                         "iiissssss",
                         $student_id,
@@ -249,195 +247,101 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 <head>
   <meta charset="UTF-8">
   <title>OJT Application Form - Requirements</title>
-  <link rel="stylesheet" href="style.css">
-</head>
-<style>
-    body {
-      font-family: 'Poppins', sans-serif;
-      margin: 0;
-      padding: 0;
-      background-color: #e6f2ff;
-      color: #333;
-      /* reserve space for fixed navbar so content isn't hidden */
-      padding-top: 80px;
-      box-sizing: border-box;
-    }
-
-    .navbar {
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      z-index: 1000;
-      display: flex;
-      justify-content: space-between; /* logo left, links right */
-      align-items: center;           /* vertical alignment */
-      height: 64px;
-      padding: 12px 33px;
-      background: #ffffff;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.08);
-    }
-
-    .logo {
-      font-weight: bold;
-      text-decoration: none;
-      color: #3a4163;
-      font-size: 20px;
-    }
-
-    .logo:hover {
-      background: none;
-      color: #3a4163; /* no hover effect */
-      padding: 0;
-    }
-
-    .nav-links {
-      display: flex;
-      list-style: none;
-      gap: 15px;
-      margin: 0;  /* reset default */
-      padding: 0;
-      align-items: center;
-    }
-
-    .nav-links li {
-      cursor: pointer;
-      padding: 5px 15px;
-      list-style: none;
-    }
-
-    .nav-links a {
-      text-decoration: none;
-      color: #3a4163;
-    }
-
-    /* Hover for normal links (exclude logo & login) */
-    .nav-links a:hover {
-      background-color: #3a4163;
-      color: white;
-      border-radius: 15px;
-      padding: 5px 15px;
-    }
-
-    /* Login button */
-    .navbar li.login a {
-      color: white;
-      text-decoration: none;
-      display: inline-block;
-      padding: 5px 15px;
-      background-color: #3a4163;
-      border-radius: 15px;
-      font-weight: bold;
-      transition: background-color 0.3s;
-    }
-
-    .navbar li.login a:hover {
-      background-color: #2a2f4f;
-    }
-
-    /* Ensure main layout isn't crowded under the navbar */
-    .container {
-      max-width: 1100px;
-      margin: 20px auto;
-      padding: 20px;
-    }
-
-    @media (max-width: 600px) {
-      .navbar {
-        padding: 10px 16px;
-        height: auto;
-      }
-      body {
-        padding-top: 72px;
-      }
-    }
-  </style>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+  <div class="navbar">
+    <a class="logo" href="about.php">OJT-MS</a>
+    <ul class="nav-links">
+      <li><a href="home.php">Home</a></li>
+      <li><a href="about.php">About</a></li>
+      <li><a href="contacts.php">Contacts</a></li>
+      <li><a href="offices.php">Offices</a></li>
+      <li><a class="login" href="login.php">Login</a></li>
+    </ul>
+  </div>
 
-          <div class="navbar">
-        <h1><a class="logo" href="about.php">OJT-MS</a></h1>
-
-        <div class="nav-links">
-        <li><a href="home.php">Home</a></li>
-        <li class="home">About</li>
-        <li><a href="contacts.php">Contacts</a></li>
-        <li><a href="offices.php">Offices</a></li>
-        <li class="login"><a href="login.php">Login</a></li>
-        </div>
-    </div>
-
-
-  <div class="container">
-    <!-- LEFT SIDE -->
-    <div class="left">
-      <h1>OJTMS</h1>
-      <p>OJT APPLICATION FORM</p>
-      <img src="O.png" alt="Illustration" width="400" >
-    </div>
-
-    <!-- RIGHT SIDE -->
-    <div class="right">
-      <div class="progress">
-        <div class="completed">1. Personal Information</div>
-        <div class="completed">2. School Information</div>
-        <div class="active">3. Requirements</div>
+  <div class="wrapper">
+    <div class="card">
+      <div class="left">
+        <h1>OJTMS</h1>
+        <p>OJT APPLICATION FORM</p>
+        <img src="O.png" alt="Illustration">
       </div>
 
-      <form method="POST" enctype="multipart/form-data">
-        <h3>OFFICE</h3>
-
-        <fieldset>
-          <select name="first_choice" required>
-            <option value="" disabled selected>1st choice</option>
-            <?php foreach ($offices as $o): ?>
-              <option value="<?= (int)$o['office_id'] ?>"><?= htmlspecialchars($o['office_name']) ?></option>
-            <?php endforeach; ?>
-          </select>
-
-          <select name="second_choice">
-            <option value="">2nd choice (optional)</option>
-            <?php foreach ($offices as $o): ?>
-              <option value="<?= (int)$o['office_id'] ?>"><?= htmlspecialchars($o['office_name']) ?></option>
-            <?php endforeach; ?>
-          </select>
-        </fieldset>
-
-        <input type="number" name="required_hours" placeholder="Required Hours" required min="1">
-
-        <h3>UPLOAD REQUIREMENTS</h3>
-
-        <fieldset>
-          <label>1x1 Formal Picture</label>
-          <input type="file" name="formal_pic" accept=".jpg,.jpeg,.png,.pdf" required>
-
-          <label>Letter of Intent</label>
-          <input type="file" name="letter_intent" accept=".jpg,.jpeg,.png,.pdf" required>
-        </fieldset>
-
-        <fieldset>
-          <label>Resume</label>
-          <input type="file" name="resume" accept=".jpg,.jpeg,.png,.pdf" required>
-
-          <label>Endorsement Letter</label>
-          <input type="file" name="endorsement" accept=".jpg,.jpeg,.png,.pdf" required>
-        </fieldset>
-
-        <label>Memorandum of Agreement (to follow)</label>
-        <input type="file" name="moa" accept=".jpg,.jpeg,.png,.pdf">
-
-        <p class="note">
-          <strong>Note:</strong><br>
-          • Supported file types: <span class="highlight">JPG, PNG, PDF</span><br>
-          • Maximum file size: <span class="highlight">2MB</span>
-        </p>
-
-        <div class="form-nav">
-          <button type="button" onclick="window.location='application_form2.php'">← Previous</button>
-          <button type="submit">Submit →</button>
+      <div class="right">
+        <div class="progress" aria-hidden="true">
+          <div class="step completed"><span class="label">1. Personal Information</span></div>
+          <div class="step completed"><span class="label">2. School Information</span></div>
+          <div class="step active"><span class="label">3. Requirements</span></div>
         </div>
-      </form>
+
+        <form method="POST" enctype="multipart/form-data" novalidate>
+          <h3>OFFICE</h3>
+
+          <fieldset>
+            <select name="first_choice" required>
+              <option value="" disabled selected>1st choice</option>
+              <?php foreach ($offices as $o): ?>
+                <option value="<?= (int)$o['office_id'] ?>"><?= htmlspecialchars($o['office_name']) ?></option>
+              <?php endforeach; ?>
+            </select>
+
+            <select name="second_choice">
+              <option value="">2nd choice (optional)</option>
+              <?php foreach ($offices as $o): ?>
+                <option value="<?= (int)$o['office_id'] ?>"><?= htmlspecialchars($o['office_name']) ?></option>
+              <?php endforeach; ?>
+            </select>
+          </fieldset>
+
+          <input type="number" name="required_hours" placeholder="Required Hours" required min="1">
+
+          <h3>UPLOAD REQUIREMENTS</h3>
+
+          <fieldset>
+            <div style="flex:1;">
+              <label>1x1 Formal Picture</label>
+              <input type="file" name="formal_pic" accept=".jpg,.jpeg,.png,.pdf" required>
+            </div>
+            <div style="flex:1;">
+              <label>Letter of Intent</label>
+              <input type="file" name="letter_intent" accept=".jpg,.jpeg,.png,.pdf" required>
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <div style="flex:1;">
+              <label>Resume</label>
+              <input type="file" name="resume" accept=".jpg,.jpeg,.png,.pdf" required>
+            </div>
+            <div style="flex:1;">
+              <label>Endorsement Letter</label>
+              <input type="file" name="endorsement" accept=".jpg,.jpeg,.png,.pdf" required>
+            </div>
+          </fieldset>
+
+          <label>Memorandum of Agreement (to follow)</label>
+          <input type="file" name="moa" accept=".jpg,.jpeg,.png,.pdf">
+
+          <p class="note">
+            <strong>Note:</strong><br>
+            • Supported file types: <span class="highlight">JPG, PNG, PDF</span><br>
+            • Maximum file size: <span class="highlight">2MB</span>
+          </p>
+
+          <div class="form-nav">
+            <button type="button" class="secondary" onclick="window.location='application_form2.php'">← Previous</button>
+            <button type="submit">Submit →</button>
+          </div>
+        </form>
+      </div>
     </div>
   </div>
+
+<script>window.addEventListener('load', () => { document.body.style.opacity = 1; });</script>
+
+
 </body>
 </html>
