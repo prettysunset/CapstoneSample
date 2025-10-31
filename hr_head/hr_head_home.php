@@ -202,6 +202,13 @@ $current_date = date("l, F j, Y");
         </svg>
         DTR
       </a>
+      <a href="hr_head_moa.php">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px">
+          <circle cx="12" cy="12" r="8"></circle>
+          <path d="M12 8v5l3 2"></path>
+        </svg>
+        MOA
+      </a>
       <a href="hr_head_accounts.php">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px">
           <circle cx="12" cy="12" r="3"></circle>
