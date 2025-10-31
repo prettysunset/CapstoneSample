@@ -131,6 +131,80 @@ if ($off_q) {
         .ojt-table-searchbar input,.ojt-table-searchbar select{width:100px;font-size:13px;}
         th,td{padding:6px}
     }
+
+    /* View modal styles (adjusted to match pasted image) */
+    .view-overlay { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(16,24,40,0.28); z-index: 9999; padding: 18px; }
+    .view-card {
+      width: 880px;
+      max-width: 94vw;
+      border-radius: 20px;
+      background: transparent; /* outer frame transparent so inner box looks like image */
+      box-shadow: 0 22px 60px rgba(16,24,40,0.28);
+      overflow: visible;
+      position: relative;
+      padding: 18px;
+      font-family: 'Poppins', sans-serif;
+      max-height: 80vh;
+    }
+    /* inner white rounded content matching design */
+    .view-inner {
+      background:#fff;
+      border-radius:14px;
+      padding:18px;
+      box-shadow: none;
+      border: 1px solid rgba(231,235,241,0.9);
+      min-height: 460px;               /* keep modal height consistent */
+      max-height: calc(80vh - 36px);
+      overflow:auto;
+    }
+    /* ensure each panel occupies the same inner space */
+    .view-panel { min-height: 360px; box-sizing:border-box; }
+
+    /* close button */
+    .view-close { position: absolute; right: 18px; top: 18px; width:36px;height:36px;border-radius:50%;background:#fff;border:0;box-shadow:0 6px 18px rgba(16,24,40,0.06);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:18px; z-index:10010; }
+
+    /* header */
+    .view-header { display:flex; gap:18px; align-items:center; margin-bottom:6px; }
+    .view-avatar { width:96px;height:96px;border-radius:50%;background:#eceff3;flex:0 0 96px; display:flex;align-items:center;justify-content:center; overflow:hidden; }
+    .view-avatar img{ width:100%; height:100%; object-fit:cover; display:block; }
+    .view-name { font-size:20px; font-weight:800; color:#222e50; margin:0 0 6px 0; letter-spacing:0.2px; }
+    .view-submeta { font-size:13px; color:#6b7280; display:flex; gap:12px; align-items:center; }
+
+    /* small utility icons / prints */
+    .view-tools { display:flex; gap:12px; align-items:center; margin-top:8px; }
+
+    /* tabs inline */
+    .view-tabs { display:flex; gap:20px; align-items:center; margin-top:10px; padding-bottom:10px; }
+    .view-tab { padding:6px 10px; cursor:pointer; border-radius:6px; color:#6b7280; font-weight:700; font-size:13px; }
+    .view-tab.active { color:#1f2937; border-bottom:3px solid #344154; }
+
+    /* body layout inside inner box */
+    .view-body { display:flex; gap:18px; margin-top:8px; align-items:flex-start; }
+    .view-left { flex:1; padding:14px; border-radius:10px; min-width:320px; }
+    .view-right { width:340px; min-width:260px; padding:14px; }
+
+    /* info rows: compact, labels narrow and bold values */
+    .info-row{ display:flex; gap:10px; padding:6px 0; align-items:flex-start; }
+    .info-label{ width:110px; font-weight:700; color:#222e50; font-size:13px; }
+    .info-value{ color:#111827; font-weight:800; font-size:13px; line-height:1.1; }
+    hr.section-sep{ border:0; border-top:1px solid #eef2f6; margin:12px 0; }
+
+    /* emergency block smaller spacing */
+    .emergency{ margin-top:12px; padding-top:8px; border-top:1px solid #eef2f6; }
+
+    /* donut smaller and vertically centered */
+    .donut { width:100px; height:100px; display:grid; place-items:center; }
+    .donut svg { transform:rotate(-90deg); }
+    .donut .percent{ position:absolute; font-weight:800; color:#111827; font-size:15px; }
+    .progress-meta{ font-weight:800; color:#111827; font-size:14px; }
+
+    @media (max-width:980px){
+      .view-card{ width:calc(100% - 32px); padding:12px; }
+      .view-inner{ padding:12px; }
+      .view-body{ flex-direction:column; }
+      .view-avatar { width:72px;height:72px; flex:0 0 72px; }
+      .view-right{ width:100%; min-width:0; }
+    }
 </style>
 </head>
 <body>
@@ -371,6 +445,148 @@ if ($off_q) {
     </div>
 </div>
 
+<!-- View Application Modal (insert near end of body) -->
+<div id="viewOverlay" class="view-overlay" aria-hidden="true" style="display:none;">
+  <div class="view-card" role="dialog" aria-modal="true" aria-labelledby="viewTitle">
+    <button class="view-close" aria-label="Close modal" onclick="window.closeViewModal && window.closeViewModal()">✕</button>
+
+    <!-- inner white container -->
+    <div class="view-inner">
+      <div class="view-header">
+        <div class="view-avatar" id="view_avatar"> <!-- image inserted via JS --> </div>
+        <div class="view-meta">
+          <h2 class="view-name" id="view_name">Name Surname</h2>
+          <div class="view-submeta" id="view_statusline">
+            <span id="view_status_badge" style="display:flex;align-items:center;gap:8px;font-weight:700;color:#0b7a3a">
+              <span style="width:10px;height:10px;background:#10b981;border-radius:50%;display:inline-block"></span>
+              Active OJT
+            </span>
+            <span id="view_department" style="display:flex;align-items:center;gap:6px;color:#6b7280">IT Department</span>
+          </div>
+
+          <div class="view-tools" aria-hidden="true">
+            <button class="tool-link" id="printEndorse">Print Endorsement</button>
+            <button class="tool-link" id="printDTR">Print DTR</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="view-tabs" role="tablist" aria-label="View tabs">
+        <div class="view-tab active" data-tab="info" onclick="switchViewTab(event)">Information</div>
+        <div class="view-tab" data-tab="late" onclick="switchViewTab(event)">Late DTR Submissions</div>
+        <div class="view-tab" data-tab="atts" onclick="switchViewTab(event)">Attachments</div>
+        <div class="view-tab" data-tab="eval" onclick="switchViewTab(event)">Evaluation</div>
+      </div>
+
+      <!-- Panels: info uses the two-column view-body, other panels span full inner width -->
+      <div id="panel-info" class="view-panel" style="display:block;">
+        <div class="view-body">
+          <div class="view-left">
+            <div style="display:flex;gap:12px;">
+              <div style="flex:1">
+                <div class="info-row"><div class="info-label">Age</div><div class="info-value" id="view_age">—</div></div>
+                <div class="info-row"><div class="info-label">Birthday</div><div class="info-value" id="view_birthday">—</div></div>
+                <div class="info-row"><div class="info-label">Address</div><div class="info-value" id="view_address">—</div></div>
+                <div class="info-row"><div class="info-label">Phone</div><div class="info-value" id="view_phone">—</div></div>
+                <div class="info-row"><div class="info-label">Email</div><div class="info-value" id="view_email">—</div></div>
+              </div>
+            </div>
+
+            <div style="height:14px"></div>
+
+            <div style="border-top:1px solid #f1f5f9;padding-top:12px;">
+              <div class="info-row"><div class="info-label">College/University</div><div class="info-value" id="view_college">—</div></div>
+              <div class="info-row"><div class="info-label">Course</div><div class="info-value" id="view_course">—</div></div>
+              <div class="info-row"><div class="info-label">Year level</div><div class="info-value" id="view_year">—</div></div>
+              <div class="info-row"><div class="info-label">School Address</div><div class="info-value" id="view_school_address">—</div></div>
+              <div class="info-row"><div class="info-label">OJT Adviser</div><div class="info-value" id="view_adviser">—</div></div>
+            </div>
+
+            <div class="emergency">
+              <div style="font-weight:700;margin-bottom:8px">Emergency Contact</div>
+              <div class="info-row"><div class="info-label" style="width:120px">Name</div><div class="info-value" id="view_emg_name">—</div></div>
+              <div class="info-row"><div class="info-label">Relationship</div><div class="info-value" id="view_emg_rel">—</div></div>
+              <div class="info-row"><div class="info-label">Contact Number</div><div class="info-value" id="view_emg_contact">—</div></div>
+            </div>
+          </div>
+
+          <div class="view-right">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <div style="font-weight:700">Progress</div>
+              <div style="font-size:12px;color:#6b7280">Expected / Required</div>
+            </div>
+
+            <div class="progress-wrap" style="display:flex;gap:12px;align-items:flex-start;margin-top:8px">
+              <div class="donut" id="view_donut">
+                <svg width="120" height="120" viewBox="0 0 120 120">
+                  <circle cx="60" cy="60" r="48" stroke="#eef2f6" stroke-width="18" fill="none"></circle>
+                  <circle id="donut_fore" cx="60" cy="60" r="48" stroke="#10b981" stroke-width="18" stroke-linecap="round" fill="none" stroke-dasharray="302" stroke-dashoffset="302"></circle>
+                </svg>
+                <div style="position:absolute;font-weight:800;color:#111827;font-size:16px" id="view_percent">0%</div>
+              </div>
+              <div style="flex:1">
+                <div style="font-size:14px;font-weight:700" id="view_hours_text">0 out of 500 hours</div>
+                <div style="font-size:12px;color:#6b7280;margin-top:6px" id="view_dates">Date Started: — <br> Expected End Date: —</div>
+                <div class="assigned" id="view_assigned" style="margin-top:10px">
+                  <div style="font-weight:700">Assigned Office:</div>
+                  <div id="view_assigned_office">—</div>
+                  <div style="margin-top:8px;font-weight:700">Office Head:</div>
+                  <div id="view_office_head">—</div>
+                  <div style="margin-top:8px;font-weight:700">Contact #:</div>
+                  <div id="view_office_contact">—</div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div> <!-- .view-body -->
+      </div> <!-- #panel-info -->
+
+      <div id="panel-late" class="view-panel" style="display:none;padding:12px 6px;">
+        <div style="background:#fff;border-radius:10px;padding:12px;border:1px solid #eef2f6;">
+          <div style="overflow:auto">
+            <table aria-label="Late DTR Submissions" style="width:100%;border-collapse:collapse;font-size:14px">
+              <thead>
+                <tr style="background:#f3f4f6;color:#111">
+                  <th rowspan="2" style="padding:10px;border:1px solid #eee;text-align:left">Date Filed</th>
+                  <th colspan="2" style="padding:10px;border:1px solid #eee;text-align:center">A.M.</th>
+                  <th colspan="2" style="padding:10px;border:1px solid #eee;text-align:center">P.M.</th>
+                  <th rowspan="2" style="padding:10px;border:1px solid #eee;text-align:center">HOURS</th>
+                  <th rowspan="2" style="padding:10px;border:1px solid #eee;text-align:left">DATE</th>
+                  <th rowspan="2" style="padding:10px;border:1px solid #eee;text-align:left">STATUS</th>
+                </tr>
+                <tr style="background:#f3f4f6;color:#111">
+                  <th style="padding:8px;border:1px solid #eee;text-align:center;font-weight:700">ARRIVAL</th>
+                  <th style="padding:8px;border:1px solid #eee;text-align:center;font-weight:700">DEPARTURE</th>
+                  <th style="padding:8px;border:1px solid #eee;text-align:center;font-weight:700">ARRIVAL</th>
+                  <th style="padding:8px;border:1px solid #eee;text-align:center;font-weight:700">DEPARTURE</th>
+                </tr>
+              </thead>
+              <tbody id="late_dtr_tbody">
+                <tr class="empty">
+                  <td colspan="8" style="padding:18px;text-align:center;color:#6b7280">No late DTR submissions found.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div id="panel-atts" class="view-panel" style="display:none;padding:12px 6px;">
+        <div id="attachments_full" style="background:#fff;border-radius:10px;padding:12px;border:1px solid #eef2f6;min-height:160px;">
+          <div id="view_attachments_list" style="display:flex;flex-direction:column;gap:8px;"></div>
+        </div>
+      </div>
+
+      <div id="panel-eval" class="view-panel" style="display:none;padding:12px 6px;">
+        <div style="background:#fff;border-radius:10px;padding:12px;border:1px solid #eef2f6;min-height:160px;color:#6b7280" id="eval_full">
+          Evaluation content here.
+        </div>
+      </div>
+     </div> <!-- .view-inner -->
+   </div> <!-- .view-card -->
+ </div> <!-- #viewOverlay -->
+
 <script>
 (function(){
     // tabs underline positioning
@@ -434,6 +650,163 @@ if ($off_q) {
         console.error(err);
         alert('Request failed');
       }
+    }
+
+    /* tab switcher - show panel-* elements */
+    function switchViewTab(e){
+      // support being called either with an Event or with a tab name string
+      const tab = (typeof e === 'string') ? e : (e.currentTarget ? e.currentTarget.getAttribute('data-tab') : null);
+      if (!tab) return;
+      // update active tab button
+      document.querySelectorAll('.view-tab').forEach(t=>t.classList.remove('active'));
+      const btn = document.querySelector('.view-tab[data-tab="'+tab+'"]');
+      if (btn) btn.classList.add('active');
+      // hide all panels and show the selected one
+      document.querySelectorAll('.view-panel').forEach(p=>p.style.display = 'none');
+      const panel = document.getElementById('panel-' + tab);
+      if (panel) panel.style.display = 'block';
+    }
+
+    // expose for inline onclick and add robust event listeners
+    window.switchViewTab = switchViewTab;
+    document.querySelectorAll('.view-tab').forEach(t => {
+      t.removeAttribute('onclick'); // optional: avoid duplicate handlers
+      t.addEventListener('click', switchViewTab);
+    });
+    // openViewModal: fetch application details and populate modal
+    window.openViewModal = async function(appId){
+      showViewOverlay();
+      // reset
+      ['view_name','view_age','view_birthday','view_address','view_phone','view_email','view_college','view_course','view_year','view_school_address','view_adviser','view_emg_name','view_emg_rel','view_emg_contact','view_hours_text','view_dates','view_assigned_office','view_office_head','view_office_contact','view_attachments_list'].forEach(id=>{
+        const el = document.getElementById(id);
+        if(el) el.textContent = '—';
+      });
+      // avatar
+      const avatarEl = document.getElementById('view_avatar');
+      avatarEl.innerHTML = '👤';
+
+      try{
+        const res = await fetch('../hr_actions.php', {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ action:'get_application', application_id: parseInt(appId,10) })
+        });
+        const json = await res.json();
+        if (!json.success) { alert('Failed to load application'); closeViewModal(); return; }
+        const d = json.data;
+        const s = d.student || {};
+
+        // top meta
+        document.getElementById('view_name').textContent = ((s.first_name||'') + ' ' + (s.last_name||'')).trim() || 'N/A';
+        document.getElementById('view_status_badge').style.display = d.status && d.status.toLowerCase()==='approved' ? 'inline-flex' : 'none';
+        document.getElementById('view_department').textContent = d.office1 || d.office || '—';
+
+        // avatar image if available
+        if (d.picture){
+          avatarEl.innerHTML = '';
+          const img = document.createElement('img');
+          img.src = '../' + d.picture;
+          img.alt = 'avatar';
+          avatarEl.appendChild(img);
+        }
+
+        // personal info
+        document.getElementById('view_age').textContent = s.age || '—';
+        document.getElementById('view_birthday').textContent = s.birthday || (s.birthdate||'—');
+        document.getElementById('view_address').textContent = s.address || s.school_address || '—';
+        document.getElementById('view_phone').textContent = s.contact_number || '—';
+        document.getElementById('view_email').textContent = s.email || '—';
+
+        // school info
+        document.getElementById('view_college').textContent = s.college || '—';
+        document.getElementById('view_course').textContent = s.course || '—';
+        document.getElementById('view_year').textContent = s.year_level || '—';
+        document.getElementById('view_school_address').textContent = s.school_address || '—';
+        document.getElementById('view_adviser').textContent = (s.ojt_adviser || '') + (s.adviser_contact ? ' | ' + s.adviser_contact : '');
+
+        // emergency contact (if provided)
+        if (s.emg_name || s.emg_contact){
+          document.getElementById('view_emg_name').textContent = s.emg_name || s.emergency_name || '—';
+          document.getElementById('view_emg_rel').textContent = s.emg_relation || s.emergency_relation || '—';
+          document.getElementById('view_emg_contact').textContent = s.emg_contact || s.emergency_contact || '—';
+        }
+
+        // hours + progress
+        const rendered = Number(s.hours_rendered || d.hours_rendered || 0);
+        const required = Number(s.total_hours_required || d.total_hours_required || 500);
+        document.getElementById('view_hours_text').textContent = `${rendered} out of ${required} hours`;
+        const start = d.date_started || d.date_submitted || '—';
+        const expected = d.expected_end_date || d.expected_end || '—';
+        document.getElementById('view_dates').textContent = `Date Started: ${start}\nExpected End Date: ${expected}`;
+        const pct = required>0 ? (rendered / required * 100) : 0;
+        setDonut(pct);
+
+        // assigned office block
+        document.getElementById('view_assigned_office').textContent = d.office1 || d.office || '—';
+        document.getElementById('view_office_head').textContent = d.office_head || d.office_head_name || '—';
+        document.getElementById('view_office_contact').textContent = d.office_contact || '—';
+
+        // attachments
+        const attRoot = document.getElementById('view_attachments_list');
+        attRoot.innerHTML = '';
+        const attachments = [
+          {label:'Letter of Intent', file:d.letter_of_intent},
+          {label:'Endorsement', file:d.endorsement_letter},
+          {label:'Resume', file:d.resume},
+          {label:'MOA', file:d.moa_file},
+          {label:'Picture', file:d.picture}
+        ];
+        attachments.forEach(a=>{
+          if (!a.file) return;
+          const name = a.file.split('/').pop();
+          const row = document.createElement('div');
+          row.style.display='flex'; row.style.justifyContent='space-between'; row.style.alignItems='center'; row.style.padding='6px 0';
+          row.innerHTML = `<div style="font-size:14px;font-weight:600">${a.label}</div>
+                           <div style="display:flex;gap:8px">
+                             <button class="tool-link" onclick="window.open('../${a.file}','_blank')">View</button>
+                             <button class="tool-link" onclick="(function(f){const aL=document.createElement('a');aL.href='../'+f;aL.download='';document.body.appendChild(aL);aL.click();aL.remove();})('${a.file.replace(/'/g,"\\'")}')">Download</button>
+                           </div>`;
+          attRoot.appendChild(row);
+        });
+
+        // wire print buttons (simple open new window to printable endpoint)
+        document.getElementById('printEndorse').onclick = function(){ window.open('print_endorsement.php?id=' + encodeURIComponent(appId),'_blank'); };
+        document.getElementById('printDTR').onclick = function(){ window.open('print_dtr.php?id=' + encodeURIComponent(appId),'_blank'); };
+
+      }catch(err){
+        console.error(err);
+        alert('Failed to load details');
+        closeViewModal();
+      }
+    }
+
+    // show/hide helpers (exposed globally so inline onclick works)
+    window.showViewOverlay = function(){ const o=document.getElementById('viewOverlay'); if(o){ o.style.display='flex'; o.setAttribute('aria-hidden','false'); } };
+    window.closeViewModal = function(){ const o=document.getElementById('viewOverlay'); if(o){ o.style.display='none'; o.setAttribute('aria-hidden','true'); } };
+
+    // close when clicking outside the inner box
+    (function(){
+      const overlay = document.getElementById('viewOverlay');
+      if (!overlay) return;
+      overlay.addEventListener('click', function(e){
+        if (e.target === overlay) window.closeViewModal();
+      });
+      // Esc to close
+      document.addEventListener('keydown', function(ev){
+        if (ev.key === 'Escape') window.closeViewModal();
+      });
+    })();
+
+    /* helper to set donut progress */
+    function setDonut(percent){
+      percent = Math.max(0, Math.min(100, Number(percent) || 0));
+      const circle = document.getElementById('donut_fore');
+      const radius = 48;
+      const circumference = 2 * Math.PI * radius;
+      const offset = circumference - (percent / 100) * circumference;
+      circle.style.strokeDasharray = circumference;
+      circle.style.strokeDashoffset = offset;
+      document.getElementById('view_percent').textContent = Math.round(percent) + '%';
     }
 })();
 </script>

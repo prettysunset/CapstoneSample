@@ -840,25 +840,29 @@ function sendReject(){
 
 // existing handleAction for reject (uses hr_actions.php)
 function handleAction(id, action) {
-    if (!confirm('Are you sure?')) return;
-    fetch('../hr_actions.php', {
-        method: 'POST',
-        headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({application_id: id, action: action})
-    })
-    .then(response => response.json())
-    .then res => {
-        if (res.success) {
-            alert('Action completed.');
-            location.reload();
-        } else {
-            alert('Error: ' + (res.message || 'Unknown'));
-        }
-    })
-    .catch(err => {
-        console.error(err);
-        alert('Request failed');
-    });
+  if (!confirm('Are you sure?')) return;
+  fetch('../hr_actions.php', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ application_id: id, action: action })
+  })
+  .then(response => response.text())
+  .then(text => {
+    // try parse JSON safely
+    let json = null;
+    try { json = JSON.parse(text); } catch(e) { console.error('Non-JSON response:', text); }
+    if (json && json.success) {
+      alert('Action completed.');
+      location.reload();
+    } else {
+      console.error('Action failed:', json || text);
+      alert('Error: ' + (json && json.message ? json.message : 'Request failed or invalid response'));
+    }
+  })
+  .catch(err => {
+    console.error('Request error:', err);
+    alert('Request failed');
+  });
 }
 
 /* View Application Modal scripts */

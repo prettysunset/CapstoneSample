@@ -44,33 +44,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['action']) && $_POST[
     $validity_months = (int)($interval->y * 12 + $interval->m + ($interval->d > 0 ? 1 : 0));
     if ($validity_months < 0) $validity_months = 0;
 
-    // handle file upload (optional)
-    $moa_file_path = '';
-    if (!empty($_FILES['moa_file']['name']) && isset($_FILES['moa_file']) && $_FILES['moa_file']['error'] === UPLOAD_ERR_OK) {
-        $uploadDir = __DIR__ . '/../uploads/moa/';
-        if (!is_dir($uploadDir)) mkdir($uploadDir, 0755, true);
-
-        $orig = basename($_FILES['moa_file']['name']);
-        $ext = strtolower(pathinfo($orig, PATHINFO_EXTENSION));
-        $allowed = ['pdf','jpg','jpeg','png'];
-        if (!in_array($ext, $allowed)) {
-            http_response_code(400); header('Content-Type: application/json'); echo json_encode(['success'=>false,'message'=>'Invalid file type. Allowed: pdf,jpg,jpeg,png']); exit;
-        }
-
-        // limit file size (5MB)
-        if ($_FILES['moa_file']['size'] > 5 * 1024 * 1024) {
-            http_response_code(400); header('Content-Type: application/json'); echo json_encode(['success'=>false,'message'=>'File too large (max 5MB).']); exit;
-        }
-
-        $safe = preg_replace('/[^a-z0-9_\-]/i','_', pathinfo($orig, PATHINFO_FILENAME));
-        $newName = $safe . '_' . time() . '.' . $ext;
-        $dest = $uploadDir . $newName;
-        if (move_uploaded_file($_FILES['moa_file']['tmp_name'], $dest)) {
-            $moa_file_path = 'uploads/moa/' . $newName;
-        } else {
-            http_response_code(500); header('Content-Type: application/json'); echo json_encode(['success'=>false,'message'=>'Failed to move uploaded file.']); exit;
-        }
+    // handle file upload (required)
+    if (!isset($_FILES['moa_file']) || empty($_FILES['moa_file']['name'])) {
+        http_response_code(400);
+        header('Content-Type: application/json');
+        echo json_encode(['success' => false, 'message' => 'Please choose a file to upload.']);
+        exit;
     }
+    $moa_file_path = '';
+    if ($_FILES['moa_file']['error'] !== UPLOAD_ERR_OK) {
+        http_response_code(400);
+        header('Content-Type: application/json');
+        echo json_encode(['success' => false, 'message' => 'File upload error.']);
+        exit;
+    }
+    if (isset($_FILES['moa_file']) && $_FILES['moa_file']['error'] === UPLOAD_ERR_OK) {
+         $uploadDir = __DIR__ . '/../uploads/moa/';
+         if (!is_dir($uploadDir)) mkdir($uploadDir, 0755, true);
+ 
+         $orig = basename($_FILES['moa_file']['name']);
+         $ext = strtolower(pathinfo($orig, PATHINFO_EXTENSION));
+         $allowed = ['pdf','jpg','jpeg','png'];
+         if (!in_array($ext, $allowed)) {
+             http_response_code(400); header('Content-Type: application/json'); echo json_encode(['success'=>false,'message'=>'Invalid file type. Allowed: pdf,jpg,jpeg,png']); exit;
+         }
+ 
+         // limit file size (5MB)
+         if ($_FILES['moa_file']['size'] > 5 * 1024 * 1024) {
+             http_response_code(400); header('Content-Type: application/json'); echo json_encode(['success'=>false,'message'=>'File too large (max 5MB).']); exit;
+         }
+ 
+         $safe = preg_replace('/[^a-z0-9_\-]/i','_', pathinfo($orig, PATHINFO_FILENAME));
+         $newName = $safe . '_' . time() . '.' . $ext;
+         $dest = $uploadDir . $newName;
+         if (move_uploaded_file($_FILES['moa_file']['tmp_name'], $dest)) {
+             $moa_file_path = 'uploads/moa/' . $newName;
+         } else {
+             http_response_code(500); header('Content-Type: application/json'); echo json_encode(['success'=>false,'message'=>'Failed to move uploaded file.']); exit;
+         }
+     }
 
     // insert into DB
     $stmt = $conn->prepare("INSERT INTO moa (school_name, moa_file, date_uploaded, validity_months) VALUES (?,?,?,?)");
@@ -184,6 +196,7 @@ function fmtDate($d){ if (!$d) return '-'; $dt = date_create($d); return $dt ? d
   .status-expired{color:#a00;font-weight:700}
   /* modal styles for Add MOA */
   .modal-backdrop{ position:fixed; inset:0; background:rgba(0,0,0,0.35); display:none; align-items:center; justify-content:center; z-index:1200; }
+  .modal-backdrop.show{ display:flex; pointer-events:auto; }
   .modal{ background:#fff; width:360px; max-width:92%; border-radius:16px; padding:18px; box-shadow:0 12px 40px rgba(0,0,0,0.18); }
   .modal h3{ margin:0 0 12px 0; font-size:18px; }
   .form-row{ margin-bottom:10px; }
@@ -317,35 +330,53 @@ function fmtDate($d){ if (!$d) return '-'; $dt = date_create($d); return $dt ? d
     URL.revokeObjectURL(url);
   });
 
-  document.getElementById('btnAdd').addEventListener('click', function(){
-    // show modal
-    document.getElementById('moaModalBackdrop').style.display = 'flex';
-  });
-
-  document.getElementById('moaCancel').addEventListener('click', function(){
-    // hide modal
-    document.getElementById('moaModalBackdrop').style.display = 'none';
-  });
+  // modal helpers (use class .show to avoid hidden element blocking clicks)
+  const backdrop = document.getElementById('moaModalBackdrop');
+  const btnAdd = document.getElementById('btnAdd');
+  const btnCancel = document.getElementById('moaCancel');
+  const form = document.getElementById('moaForm');
+  function showModal(){ backdrop.classList.add('show'); backdrop.setAttribute('aria-hidden','false'); }
+  function hideModal(){ backdrop.classList.remove('show'); backdrop.setAttribute('aria-hidden','true'); form.reset(); }
+  btnAdd.addEventListener('click', function(e){ e.preventDefault(); showModal(); });
+  btnCancel.addEventListener('click', function(e){ e.preventDefault(); hideModal(); });
+  backdrop.addEventListener('click', function(e){ if (e.target === backdrop) hideModal(); });
 
   document.getElementById('moaForm').addEventListener('submit', function(e){
     e.preventDefault();
-    const formData = new FormData(this);
+    const form = this;
+
+    // client-side required validation (works with HTML required attributes)
+    if (!form.checkValidity()) {
+      form.reportValidity();
+      return;
+    }
+
+    // date validation: valid_until must be same or after date_signed
+    const dateSigned = form.querySelector('[name="date_signed"]').value;
+    const validUntil = form.querySelector('[name="valid_until"]').value;
+    if (dateSigned && validUntil && (new Date(validUntil) < new Date(dateSigned))) {
+      alert('Valid Until must be the same or after Date Signed.');
+      return;
+    }
+
+    const submitBtn = form.querySelector('button[type="submit"]');
+    const originalBtnText = submitBtn ? submitBtn.textContent : 'SEND';
+    if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Sending...'; }
+
+    const formData = new FormData(form);
     fetch('', { method: 'POST', body: formData })
     .then(response => response.text())
     .then(text => {
       try {
         const data = JSON.parse(text);
         if (data.success && data.moa) {
-          // remove single "No MOA records." row if present
+          // update table (same logic you already have)
           const tblBody = document.querySelector('#tblMoa tbody');
-          const emptyCell = tblBody.querySelector('td.empty');
-          if (emptyCell) tblBody.innerHTML = '';
+          if (tblBody.querySelector('td.empty')) tblBody.innerHTML = '';
 
-          // format dates
           const formatDate = (d) => {
             if (!d) return '-';
-            const dt = new Date(d);
-            if (isNaN(dt)) return '-';
+            const dt = new Date(d); if (isNaN(dt)) return '-';
             return dt.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
           };
 
@@ -354,7 +385,7 @@ function fmtDate($d){ if (!$d) return '-'; $dt = date_create($d); return $dt ? d
           const school = m.school_name || '—';
           const statusClass = (m.status === 'ACTIVE') ? 'status-active' : 'status-expired';
           const dateUploaded = m.date_uploaded ? formatDate(m.date_uploaded) : '-';
-          const validUntil = m.valid_until ? formatDate(m.valid_until) : '-';
+          const validUntilFmt = m.valid_until ? formatDate(m.valid_until) : '-';
           const fileHtml = m.moa_file ? `<a href="../${m.moa_file}" target="_blank">${m.moa_file.split('/').pop()}</a>` : '—';
 
           const newRow = document.createElement('tr');
@@ -364,15 +395,14 @@ function fmtDate($d){ if (!$d) return '-'; $dt = date_create($d); return $dt ? d
             <td>${school}</td>
             <td><span class="${statusClass}">${m.status}</span></td>
             <td>${dateUploaded}</td>
-            <td>${validUntil}</td>
+            <td>${validUntilFmt}</td>
             <td>${fileHtml}</td>
           `;
           tblBody.insertBefore(newRow, tblBody.firstChild);
 
           // confirmation and close modal
           alert('MOA added successfully');
-          document.getElementById('moaModalBackdrop').style.display = 'none';
-          document.getElementById('moaForm').reset();
+          hideModal();
         } else {
           alert(data.message || 'Error adding MOA');
         }
@@ -381,109 +411,12 @@ function fmtDate($d){ if (!$d) return '-'; $dt = date_create($d); return $dt ? d
         alert('Server error. Check PHP error log or Network response.');
       }
     })
-    .catch(err => { console.error(err); alert('Error processing request'); });
+    .catch(err => { console.error(err); alert('Error processing request'); })
+    .finally(() => {
+      if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = originalBtnText; }
+    });
   });
 })();
 </script>
-<?php
-// handle AJAX add MOA (form POST multipart/form-data)
-// if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['action']) && $_POST['action'] === 'add_moa')) {
-//     // basic validation/sanitization
-//     $school = trim($_POST['school'] ?? '');
-//     $date_signed = $_POST['date_signed'] ?? null;
-//     $valid_until = $_POST['valid_until'] ?? null;
-
-//     // compute approximate months difference (validity_months)
-//     $validity_months = 12;
-//     if ($date_signed && $valid_until) {
-//         try {
-//             $d1 = new DateTime($date_signed);
-//             $d2 = new DateTime($valid_until);
-//             $interval = $d1->diff($d2);
-//             $validity_months = (int)($interval->y * 12 + $interval->m + ($interval->d > 0 ? 1 : 0));
-//             if ($validity_months < 0) $validity_months = 0;
-//         } catch (Exception $e) {
-//             $validity_months = 12;
-//         }
-//     }
-
-//     // handle file upload (optional)
-//     $moa_file_path = '';
-//     if (!empty($_FILES['moa_file']['name']) && isset($_FILES['moa_file']) && $_FILES['moa_file']['error'] === UPLOAD_ERR_OK) {
-//         $uploadDir = __DIR__ . '/../uploads/moa/'; // web-accessible relative: /uploads/moa/...
-//         if (!is_dir($uploadDir)) mkdir($uploadDir, 0755, true);
-
-//         $orig = basename($_FILES['moa_file']['name']);
-//         $ext = strtolower(pathinfo($orig, PATHINFO_EXTENSION));
-//         $allowed = ['pdf','jpg','jpeg','png'];
-//         if (!in_array($ext, $allowed)) {
-//             http_response_code(400);
-//             header('Content-Type: application/json');
-//             echo json_encode(['success'=>false,'message'=>'Invalid file type.']);
-//             exit;
-//         }
-
-//         // max 5MB
-//         if ($_FILES['moa_file']['size'] > 5 * 1024 * 1024) {
-//             http_response_code(400);
-//             header('Content-Type: application/json');
-//             echo json_encode(['success'=>false,'message'=>'File too large (max 5MB).']);
-//             exit;
-//         }
-
-//         $safe = preg_replace('/[^a-z0-9_\-]/i','_', pathinfo($orig, PATHINFO_FILENAME));
-//         $newName = $safe . '_' . time() . '.' . $ext;
-//         $dest = $uploadDir . $newName;
-
-//         if (move_uploaded_file($_FILES['moa_file']['tmp_name'], $dest)) {
-//             // store relative path (or just filename) in DB so you can build link in UI
-//             $moa_file_path = 'uploads/moa/' . $newName;
-//         } else {
-//             http_response_code(500);
-//             header('Content-Type: application/json');
-//             echo json_encode(['success'=>false,'message'=>'Failed to move uploaded file.']);
-//             exit;
-//         }
-//     }
-
-//     // insert into DB (store $moa_file_path)
-//     $stmt = $conn->prepare("INSERT INTO moa (school_name, moa_file, date_uploaded, validity_months) VALUES (?,?,?,?)");
-//     $stmt->bind_param("sssi", $school, $moa_file_path, $date_signed, $validity_months);
-//     $ok = $stmt->execute();
-//     $insertId = $conn->insert_id;
-//     $err = $stmt->error;
-//     $stmt->close();
-
-//     if ($ok) {
-//         // compute students count similar to page logic
-//         $cntStmt = $conn->prepare("SELECT COUNT(*) AS cnt FROM students WHERE (college LIKE ? OR school_address LIKE ?)");
-//         $like = "%{$school}%";
-//         $cntStmt->bind_param("ss", $like, $like);
-//         $cntStmt->execute();
-//         $cntRow = $cntStmt->get_result()->fetch_assoc();
-//         $students = (int)($cntRow['cnt'] ?? 0);
-//         $cntStmt->close();
-
-//         $valid_until_calc = $date_signed ? date('Y-m-d', strtotime("+{$validity_months} months", strtotime($date_signed))) : null;
-//         $status = ($valid_until_calc && strtotime($valid_until_calc) >= strtotime(date('Y-m-d'))) ? 'ACTIVE' : 'EXPIRED';
-
-//         header('Content-Type: application/json');
-//         echo json_encode(['success' => true, 'moa' => [
-//             'moa_id' => (int)$insertId,
-//             'school_name' => $school,
-//             'moa_file' => $moa_file_path,
-//             'date_uploaded' => $date_signed,
-//             'valid_until' => $valid_until_calc,
-//             'students' => $students,
-//             'status' => $status
-//         ]]);
-//         exit;
-//     } else {
-//         header('Content-Type: application/json', true, 500);
-//         echo json_encode(['success' => false, 'message' => $err ?: 'Insert failed']);
-//         exit;
-//     }
-// }
-?>
 </body>
 </html>
