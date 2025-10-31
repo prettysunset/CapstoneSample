@@ -460,61 +460,68 @@ $stmtCount->close();
     </div>
   </div>
 </div>
-
 <!-- View Application Modal -->
 <div id="viewOverlay" class="overlay" role="dialog" aria-hidden="true" style="display:none;align-items:center;justify-content:center;">
-  <div class="modal" style="width:900px;max-width:calc(100% - 24px);">
-    <div style="display:flex;gap:18px;">
-      <div style="flex:0 0 220px;">
-        <div style="display:flex;flex-direction:column;align-items:center;gap:12px;">
-          <div style="width:120px;height:120px;border-radius:50%;background:#e9e9e9;display:flex;align-items:center;justify-content:center;font-size:44px;color:#777" id="view_avatar">👤</div>
-          <div style="text-align:center">
-            <div id="view_name" style="font-weight:700;font-size:18px">Name</div>
-            <div id="view_status" style="color:#666;font-size:13px">Status | hours</div>
-          </div>
-          <div style="display:flex;gap:8px;margin-top:8px">
-            <button style="background:#fff;border:2px solid #28a745;color:#28a745;padding:8px 14px;border-radius:24px;cursor:pointer" id="view_approve_btn">APPROVE</button>
-            <button style="background:#fff;border:2px solid #dc3545;color:#dc3545;padding:8px 14px;border-radius:24px;cursor:pointer" id="view_reject_btn">REJECT</button>
-          </div>
-        </div>
+  <div class="modal" style="width:760px;max-width:calc(100% - 40px);max-height:80vh;overflow:auto;padding:16px;">
+    <!-- Top: avatar, name, status and action buttons -->
+    <div style="display:flex;flex-direction:column;align-items:center;gap:12px;padding-bottom:8px;border-bottom:1px solid #eee">
+      <div style="width:120px;height:120px;border-radius:50%;background:#e9e9e9;display:flex;align-items:center;justify-content:center;font-size:44px;color:#777" id="view_avatar">👤</div>
+      <div style="text-align:center">
+        <div id="view_name" style="font-weight:700;font-size:18px">Name</div>
+        <div id="view_status" style="color:#666;font-size:13px">Status | hours</div>
       </div>
-
-      <div style="flex:1;display:flex;gap:18px;">
-        <div style="flex:1;border-right:1px solid #eee;padding-right:12px">
-          <table style="width:100%;border-collapse:collapse">
-            <tbody style="font-size:14px">
-              <tr><td style="width:140px;font-weight:700">Age</td><td id="view_age"></td></tr>
-              <tr><td style="font-weight:700">Birthday</td><td id="view_birthday"></td></tr>
-              <tr><td style="font-weight:700">Address</td><td id="view_address"></td></tr>
-              <tr><td style="font-weight:700">Phone</td><td id="view_phone"></td></tr>
-              <tr><td style="font-weight:700">Email</td><td id="view_email"></td></tr>
-
-              <tr><td style="height:8px"></td><td></td></tr>
-
-              <tr><td style="font-weight:700">College/University</td><td id="view_college"></td></tr>
-              <tr><td style="font-weight:700">Course</td><td id="view_course"></td></tr>
-              <tr><td style="font-weight:700">Year level</td><td id="view_year"></td></tr>
-              <tr><td style="font-weight:700">School Address</td><td id="view_school_address"></td></tr>
-              <tr><td style="font-weight:700">OJT Adviser</td><td id="view_adviser"></td></tr>
-
-              <tr><td style="height:8px"></td><td></td></tr>
-
-              <tr><td style="font-weight:700">Emergency Contact</td><td id="view_emg_name"></td></tr>
-              <tr><td style="font-weight:700">Relationship</td><td id="view_emg_relation"></td></tr>
-              <tr><td style="font-weight:700">Contact Number</td><td id="view_emg_contact"></td></tr>
-            </tbody>
-          </table>
-        </div>
-
-        <div style="width:320px;padding-left:12px">
-          <div style="font-weight:700;margin-bottom:8px">Attachments</div>
-          <div id="view_attachments" style="display:flex;flex-direction:column;gap:8px"></div>
-        </div>
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <button style="background:#fff;border:2px solid #28a745;color:#28a745;padding:8px 14px;border-radius:24px;cursor:pointer" id="view_approve_btn">APPROVE</button>
+        <button style="background:#fff;border:2px solid #dc3545;color:#dc3545;padding:8px 14px;border-radius:24px;cursor:pointer" id="view_reject_btn">REJECT</button>
       </div>
     </div>
 
-    <div style="display:flex;justify-content:flex-end;margin-top:12px;gap:8px">
-      <button class="btn-cancel" onclick="closeViewModal()" type="button">Close</button>
+    <!-- Below name: info and attachments shown as flex -->
+    <div style="display:flex;gap:18px;margin-top:12px;flex-wrap:wrap;">
+      <div style="flex:1;min-width:280px;border-right:1px solid #eee;padding-right:12px">
+        <table style="width:100%;border-collapse:collapse">
+          <tbody style="font-size:14px">
+            <tr><td style="width:140px;font-weight:700">Age</td><td id="view_age"></td></tr>
+            <tr><td style="font-weight:700">Birthday</td><td id="view_birthday"></td></tr>
+            <tr><td style="font-weight:700">Address</td><td id="view_address"></td></tr>
+            <tr><td style="font-weight:700">Phone</td><td id="view_phone"></td></tr>
+            <tr><td style="font-weight:700">Email</td><td id="view_email"></td></tr>
+
+            <tr><td style="height:8px"></td><td></td></tr>
+
+            <tr><td style="font-weight:700">College/University</td><td id="view_college"></td></tr>
+            <tr><td style="font-weight:700">Course</td><td id="view_course"></td></tr>
+            <tr><td style="font-weight:700">Year level</td><td id="view_year"></td></tr>
+            <tr><td style="font-weight:700">School Address</td><td id="view_school_address"></td></tr>
+            <tr><td style="font-weight:700">OJT Adviser</td><td id="view_adviser"></td></tr>
+
+            <tr><td style="height:8px"></td><td></td></tr>
+
+            <tr><td style="font-weight:700">Emergency Contact</td><td id="view_emg_name"></td></tr>
+            <tr><td style="font-weight:700">Relationship</td><td id="view_emg_relation"></td></tr>
+            <tr><td style="font-weight:700">Contact Number</td><td id="view_emg_contact"></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div style="width:320px;padding-left:12px;min-width:220px">
+        <div style="font-weight:700;margin-bottom:8px">Attachments</div>
+        <div id="view_attachments" style="display:flex;flex-direction:column;gap:8px"></div>
+      </div>
+    </div>
+    <style>
+      /* make modal a positioned container so the button can be placed at its top-right */
+      .modal { position: relative; }
+    </style>
+
+    <!-- top-right Close button inside the modal -->
+    <div style="position:absolute; top:12px; right:12px;">
+      <button class="btn-cancel"
+              onclick="closeViewModal()"
+              type="button"
+              style="padding:8px 12px; border-radius:8px; border:none; background:#eee; color:#333; cursor:pointer;">
+        Close
+      </button>
     </div>
   </div>
 </div>
@@ -844,16 +851,20 @@ async function openViewModal(appId) {
         const wrap = document.createElement('div'); wrap.style.display='flex'; wrap.style.justifyContent='space-between'; wrap.style.alignItems='center';
         const name = document.createElement('div'); name.textContent = a.label + ' — ' + a.file.split('/').pop();
         const actions = document.createElement('div');
-        const viewBtn = document.createElement('button'); viewBtn.textContent = '👁️'; viewBtn.style.marginRight='6px';
+        actions.style.display = 'flex';
+        actions.style.gap = '6px';
+        actions.style.alignItems = 'center';
+        const viewBtn = document.createElement('button'); viewBtn.textContent = '👁'; viewBtn.title = 'View';
         viewBtn.onclick = ()=> window.open('../' + a.file, '_blank');
-        const dlBtn = document.createElement('button'); dlBtn.textContent = '⬇'; dlBtn.onclick = ()=> {
+        const dlBtn = document.createElement('button'); dlBtn.textContent = '🡻'; dlBtn.title = 'Download';
+        dlBtn.onclick = ()=> {
           const link = document.createElement('a'); link.href = '../' + a.file; link.download = ''; document.body.appendChild(link); link.click(); link.remove();
         };
         actions.appendChild(viewBtn); actions.appendChild(dlBtn);
         wrap.appendChild(name); wrap.appendChild(actions);
         attRoot.appendChild(wrap);
       }
-    });
+        });
 
     // wire approve/reject buttons (open existing modals with this app id)
     document.getElementById('view_approve_btn').onclick = function(){ closeViewModal(); openApproveModal({ getAttribute: () => appId, getAttribute:function(){}, }); /* fallback: openApproveModal expects element; we instead call openApproveModal with a small shim below */ };
