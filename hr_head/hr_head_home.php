@@ -229,36 +229,41 @@ $current_date = date("l, F j, Y");
 </div>
 
 <div class="main">
-    <div class="top-section">
-        <div>
-            <div class="datetime">
-                <h2><?php echo $current_time; ?></h2>
-                <p><?php echo $current_date; ?></p>
-            </div>
+  <!-- Top bar: icons on the right -->
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+    <div><!-- left intentionally empty to keep icons on the right --></div>
+    <div class="top-icons">
+      <button id="btnNotif" title="Notifications" aria-label="Notifications">🔔</button>
+      <button id="btnSettings" title="Settings" aria-label="Settings">⚙️</button>
+      <button id="btnLogout" title="Log out" aria-label="Log out">🚪</button>
+    </div>
+  </div>
+
+  <!-- Second row: left = date + counters, right = OJT slot availability (side-by-side) -->
+  <div style="display:flex;gap:18px;align-items:stretch;margin-bottom:16px;">
+    <!-- Left column: date on top, counters below -->
+    <div style="flex:1;min-width:280px;display:flex;flex-direction:column;">
+      <div style="background:#fff;border-radius:8px;padding:14px;box-shadow:0 2px 8px rgba(0,0,0,0.06);flex:1;display:flex;flex-direction:column;justify-content:space-between;">
+        <div class="datetime" style="margin-bottom:12px">
+          <h2 style="margin:0;font-size:34px;line-height:1"><?php echo $current_time; ?></h2>
+          <p style="margin:0;color:#6d6d6d;font-size:30px"><?php echo $current_date; ?></p>
         </div>
 
-        <div style="min-width:320px; display:flex; flex-direction:column; align-items:flex-end;">
-            <div class="top-icons" style="margin-bottom:10px">
-                <button id="btnNotif" title="Notifications" aria-label="Notifications">🔔</button>
-                <button id="btnSettings" title="Settings" aria-label="Settings">⚙️</button>
-                <button id="btnLogout" title="Log out" aria-label="Log out">🚪</button>
-            </div>
-
-            <div style="display:flex;gap:12px;align-items:center;justify-content:flex-end">
-                <div style="background:#fff;padding:12px;border-radius:8px;box-shadow:0 2px 6px rgba(0,0,0,0.04);text-align:center">
-                    <div style="font-size:20px;font-weight:700"><?php echo (int)$pending_count; ?></div>
-                    <div style="color:#666;font-size:13px">Pending</div>
-                </div>
-                <div style="background:#fff;padding:12px;border-radius:8px;box-shadow:0 2px 6px rgba(0,0,0,0.04);text-align:center">
-                    <div style="font-size:20px;font-weight:700"><?php echo (int)$rejected_count; ?></div>
-                    <div style="color:#666;font-size:13px">Rejected</div>
-                </div>
-            </div>
+        <div style="display:flex;gap:12px;align-items:center;margin-top:12px">
+          <div style="background:#eceff3;padding:20px;border-radius:8px;box-shadow:0 2px 6px rgba(0,0,0,0.02);text-align:center;flex:1;min-height:140px;display:flex;flex-direction:column;justify-content:center;">
+            <div style="font-size:36px;font-weight:700;color:#2f3850"><?php echo (int)$pending_count; ?></div>
+            <div style="color:#666;font-size:14px;margin-top:6px">Pending</div>
+          </div>
+          <div style="background:#eceff3;padding:20px;border-radius:8px;box-shadow:0 2px 6px rgba(0,0,0,0.02);text-align:center;flex:1;min-height:140px;display:flex;flex-direction:column;justify-content:center;">
+            <div style="font-size:36px;font-weight:700;color:#2f3850"><?php echo (int)$rejected_count; ?></div>
+            <div style="color:#666;font-size:14px;margin-top:6px">Rejected</div>
+          </div>
         </div>
-    </div> <!-- end .top-section -->
+      </div>
+    </div>
 
 <?php
-// --- Office slot availability block ---
+// --- Office slot availability block (prepare data) ---
 $capacityCol = null;
 $variants = ['current_limit','slot_capacity','capacity','slots','max_slots'];
 foreach ($variants as $v) {
@@ -285,54 +290,60 @@ $stmtCount = $conn->prepare("
     WHERE (office_preference1 = ? OR office_preference2 = ?) AND status = 'approved'
 ");
 ?>
-<div class="table-container" style="margin-bottom:16px">
-    <h3 style="margin:0 0 12px 0">OJT Slot Availability by Office</h3>
 
-    <?php if (empty($offices)): ?>
-        <div class="empty">No offices found.</div>
-    <?php else: ?>
-        <table style="width:100%;border-collapse:collapse">
-            <thead>
-                <tr>
-                    <th style="text-align:left;padding:8px">Office</th>
-                    <th style="padding:8px">Capacity</th>
-                    <th style="padding:8px">Filled</th>
-                    <th style="padding:8px">Available</th>
-                </tr>
-            </thead>
-            <tbody>
-            <?php foreach ($offices as $o):
-                $office_id = (int)$o['office_id'];
-                $capacity = isset($o['capacity']) ? (int)$o['capacity'] : null;
+    <!-- Right column: slot availability -->
+    <div style="flex:1;min-width:360px;">
+      <div class="table-container" style="padding:12px;">
+        <h3 style="margin:0 0 12px 0; background:#3a4163;padding:12px;border-radius:8px; color:#fff">OJT Slot Availability by Office</h3>
 
-                $stmtCount->bind_param("ii", $office_id, $office_id);
-                $stmtCount->execute();
-                $resCount = $stmtCount->get_result();
-                $filledRow = $resCount->fetch_assoc();
-                $filled = (int)($filledRow['filled'] ?? 0);
-                $available = $capacity === null ? '—' : max(0, $capacity - $filled);
-            ?>
-                <tr>
-                    <td style="padding:8px"><?= htmlspecialchars($o['office_name']) ?></td>
-                    <td style="text-align:center;padding:8px"><?= $capacity === null ? '—' : $capacity ?></td>
-                    <td style="text-align:center;padding:8px"><?= $filled ?></td>
-                    <td style="text-align:center;padding:8px"><?= htmlspecialchars((string)$available) ?></td>
-                </tr>
-            <?php endforeach; ?>
-            </tbody>
-        </table>
-    <?php endif; ?>
-</div>
+        <?php if (empty($offices)): ?>
+            <div class="empty">No offices found.</div>
+        <?php else: ?>
+            <table style="width:100%;border-collapse:collapse">
+                <thead>
+                    <tr>
+                        <th style="text-align:left;padding:8px">Office</th>
+                        <th style="padding:8px">Capacity</th>
+                        <th style="padding:8px">Filled</th>
+                        <th style="padding:8px">Available</th>
+                    </tr>
+                </thead>
+                <tbody>
+                <?php foreach ($offices as $o):
+                    $office_id = (int)$o['office_id'];
+                    $capacity = isset($o['capacity']) ? (int)$o['capacity'] : null;
+
+                    $stmtCount->bind_param("ii", $office_id, $office_id);
+                    $stmtCount->execute();
+                    $resCount = $stmtCount->get_result();
+                    $filledRow = $resCount->fetch_assoc();
+                    $filled = (int)($filledRow['filled'] ?? 0);
+                    $available = $capacity === null ? '—' : max(0, $capacity - $filled);
+                ?>
+                    <tr>
+                        <td style="padding:8px"><?= htmlspecialchars($o['office_name']) ?></td>
+                        <td style="text-align:center;padding:8px"><?= $capacity === null ? '—' : $capacity ?></td>
+                        <td style="text-align:center;padding:8px"><?= $filled ?></td>
+                        <td style="text-align:center;padding:8px"><?= htmlspecialchars((string)$available) ?></td>
+                    </tr>
+                <?php endforeach; ?>
+                </tbody>
+            </table>
+        <?php endif; ?>
+      </div>
+    </div>
+  </div> <!-- end second row -->
 
 <?php
 $stmtCount->close();
 ?>
 
+  <!-- Next row: the list of pending / rejected (keeps the existing table-container after placeholder) -->
+
     <div class="table-container">
         <div class="table-tabs">
-            <a class="<?php echo $tab === 'pending' ? 'active' : ''; ?>" href="?tab=pending">Pending Approvals (<?php echo (int)$pending_count; ?>)</a>
-            <a class="<?php echo $tab === 'rejected' ? 'active' : ''; ?>" href="?tab=rejected">Rejected Students (<?php echo (int)$rejected_count; ?>)</a>
-        </div>
+            <a class="<?php echo $tab === 'pending' ? 'active' : ''; ?>" href="?tab=pending" <?php if ($tab === 'pending') echo 'style="background:#3a4163;color:#fff"'; ?>>Pending Approvals (<?php echo (int)$pending_count; ?>)</a>
+            <a class="<?php echo $tab === 'rejected' ? 'active' : ''; ?>" href="?tab=rejected" <?php if ($tab === 'rejected') echo 'style="background:#3a4163;color:#fff"'; ?>>Rejected Students (<?php echo (int)$rejected_count; ?>)</a></div>
 
         <?php if (count($apps) === 0): ?>
             <div class="empty">No <?php echo $tab === 'rejected' ? 'rejected' : 'pending'; ?> applications found.</div>
@@ -360,7 +371,7 @@ $stmtCount->close();
                     <td><?php echo htmlspecialchars($row['opt2'] ?: 'N/A'); ?></td>
                     <?php if ($tab !== 'rejected'): ?>
                     <td class="actions">
-                        <button type="button" class="view" title="View" onclick="openViewModal(<?= (int)$row['application_id'] ?>)">👁️</button>
+                        <button type="button" class="view" title="View" onclick="openViewModal(<?= (int)$row['application_id'] ?>)">👁</button>
                         <button type="button"
                             class="approve"
                             title="Approve"

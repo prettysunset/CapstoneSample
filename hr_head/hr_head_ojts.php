@@ -224,7 +224,7 @@ if ($off_q) {
           <path d="M21 21l-4.35-4.35" stroke="#666" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
           <circle cx="11" cy="11" r="6" stroke="#666" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
-        <input type="text" id="searchInput" placeholder="Search" aria-label="Search" style="border:0;background:transparent;outline:none;padding:6px 4px;font-size:15px;flex:1;min-width:0;"
+        <input type="text" id="searchInput" placeholder="Search" aria-label="Search" style="border:0;background:transparent;outline:none;padding:6px 4px;font-size:15px;flex:0 0 50%;width:50%;min-width:0;max-width:50%;"
                onfocus="this.style.outline='3px solid #2f3850';this.style.outlineOffset='2px';this.parentElement.style.boxShadow='0 0 0 3px rgba(47,56,80,0.08)';"
                onblur="this.style.outline='';this.style.outlineOffset='';this.parentElement.style.boxShadow='';">
           </div>
