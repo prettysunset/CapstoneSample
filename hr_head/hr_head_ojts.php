@@ -76,6 +76,19 @@ if ($off_q) {
     $stmtCount->close();
     $off_q->free();
 }
+
+// --- NEW: load MOA rows for client usage (array of {school_name, moa_file}) ---
+$moa_rows = [];
+$moa_q = $conn->query("SELECT school_name, moa_file FROM moa");
+if ($moa_q) {
+    while ($r = $moa_q->fetch_assoc()) {
+        $sn = trim($r['school_name'] ?? '');
+        $mf = trim($r['moa_file'] ?? '');
+        if ($sn === '' || $mf === '') continue; // only include valid rows
+        $moa_rows[] = ['school_name' => $sn, 'moa_file' => $mf];
+    }
+    $moa_q->free();
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -132,33 +145,41 @@ if ($off_q) {
         th,td{padding:6px}
     }
 
-    /* View modal styles (adjusted to match pasted image) */
+    /* View modal styles (adjusted) */
     .view-overlay { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(16,24,40,0.28); z-index: 9999; padding: 18px; }
+    /* lock page when modal open */
+    body.modal-open { overflow: hidden; height: 100%; }
+
     .view-card {
       width: 880px;
       max-width: 94vw;
       border-radius: 20px;
-      background: transparent; /* outer frame transparent so inner box looks like image */
+      background: transparent;
       box-shadow: 0 22px 60px rgba(16,24,40,0.28);
       overflow: visible;
       position: relative;
       padding: 18px;
       font-family: 'Poppins', sans-serif;
       max-height: 80vh;
+      display:flex;
+      flex-direction:column;
     }
-    /* inner white rounded content matching design */
+
     .view-inner {
       background:#fff;
       border-radius:14px;
       padding:18px;
       box-shadow: none;
       border: 1px solid rgba(231,235,241,0.9);
-      min-height: 460px;               /* keep modal height consistent */
+      min-height: 460px;
       max-height: calc(80vh - 36px);
-      overflow:auto;
+      display:flex;
+      flex-direction:column;
+      overflow:hidden; /* panel will scroll, not whole page */
     }
-    /* ensure each panel occupies the same inner space */
-    .view-panel { min-height: 360px; box-sizing:border-box; }
+
+    /* panels scroll internally */
+    .view-panel { flex:1 1 auto; min-height:360px; box-sizing:border-box; overflow:auto; padding-top:8px; }
 
     /* close button */
     .view-close { position: absolute; right: 18px; top: 18px; width:36px;height:36px;border-radius:50%;background:#fff;border:0;box-shadow:0 6px 18px rgba(16,24,40,0.06);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:18px; z-index:10010; }
@@ -587,6 +608,11 @@ if ($off_q) {
    </div> <!-- .view-card -->
  </div> <!-- #viewOverlay -->
 
+<!-- expose mapping to JS -->
+<script>
+  window.moaBySchool = <?php echo json_encode($moa_rows, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_AMP|JSON_HEX_QUOT); ?>;
+</script>
+
 <script>
 (function(){
     // tabs underline positioning
@@ -746,25 +772,63 @@ if ($off_q) {
         document.getElementById('view_office_head').textContent = d.office_head || d.office_head_name || '—';
         document.getElementById('view_office_contact').textContent = d.office_contact || '—';
 
-        // attachments
+        // attachments (existing attachments from application)
         const attRoot = document.getElementById('view_attachments_list');
         attRoot.innerHTML = '';
+        // base attachments from application record
         const attachments = [
           {label:'Letter of Intent', file:d.letter_of_intent},
           {label:'Endorsement', file:d.endorsement_letter},
           {label:'Resume', file:d.resume},
-          {label:'MOA', file:d.moa_file},
+          {label:'MOA (application)', file:d.moa_file},
           {label:'Picture', file:d.picture}
-        ];
+        ].filter(a=>a && a.file); // remove falsy items
+
+        // prefer server-provided school_moa (if hr_actions returned it)
+        if (d.school_moa && !attachments.some(a=>a.file === d.school_moa)) {
+          attachments.push({ label: 'MOA (school)', file: d.school_moa });
+        }
+
+        // fallback: simple deterministic match against embedded MOA rows (logs for debugging)
+        (function(){
+          try{
+            console.log('MOA rows embedded on page:', window.moaBySchool);
+            const schoolRaw = (s.college || s.school_name || s.school || s.school_address || '').toString().trim();
+            console.log('student school value:', schoolRaw);
+            if (!schoolRaw || !Array.isArray(window.moaBySchool) || !window.moaBySchool.length) return;
+            const normalize = txt => (txt||'').toString().toLowerCase().replace(/[^\w\s]/g,' ').replace(/\s+/g,' ').trim();
+            const sNorm = normalize(schoolRaw);
+            for(const entry of window.moaBySchool){
+              if (!entry || !entry.school_name) continue;
+              const eNorm = normalize(entry.school_name);
+              if (!eNorm) continue;
+              // direct equality or substring match (both directions)
+              if (eNorm === sNorm || eNorm.includes(sNorm) || sNorm.includes(eNorm)) {
+                if (!attachments.some(a=>a.file === entry.moa_file)) {
+                  attachments.push({ label: 'MOA (school)', file: entry.moa_file });
+                  console.log('MOA matched and added:', entry);
+                }
+                break;
+              }
+            }
+          }catch(ex){
+            console.warn('MOA matching error', ex);
+          }
+        })();
+
+        // render attachments list
         attachments.forEach(a=>{
-          if (!a.file) return;
-          const name = a.file.split('/').pop();
+          const filePath = a.file || '';
           const row = document.createElement('div');
-          row.style.display='flex'; row.style.justifyContent='space-between'; row.style.alignItems='center'; row.style.padding='6px 0';
+          row.style.display='flex';
+          row.style.justifyContent='space-between';
+          row.style.alignItems='center';
+          row.style.padding='6px 0';
+          const safe = filePath.replace(/'/g,"\\'");
           row.innerHTML = `<div style="font-size:14px;font-weight:600">${a.label}</div>
                            <div style="display:flex;gap:8px">
-                             <button class="tool-link" onclick="window.open('../${a.file}','_blank')">View</button>
-                             <button class="tool-link" onclick="(function(f){const aL=document.createElement('a');aL.href='../'+f;aL.download='';document.body.appendChild(aL);aL.click();aL.remove();})('${a.file.replace(/'/g,"\\'")}')">Download</button>
+                             <button class="tool-link" onclick="window.open('../${safe}','_blank')">View</button>
+                             <button class="tool-link" onclick="(function(f){const aL=document.createElement('a');aL.href='../'+f;aL.download='';document.body.appendChild(aL);aL.click();aL.remove();})('${safe}')">Download</button>
                            </div>`;
           attRoot.appendChild(row);
         });
