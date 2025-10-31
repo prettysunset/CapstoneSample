@@ -107,6 +107,10 @@ if ($off_q) {
         padding:8px 12px;border-radius:8px;border:1px solid #ccc;width:220px;font-size:15px;
         background:#f7f8fc;
     }
+    thead th {
+                  background: #dadadaff;
+                  color: black;
+              }
     .ojt-table-searchbar select{
         padding:8px 12px;border-radius:8px;border:1px solid #ccc;font-size:15px;background:#f7f8fc;
     }
@@ -133,15 +137,50 @@ if ($off_q) {
 <div class="sidebar">
     <div class="profile">
         <img src="https://cdn-icons-png.flaticon.com/512/149/149071.png" alt="Profile">
-        <h3><?= htmlspecialchars($full_name ?: ($_SESSION['username'] ?? '')) ?></h3>
-        <p><?= htmlspecialchars($role_label) ?></p>
+        <h3><?php echo htmlspecialchars($full_name ?: ($_SESSION['username'] ?? '')); ?></h3>
+        <p><?php echo htmlspecialchars($role_label); ?></p>
+        <?php if(!empty($user['office_name'])): ?>
+            <p style="font-size:12px;color:#bfc4d1"><?php echo htmlspecialchars($user['office_name']); ?></p>
+        <?php endif; ?>
     </div>
+
     <div class="nav">
-        <a href="hr_head_home.php">🏠 Home</a>
-        <a href="hr_head_ojts.php" class="active">👥 OJTs</a>
-        <a href="hr_head_dtr.php">🕒 DTR</a>
-        <a href="hr_head_accounts.php">⚙️ Accounts</a>
-        <a href="hr_head_reports.php">📊 Reports</a>
+      <a href="hr_head_home.php">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px">
+          <path d="M3 11.5L12 4l9 7.5"></path>
+          <path d="M5 12v7a1 1 0 0 0 1 1h3v-5h6v5h3a1 1 0 0 0 1-1v-7"></path>
+        </svg>
+        Home
+      </a>
+      <a href="#" class="active">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px">
+          <circle cx="12" cy="8" r="3"></circle>
+          <path d="M5.5 20a6.5 6.5 0 0 1 13 0"></path>
+        </svg>
+        OJTs
+      </a>
+      <a href="hr_head_dtr.php">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px">
+          <circle cx="12" cy="12" r="8"></circle>
+          <path d="M12 8v5l3 2"></path>
+        </svg>
+        DTR
+      </a>
+      <a href="hr_head_accounts.php">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px">
+          <circle cx="12" cy="12" r="3"></circle>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06A2 2 0 1 1 2.28 16.8l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09c.7 0 1.3-.4 1.51-1A1.65 1.65 0 0 0 4.27 6.3L4.2 6.23A2 2 0 1 1 6 3.4l.06.06c.5.5 1.2.7 1.82.33.7-.4 1.51-.4 2.21 0 .62.37 1.32.17 1.82-.33L12.6 3.4a2 2 0 1 1 1.72 3.82l-.06.06c-.5.5-.7 1.2-.33 1.82.4.7.4 1.51 0 2.21-.37.62-.17 1.32.33 1.82l.06.06A2 2 0 1 1 19.4 15z"></path>
+        </svg>
+        Accounts
+      </a>
+      <a href="hr_head_reports.php">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px">
+          <rect x="3" y="10" width="4" height="10"></rect>
+          <rect x="10" y="6" width="4" height="14"></rect>
+          <rect x="17" y="2" width="4" height="18"></rect>
+        </svg>
+        Reports
+      </a>
     </div>
     <p style="margin-top:auto;font-weight:600">OJT-MS</p>
 </div>
@@ -155,31 +194,72 @@ if ($off_q) {
         </div>
     </div>
     <div class="table-container">
-    <div class="tabs" role="tablist" aria-label="OJT Tabs" style="display:flex;align-items:flex-end;gap:24px;margin-bottom:12px;">
-        <button class="tab active" data-tab="ojts" role="tab" aria-selected="true" aria-controls="tab-ojts">On-the-Job Trainees (<?= count($students) ?>)</button>
-        <button class="tab" data-tab="requested" role="tab" aria-selected="false" aria-controls="tab-requested">Requested OJTs</button>
-        <div style="flex:1"></div>
-        <div class="ojt-table-searchbar" style="margin-left:auto;">
-            <input type="text" id="searchInput" placeholder="Search">
-            <select id="yearFilter">
-                <option value="">Year</option>
-                <option value="1">1</option>
-                <option value="2">2</option>
-                <option value="3">3</option>
-                <option value="4">4</option>
+      <div style="display:flex;flex-direction:column;gap:12px;">
+      <!-- First row: centered tabs (no background on buttons, only underline at bottom) -->
+      <div class="tabs" role="tablist" aria-label="OJT Tabs" style="display:flex;justify-content:center;align-items:flex-end;gap:24px;font-size:18px;">
+        <button class="tab active" data-tab="ojts" role="tab" aria-selected="true" aria-controls="tab-ojts" style="background:transparent;border:none;padding:10px 14px;border-radius:6px;cursor:pointer;color:#2f3850;font-weight:600;outline:none;font-size:18px;">
+          On-the-Job Trainees (<?= count($students) ?>)
+        </button>
+        <button class="tab" data-tab="requested" role="tab" aria-selected="false" aria-controls="tab-requested" style="background:transparent;border:none;padding:10px 14px;border-radius:6px;cursor:pointer;color:#2f3850;font-weight:600;outline:none;font-size:18px;">
+          Requested OJTs
+        </button>
+      </div>
+
+      <!-- underline bar (moved under the buttons row) -->
+      <div id="tabsUnderline" aria-hidden="true" style="height:3px;background:#2f3850;border-radius:3px;width:180px;transition:all .25s;margin-bottom:12px;margin-top:6px;"></div>
+
+      <!-- Second row: search / filters / sort (now spans full width with icons) -->
+      <div style="display:flex;align-items:center;gap:12px;width:100%;padding:6px 0;">
+        <div class="ojt-table-searchbar" style="flex:1;display:flex;align-items:center;gap:8px;">
+          <!-- Search input with icon -->
+          <div style="display:flex;align-items:center;background:#f7f8fc;border:1px solid #ccc;border-radius:8px;padding:6px 8px;min-width:0;flex:1;">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false" style="flex:0 0 auto;margin-right:8px;">
+          <path d="M21 21l-4.35-4.35" stroke="#666" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          <circle cx="11" cy="11" r="6" stroke="#666" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <input type="text" id="searchInput" placeholder="Search" aria-label="Search" style="border:0;background:transparent;outline:none;padding:6px 4px;font-size:15px;flex:1;min-width:0;"
+               onfocus="this.style.outline='3px solid #2f3850';this.style.outlineOffset='2px';this.parentElement.style.boxShadow='0 0 0 3px rgba(47,56,80,0.08)';"
+               onblur="this.style.outline='';this.style.outlineOffset='';this.parentElement.style.boxShadow='';">
+          </div>
+
+          <!-- Year filter -->
+          <select id="yearFilter" aria-label="Filter by year" style="padding:8px 10px;border-radius:8px;border:1px solid #ccc;background:#f7f8fc;font-size:15px;flex:0 0 110px;"
+            onfocus="this.style.outline='3px solid #2f3850';this.style.outlineOffset='2px';this.style.boxShadow='0 0 0 3px rgba(47,56,80,0.08)';"
+            onblur="this.style.outline='';this.style.outlineOffset='';this.style.boxShadow='';">
+        <option value="">Year</option>
+        <option value="1">1</option>
+        <option value="2">2</option>
+        <option value="3">3</option>
+        <option value="4">4</option>
             </select>
-            <select id="sortBy">
-                <option value="">Sort by</option>
-                <option value="name">Name</option>
-                <option value="office">Office</option>
-                <option value="school">School</option>
-                <option value="course">Course</option>
-                <option value="year">Year Level</option>
-                <option value="hours">Hours</option>
-                <option value="status">Status</option>
+
+            <!-- Sort by with icon inside the select (icon absolutely positioned) -->
+            <div style="flex:0 0 220px;position:relative;display:inline-block;">
+            <select id="sortBy" aria-label="Sort by" style="padding:8px 40px 8px 12px;border-radius:8px;border:1px solid #ccc;background:#f7f8fc;font-size:15px;width:100%;box-sizing:border-box;appearance:none;-webkit-appearance:none;-moz-appearance:none;cursor:pointer;"
+              onfocus="this.style.outline='3px solid #2f3850';this.style.outlineOffset='2px';this.style.boxShadow='0 0 0 3px rgba(47,56,80,0.08)';"
+              onblur="this.style.outline='';this.style.outlineOffset='';this.style.boxShadow='';">
+              <option value="">Sort by</option>
+              <option value="name">Name</option>
+              <option value="office">Office</option>
+              <option value="school">School</option>
+              <option value="course">Course</option>
+              <option value="year">Year Level</option>
+              <option value="hours">Hours</option>
+              <option value="status">Status</option>
             </select>
-        </div>
-    </div>
+            <div aria-hidden="true" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);pointer-events:none;display:flex;align-items:center;justify-content:center;width:24px;height:24px;">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" focusable="false">
+              <path d="M6 9h12" stroke="#666" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M6 15h8" stroke="#666" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M10 5l-4 4" stroke="#666" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M14 19l4-4" stroke="#666" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </div>
+            </div>
+          </div>
+          </div>
+      </div>
+      </div>
 
     <!-- underline bar -->
     <div id="tabsUnderline" aria-hidden="true" style="height:3px;background:#2f3850;border-radius:3px;width:180px;transition:all .25s;margin-bottom:12px;"></div>
@@ -189,15 +269,15 @@ if ($off_q) {
         <div style="overflow-x:auto;">
         <table id="ojtTable">
             <thead>
-                <tr>
-                    <th>Name</th>
-                    <th>Office</th>
-                    <th>School</th>
-                    <th>Course</th>
-                    <th>Year Level</th>
-                    <th>Hours</th>
-                    <th>Status</th>
-                    <th>View</th>
+                <tr style="background-color:#f5f6fa;">
+                  <th>Name</th>
+                  <th>Office</th>
+                  <th>School</th>
+                  <th>Course</th>
+                  <th>Year Level</th>
+                  <th>Hours</th>
+                  <th>Status</th>
+                  <th>View</th>
                 </tr>
             </thead>
             <tbody>
@@ -222,7 +302,12 @@ if ($off_q) {
                     <td><?= htmlspecialchars($hours) ?></td>
                     <td class="<?= $statusClass ?>"><?= ucfirst($status) ?></td>
                     <td>
-                        <button class="view-btn" title="View" onclick="openViewModal(<?= (int)$row['application_id'] ?>)">👁️</button>
+                        <button class="view-btn" title="View" onclick="openViewModal(<?= (int)$row['application_id'] ?>)" aria-label="View">
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true">
+                            <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/>
+                            <circle cx="12" cy="12" r="3"/>
+                          </svg>
+                        </button>
                     </td>
                 </tr>
             <?php endforeach; endif; ?>
