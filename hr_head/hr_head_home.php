@@ -93,6 +93,11 @@ $current_date = date("l, F j, Y");
     .approve{color:green} .reject{color:red} .view{color:#0b74de}
     .empty{padding:20px;text-align:center;color:#666}
 
+    /* top-right icons */
+    .top-icons{display:flex;gap:10px;align-items:center}
+    .top-icons button{background:none;border:none;cursor:pointer;font-size:18px;padding:8px;border-radius:8px}
+    .top-icons button:hover{background:#f0f0f0}
+
     /* Modal / overlay */
     .overlay {
       position: fixed;
@@ -176,42 +181,12 @@ $current_date = date("l, F j, Y");
     </div>
 
     <div class="nav">
-      <a href="#" class="active">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px">
-          <path d="M3 11.5L12 4l9 7.5"></path>
-          <path d="M5 12v7a1 1 0 0 0 1 1h3v-5h6v5h3a1 1 0 0 0 1-1v-7"></path>
-        </svg>
-        Home
-      </a>
-      <a href="hr_head_ojts.php">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px">
-          <circle cx="12" cy="8" r="3"></circle>
-          <path d="M5.5 20a6.5 6.5 0 0 1 13 0"></path>
-        </svg>
-        OJTs
-      </a>
-      <a href="hr_head_dtr.php">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px">
-          <circle cx="12" cy="12" r="8"></circle>
-          <path d="M12 8v5l3 2"></path>
-        </svg>
-        DTR
-      </a>
-      <a href="hr_head_accounts.php">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px">
-          <circle cx="12" cy="12" r="3"></circle>
-          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06A2 2 0 1 1 2.28 16.8l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09c.7 0 1.3-.4 1.51-1A1.65 1.65 0 0 0 4.27 6.3L4.2 6.23A2 2 0 1 1 6 3.4l.06.06c.5.5 1.2.7 1.82.33.7-.4 1.51-.4 2.21 0 .62.37 1.32.17 1.82-.33L12.6 3.4a2 2 0 1 1 1.72 3.82l-.06.06c-.5.5-.7 1.2-.33 1.82.4.7.4 1.51 0 2.21-.37.62-.17 1.32.33 1.82l.06.06A2 2 0 1 1 19.4 15z"></path>
-        </svg>
-        Accounts
-      </a>
-      <a href="hr_head_reports.php">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px">
-          <rect x="3" y="10" width="4" height="10"></rect>
-          <rect x="10" y="6" width="4" height="14"></rect>
-          <rect x="17" y="2" width="4" height="18"></rect>
-        </svg>
-        Reports
-      </a>
+        <a href="#" class="active">🏠 Home</a>
+        <a href="hr_head_ojts.php">👥 OJTs</a>
+        <a href="hr_head_dtr.php">🕒 DTR</a>
+        <a href="hr_head_moa.php">🕒 MOA</a>
+        <a href="hr_head_accounts.php">⚙️ Accounts</a>
+        <a href="hr_head_reports.php">📊 Reports</a>
     </div>
 
     <p style="margin-top:auto;font-weight:600">OJT-MS</p>
@@ -226,7 +201,13 @@ $current_date = date("l, F j, Y");
             </div>
         </div>
 
-        <div style="min-width:320px">
+        <div style="min-width:320px; display:flex; flex-direction:column; align-items:flex-end;">
+            <div class="top-icons" style="margin-bottom:10px">
+                <button id="btnNotif" title="Notifications" aria-label="Notifications">🔔</button>
+                <button id="btnSettings" title="Settings" aria-label="Settings">⚙️</button>
+                <button id="btnLogout" title="Log out" aria-label="Log out">🚪</button>
+            </div>
+
             <div style="display:flex;gap:12px;align-items:center;justify-content:flex-end">
                 <div style="background:#fff;padding:12px;border-radius:8px;box-shadow:0 2px 6px rgba(0,0,0,0.04);text-align:center">
                     <div style="font-size:20px;font-weight:700"><?php echo (int)$pending_count; ?></div>
@@ -531,16 +512,27 @@ async function openApproveModal(btn) {
     document.getElementById('modal_office').textContent = assigned || 'N/A';
 
     const dateInput = document.getElementById('modal_date');
-    dateInput.value = '';
+
+    // --- ADDED: prevent selecting past dates ---
+    const today = new Date();
+    const yyyy = today.getFullYear();
+    const mm = String(today.getMonth() + 1).padStart(2, '0');
+    const dd = String(today.getDate()).padStart(2, '0');
+    const minDate = `${yyyy}-${mm}-${dd}`;
+    dateInput.min = minDate;
+    // optionally prefill with today
+    dateInput.value = minDate;
+    // --- end added ---
 
     // disable send until date chosen
     const btnSend = document.getElementById('btnSend');
-    btnSend.disabled = true;
-    btnSend.setAttribute('aria-disabled', 'true');
+    btnSend.disabled = false;
+    btnSend.setAttribute('aria-disabled', 'false');
 
-    // enable when date selected
+    // enable when date selected (also re-check validity)
     dateInput.oninput = function() {
-        if (dateInput.value) {
+        const val = dateInput.value;
+        if (val && val >= dateInput.min) {
             btnSend.disabled = false;
             btnSend.setAttribute('aria-disabled', 'false');
         } else {
@@ -852,6 +844,34 @@ function closeViewModal(){
   overlay.style.display = 'none';
   overlay.setAttribute('aria-hidden','true');
 }
+
+// Add top-right icons handlers (notifications / settings / logout)
+document.addEventListener('DOMContentLoaded', function(){
+  const notifBtn = document.getElementById('btnNotif');
+  const settingsBtn = document.getElementById('btnSettings');
+  const logoutBtn = document.getElementById('btnLogout');
+
+  if (notifBtn) {
+    notifBtn.addEventListener('click', function(){
+      alert('Walang bagong notification ngayon.');
+    });
+  }
+
+  if (settingsBtn) {
+    settingsBtn.addEventListener('click', function(){
+      // adjust target if you have a settings page
+      window.location.href = 'hr_head_settings.php';
+    });
+  }
+
+  if (logoutBtn) {
+    logoutBtn.addEventListener('click', function(){
+      if (!confirm('Log out?')) return;
+      // hr_head is one folder deep; logout.php is in project root
+      window.location.href = '../logout.php';
+    });
+  }
+});
 </script>
 
 </body>

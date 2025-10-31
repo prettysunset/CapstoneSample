@@ -86,6 +86,7 @@ $q2->close();
       <a href="hr_head_home.php">🏠 Home</a>
       <a href="hr_head_ojts.php">👥 OJTs</a>
       <a href="hr_head_dtr.php">🕒 DTR</a>
+      <a href="hr_head_moa.php">🕒 MOA</a>
       <a href="hr_head_accounts.php" class="active">👤 Accounts</a>
       <a href="hr_head_reports.php">📊 Reports</a>
     </nav>
