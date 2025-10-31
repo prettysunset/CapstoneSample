@@ -65,14 +65,44 @@ $role_label = !empty($user['role']) ? ucwords(str_replace('_',' ', $user['role']
     </div>
 
     
-    <nav class="nav" aria-label="Main navigation">
-      <a href="hr_head_home.php">🏠 Home</a>
-      <a href="hr_head_ojts.php">👥 OJTs</a>
-      <a href="hr_head_dtr.php" class="active">🕒 DTR</a>
-      <a href="hr_head_moa.php">🕒 MOA</a>
-      <a href="hr_head_accounts.php">⚙️ Accounts</a>
-      <a href="hr_head_reports.php">📊 Reports</a>
-    </nav>
+    <div class="nav">
+      <a href="hr_head_home.php">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px">
+          <path d="M3 11.5L12 4l9 7.5"></path>
+          <path d="M5 12v7a1 1 0 0 0 1 1h3v-5h6v5h3a1 1 0 0 0 1-1v-7"></path>
+        </svg>
+        Home
+      </a>
+      <a href="hr_head_ojts.php">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px">
+          <circle cx="12" cy="8" r="3"></circle>
+          <path d="M5.5 20a6.5 6.5 0 0 1 13 0"></path>
+        </svg>
+        OJTs
+      </a>
+      <a href="#" class="active">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px">
+          <circle cx="12" cy="12" r="8"></circle>
+          <path d="M12 8v5l3 2"></path>
+        </svg>
+        DTR
+      </a>
+      <a href="hr_head_accounts.php">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px">
+          <circle cx="12" cy="12" r="3"></circle>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06A2 2 0 1 1 2.28 16.8l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09c.7 0 1.3-.4 1.51-1A1.65 1.65 0 0 0 4.27 6.3L4.2 6.23A2 2 0 1 1 6 3.4l.06.06c.5.5 1.2.7 1.82.33.7-.4 1.51-.4 2.21 0 .62.37 1.32.17 1.82-.33L12.6 3.4a2 2 0 1 1 1.72 3.82l-.06.06c-.5.5-.7 1.2-.33 1.82.4.7.4 1.51 0 2.21-.37.62-.17 1.32.33 1.82l.06.06A2 2 0 1 1 19.4 15z"></path>
+        </svg>
+        Accounts
+      </a>
+      <a href="hr_head_reports.php">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px">
+          <rect x="3" y="10" width="4" height="10"></rect>
+          <rect x="10" y="6" width="4" height="14"></rect>
+          <rect x="17" y="2" width="4" height="18"></rect>
+        </svg>
+        Reports
+      </a>
+    </div>
     <div style="margin-top:auto;font-weight:700">OJT-MS</div>
   </div>
 
