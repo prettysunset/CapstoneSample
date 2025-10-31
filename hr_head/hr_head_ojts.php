@@ -140,6 +140,7 @@ if ($off_q) {
         <a href="hr_head_home.php">🏠 Home</a>
         <a href="hr_head_ojts.php" class="active">👥 OJTs</a>
         <a href="hr_head_dtr.php">🕒 DTR</a>
+        <a href="hr_head_moa.php">🕒 MOA</a>
         <a href="hr_head_accounts.php">⚙️ Accounts</a>
         <a href="hr_head_reports.php">📊 Reports</a>
     </div>

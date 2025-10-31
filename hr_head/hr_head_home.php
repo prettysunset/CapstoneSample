@@ -93,6 +93,11 @@ $current_date = date("l, F j, Y");
     .approve{color:green} .reject{color:red} .view{color:#0b74de}
     .empty{padding:20px;text-align:center;color:#666}
 
+    /* top-right icons */
+    .top-icons{display:flex;gap:10px;align-items:center}
+    .top-icons button{background:none;border:none;cursor:pointer;font-size:18px;padding:8px;border-radius:8px}
+    .top-icons button:hover{background:#f0f0f0}
+
     /* Modal / overlay */
     .overlay {
       position: fixed;
@@ -179,6 +184,7 @@ $current_date = date("l, F j, Y");
         <a href="#" class="active">🏠 Home</a>
         <a href="hr_head_ojts.php">👥 OJTs</a>
         <a href="hr_head_dtr.php">🕒 DTR</a>
+        <a href="hr_head_moa.php">🕒 MOA</a>
         <a href="hr_head_accounts.php">⚙️ Accounts</a>
         <a href="hr_head_reports.php">📊 Reports</a>
     </div>
@@ -195,7 +201,13 @@ $current_date = date("l, F j, Y");
             </div>
         </div>
 
-        <div style="min-width:320px">
+        <div style="min-width:320px; display:flex; flex-direction:column; align-items:flex-end;">
+            <div class="top-icons" style="margin-bottom:10px">
+                <button id="btnNotif" title="Notifications" aria-label="Notifications">🔔</button>
+                <button id="btnSettings" title="Settings" aria-label="Settings">⚙️</button>
+                <button id="btnLogout" title="Log out" aria-label="Log out">🚪</button>
+            </div>
+
             <div style="display:flex;gap:12px;align-items:center;justify-content:flex-end">
                 <div style="background:#fff;padding:12px;border-radius:8px;box-shadow:0 2px 6px rgba(0,0,0,0.04);text-align:center">
                     <div style="font-size:20px;font-weight:700"><?php echo (int)$pending_count; ?></div>
@@ -500,16 +512,27 @@ async function openApproveModal(btn) {
     document.getElementById('modal_office').textContent = assigned || 'N/A';
 
     const dateInput = document.getElementById('modal_date');
-    dateInput.value = '';
+
+    // --- ADDED: prevent selecting past dates ---
+    const today = new Date();
+    const yyyy = today.getFullYear();
+    const mm = String(today.getMonth() + 1).padStart(2, '0');
+    const dd = String(today.getDate()).padStart(2, '0');
+    const minDate = `${yyyy}-${mm}-${dd}`;
+    dateInput.min = minDate;
+    // optionally prefill with today
+    dateInput.value = minDate;
+    // --- end added ---
 
     // disable send until date chosen
     const btnSend = document.getElementById('btnSend');
-    btnSend.disabled = true;
-    btnSend.setAttribute('aria-disabled', 'true');
+    btnSend.disabled = false;
+    btnSend.setAttribute('aria-disabled', 'false');
 
-    // enable when date selected
+    // enable when date selected (also re-check validity)
     dateInput.oninput = function() {
-        if (dateInput.value) {
+        const val = dateInput.value;
+        if (val && val >= dateInput.min) {
             btnSend.disabled = false;
             btnSend.setAttribute('aria-disabled', 'false');
         } else {
@@ -821,6 +844,34 @@ function closeViewModal(){
   overlay.style.display = 'none';
   overlay.setAttribute('aria-hidden','true');
 }
+
+// Add top-right icons handlers (notifications / settings / logout)
+document.addEventListener('DOMContentLoaded', function(){
+  const notifBtn = document.getElementById('btnNotif');
+  const settingsBtn = document.getElementById('btnSettings');
+  const logoutBtn = document.getElementById('btnLogout');
+
+  if (notifBtn) {
+    notifBtn.addEventListener('click', function(){
+      alert('Walang bagong notification ngayon.');
+    });
+  }
+
+  if (settingsBtn) {
+    settingsBtn.addEventListener('click', function(){
+      // adjust target if you have a settings page
+      window.location.href = 'hr_head_settings.php';
+    });
+  }
+
+  if (logoutBtn) {
+    logoutBtn.addEventListener('click', function(){
+      if (!confirm('Log out?')) return;
+      // hr_head is one folder deep; logout.php is in project root
+      window.location.href = '../logout.php';
+    });
+  }
+});
 </script>
 
 </body>

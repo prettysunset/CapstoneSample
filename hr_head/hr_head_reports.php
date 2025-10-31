@@ -110,6 +110,7 @@ $moa = fetch_moa($conn);
       <a href="hr_head_home.php" style="color:#fff;text-decoration:none;padding:10px;border-radius:20px">🏠 Home</a>
       <a href="hr_head_ojts.php" style="color:#fff;text-decoration:none;padding:10px;border-radius:20px">👥 OJTs</a>
       <a href="hr_head_dtr.php" style="color:#fff;text-decoration:none;padding:10px;border-radius:20px">🕒 DTR</a>
+      <a href="hr_head_moa.php">🕒 MOA</a>
       <a href="hr_head_accounts.php" style="color:#fff;text-decoration:none;padding:10px;border-radius:20px">👤 Accounts</a>
       <a href="hr_head_reports.php" style="color:#fff;background:#fff;color:#2f3850;padding:10px;border-radius:20px">📊 Reports</a>
     </nav>
