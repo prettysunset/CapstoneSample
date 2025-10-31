@@ -24,7 +24,20 @@ $role_label = !empty($user['role']) ? ucwords(str_replace('_',' ', $user['role']
 // which tab: pending (default) or rejected
 $tab = isset($_GET['tab']) && $_GET['tab'] === 'rejected' ? 'rejected' : 'pending';
 
-// counts
+// counts (replace pending/rejected counts with active/completed)
+$stmt = $conn->prepare("SELECT COUNT(*) FROM ojt_applications WHERE status = 'approved'");
+$stmt->execute();
+$stmt->bind_result($active_count);
+$stmt->fetch();
+$stmt->close();
+
+$stmt = $conn->prepare("SELECT COUNT(*) FROM ojt_applications WHERE status = 'completed'");
+$stmt->execute();
+$stmt->bind_result($completed_count);
+$stmt->fetch();
+$stmt->close();
+
+// --- ADDED: pending/rejected counts used by the tabs ---
 $stmt = $conn->prepare("SELECT COUNT(*) FROM ojt_applications WHERE status = 'pending'");
 $stmt->execute();
 $stmt->bind_result($pending_count);
@@ -166,6 +179,50 @@ $current_date = date("l, F j, Y");
       flex-direction:column;
       gap:8px;
     }
+    .status-open{ color:#0b7a3a; font-weight:700; background:#e6f9ee; padding:6px 10px; border-radius:12px; display:inline-block; }
+    .status-full{ color:#b22222; font-weight:700; background:#fff4f4; padding:6px 10px; border-radius:12px; display:inline-block; }
+
+    /* make the left time/counters container smaller so slots table gets more horizontal space */
+    .time-card { min-width:220px; max-width:260px; padding:14px; }
+    .time-card .current-time { font-size:24px; color:#2f3850; margin:0; }
+    .time-card .current-date { color:#6d6d6d; font-size:13px; }
+
+    /* reduce counter size */
+    .counter { padding:12px; }
+    .counter h3 { margin:0; font-size:22px; color:#2f3850; }
+    .counter p { margin:6px 0 0 0; color:#666; font-size:12px; }
+
+    /* ensure slots card can expand */
+    .slots-card { width:100%; }
+
+    /* top bar / header styles */
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 24px;
+    }
+    .topbar .card {
+      background: #fff;
+      border-radius: 8px;
+      padding: 16px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+      flex: 1;
+      margin-right: 18px;
+    }
+    .topbar .card:last-child {
+      margin-right: 0;
+    }
+    .topbar h2 {
+      font-size: 28px;
+      margin: 0 0 12px 0;
+      color: #2f3850;
+    }
+    .topbar p {
+      margin: 0;
+      color: #6d6d6d;
+      font-size: 14px;
+    }
 </style>
 </head>
 <body>
@@ -251,12 +308,12 @@ $current_date = date("l, F j, Y");
 
         <div style="display:flex;gap:12px;align-items:center;margin-top:12px">
           <div style="background:#eceff3;padding:20px;border-radius:8px;box-shadow:0 2px 6px rgba(0,0,0,0.02);text-align:center;flex:1;min-height:140px;display:flex;flex-direction:column;justify-content:center;">
-            <div style="font-size:36px;font-weight:700;color:#2f3850"><?php echo (int)$pending_count; ?></div>
-            <div style="color:#666;font-size:14px;margin-top:6px">Pending</div>
+            <div style="font-size:36px;font-weight:700;color:#2f3850"><?php echo (int)$active_count; ?></div>
+            <div style="color:#666;font-size:14px;margin-top:6px">Active OJTs</div>
           </div>
           <div style="background:#eceff3;padding:20px;border-radius:8px;box-shadow:0 2px 6px rgba(0,0,0,0.02);text-align:center;flex:1;min-height:140px;display:flex;flex-direction:column;justify-content:center;">
-            <div style="font-size:36px;font-weight:700;color:#2f3850"><?php echo (int)$rejected_count; ?></div>
-            <div style="color:#666;font-size:14px;margin-top:6px">Rejected</div>
+            <div style="font-size:36px;font-weight:700;color:#2f3850"><?php echo (int)$completed_count; ?></div>
+            <div style="color:#666;font-size:14px;margin-top:6px">Completed OJTs</div>
           </div>
         </div>
       </div>
@@ -304,28 +361,41 @@ $stmtCount = $conn->prepare("
                     <tr>
                         <th style="text-align:left;padding:8px">Office</th>
                         <th style="padding:8px">Capacity</th>
-                        <th style="padding:8px">Filled</th>
-                        <th style="padding:8px">Available</th>
+                        <th style="padding:8px">Active OJTs</th>
+                        <th style="padding:8px">Available Slot</th>
+                        <th style="padding:8px">Status</th>
                     </tr>
                 </thead>
                 <tbody>
                 <?php foreach ($offices as $o):
-                    $office_id = (int)$o['office_id'];
-                    $capacity = isset($o['capacity']) ? (int)$o['capacity'] : null;
+                    // support either 'capacity' or 'current_limit' depending on how $offices was built
+                    $cap = isset($o['capacity']) ? (int)$o['capacity'] : (isset($o['current_limit']) ? (int)$o['current_limit'] : null);
+                    $filled = isset($o['filled']) ? (int)$o['filled'] : 0;
 
-                    $stmtCount->bind_param("ii", $office_id, $office_id);
-                    $stmtCount->execute();
-                    $resCount = $stmtCount->get_result();
-                    $filledRow = $resCount->fetch_assoc();
-                    $filled = (int)($filledRow['filled'] ?? 0);
-                    $available = $capacity === null ? '—' : max(0, $capacity - $filled);
+                    if ($cap === null) {
+                        $availableDisplay = '—';
+                        $statusLabel = 'Open';
+                        $statusClass = 'status-open';
+                    } else {
+                        $availableNum = max(0, $cap - $filled);
+                        $availableDisplay = $availableNum;
+                        // EXACT condition: if available is zero => Full; otherwise Open
+                        if ($availableNum === 0) {
+                            $statusLabel = 'Full';
+                            $statusClass = 'status-full';
+                        } else {
+                            $statusLabel = 'Open';
+                            $statusClass = 'status-open';
+                        }
+                    }
                 ?>
-                    <tr>
-                        <td style="padding:8px"><?= htmlspecialchars($o['office_name']) ?></td>
-                        <td style="text-align:center;padding:8px"><?= $capacity === null ? '—' : $capacity ?></td>
-                        <td style="text-align:center;padding:8px"><?= $filled ?></td>
-                        <td style="text-align:center;padding:8px"><?= htmlspecialchars((string)$available) ?></td>
-                    </tr>
+                  <tr data-search="<?= htmlspecialchars(strtolower($o['office_name'] ?? '')) ?>">
+                    <td><?= htmlspecialchars($o['office_name'] ?? '—') ?></td>
+                    <td style="text-align:center"><?= $cap === null ? '—' : $cap ?></td>
+                    <td style="text-align:center"><?= $filled ?></td>
+                    <td style="text-align:center"><?= htmlspecialchars((string)$availableDisplay) ?></td>
+                    <td style="text-align:center"><span class="<?= $statusClass ?>"><?= htmlspecialchars($statusLabel) ?></span></td>
+                  </tr>
                 <?php endforeach; ?>
                 </tbody>
             </table>
@@ -770,7 +840,7 @@ function handleAction(id, action) {
         body: JSON.stringify({application_id: id, action: action})
     })
     .then(response => response.json())
-    .then(res => {
+    .then res => {
         if (res.success) {
             alert('Action completed.');
             location.reload();
