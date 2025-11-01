@@ -157,26 +157,120 @@ if ($action === 'approve_send') {
     $to = $res['email'];
     $student_name = trim(($res['first_name'] ?? '') . ' ' . ($res['last_name'] ?? ''));
 
-    // Determine assignment (prefer first, fallback to second)
+    // helper: get office info (name, capacity, filled)
+    $getOfficeInfo = function($conn, $officeId) {
+        if (!$officeId) return null;
+        $stmt = $conn->prepare("SELECT office_name, current_limit FROM offices WHERE office_id = ? LIMIT 1");
+        $stmt->bind_param("i", $officeId);
+        $stmt->execute();
+        $row = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+        if (!$row) return null;
+
+        $stmt2 = $conn->prepare("
+            SELECT COUNT(DISTINCT student_id) AS filled
+            FROM ojt_applications
+            WHERE (office_preference1 = ? OR office_preference2 = ?) AND status = 'approved'
+        ");
+        $stmt2->bind_param("ii", $officeId, $officeId);
+        $stmt2->execute();
+        $cnt = $stmt2->get_result()->fetch_assoc();
+        $stmt2->close();
+
+        return [
+            'office_name' => $row['office_name'],
+            'capacity' => is_null($row['current_limit']) ? null : (int)$row['current_limit'],
+            'filled' => (int)($cnt['filled'] ?? 0)
+        ];
+    };
+
     $pref1 = !empty($res['office_preference1']) ? (int)$res['office_preference1'] : null;
     $pref2 = !empty($res['office_preference2']) ? (int)$res['office_preference2'] : null;
-    $assignedOfficeName = '';
 
-    if ($pref1) {
-        $r = $conn->prepare("SELECT office_name FROM offices WHERE office_id = ?");
-        $r->bind_param("i", $pref1);
-        $r->execute();
-        $o1 = $r->get_result()->fetch_assoc();
-        $r->close();
-        if ($o1) $assignedOfficeName = $o1['office_name'];
+    $info1 = $pref1 ? $getOfficeInfo($conn, $pref1) : null;
+    $info2 = $pref2 ? $getOfficeInfo($conn, $pref2) : null;
+
+    // determine capacity availability
+    $pref1_full = false;
+    $pref2_full = false;
+
+    if ($info1) {
+        if ($info1['capacity'] !== null && $info1['filled'] >= $info1['capacity']) $pref1_full = true;
+    } elseif ($pref1) {
+        // office not found -> treat as full to avoid assigning
+        $pref1_full = true;
     }
-    if (!$assignedOfficeName && $pref2) {
-        $r = $conn->prepare("SELECT office_name FROM offices WHERE office_id = ?");
-        $r->bind_param("i", $pref2);
-        $r->execute();
-        $o2 = $r->get_result()->fetch_assoc();
-        $r->close();
-        if ($o2) $assignedOfficeName = $o2['office_name'];
+
+    if ($info2) {
+        if ($info2['capacity'] !== null && $info2['filled'] >= $info2['capacity']) $pref2_full = true;
+    } elseif ($pref2) {
+        $pref2_full = true;
+    }
+
+    // If both pref1 and pref2 are present and both full -> auto-reject and notify student
+    if (($pref1 && $pref2) && $pref1_full && $pref2_full) {
+        $remarks = "Auto-rejected: Full slots in preferred offices.";
+        $u = $conn->prepare("UPDATE ojt_applications SET status = 'rejected', remarks = ?, date_updated = CURDATE() WHERE application_id = ?");
+        $u->bind_param("si", $remarks, $app_id);
+        $ok = $u->execute();
+        $u->close();
+
+        if (!$ok) respond(['success' => false, 'message' => 'Failed to update application status.']);
+
+        // send rejection email (reuse existing rejection template)
+        $mailSent = false;
+        $mailError = '';
+        if (filter_var($to, FILTER_VALIDATE_EMAIL)) {
+            try {
+                $mail = new PHPMailer(true);
+                $mail->isSMTP();
+                $mail->Host       = SMTP_HOST;
+                $mail->SMTPAuth   = true;
+                $mail->Username   = SMTP_USER;
+                $mail->Password   = SMTP_PASS;
+                $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
+                $mail->Port       = SMTP_PORT;
+                $mail->CharSet    = 'UTF-8';
+                $mail->setFrom(SMTP_FROM_EMAIL, SMTP_FROM_NAME);
+                $mail->addAddress($to, $student_name);
+
+                $mail->isHTML(true);
+                $mail->Subject = "OJT Application Update";
+                $mail->Body    = "<p>Dear <strong>" . htmlspecialchars($student_name) . "</strong>,</p>"
+                               . "<p>We regret to inform you that your OJT application has been <strong>rejected</strong>.</p>"
+                               . "<p><strong>Reason:</strong> Full slots in preferred offices.</p>"
+                               . "<p>If you have questions, please contact the HR department.</p>"
+                               . "<p>— HR Department</p>";
+
+                $mail->send();
+                $mailSent = true;
+            } catch (Exception $e) {
+                $mailError = $mail->ErrorInfo ?? $e->getMessage();
+                $mailSent = false;
+            }
+
+            if (!$mailSent) {
+                // fallback to PHP mail
+                $headers  = "MIME-Version: 1.0\r\n";
+                $headers .= "Content-type: text/html; charset=utf-8\r\n";
+                $headers .= "From: " . SMTP_FROM_NAME . " <" . SMTP_FROM_EMAIL . ">\r\n";
+                $mailSent = mail($to, "OJT Application Update", "<p>Your application was rejected: Full slots in preferred offices.</p>", $headers);
+            }
+        }
+
+        respond(['success' => true, 'action' => 'auto_reject', 'mail' => $mailSent ? 'sent' : 'failed', 'message' => 'Application auto-rejected due to full slots.']);
+    }
+
+    // else proceed with existing behaviour: assign pref1 if available, else pref2, else approve with office name fallback
+    $assignedOfficeName = '';
+    if ($info1 && ($info1['capacity'] === null || $info1['filled'] < $info1['capacity'])) {
+        $assignedOfficeName = $info1['office_name'];
+    } elseif ($info2 && ($info2['capacity'] === null || $info2['filled'] < $info2['capacity'])) {
+        $assignedOfficeName = $info2['office_name'];
+    } else {
+        // fallback: if either pref exists but we couldn't compute capacity (null), prefer pref1 then pref2
+        if ($info1) $assignedOfficeName = $info1['office_name'];
+        elseif ($info2) $assignedOfficeName = $info2['office_name'];
     }
 
     // update application: status, remarks, date_updated
@@ -189,6 +283,7 @@ if ($action === 'approve_send') {
 
     if (!$ok) respond(['success' => false, 'message' => 'Failed to update application.']);
 
+    // continue with account creation, email sending etc. (keep existing logic)
     // create user account for student if not already linked
     $createdAccount = false;
     $createdUsername = '';
@@ -206,10 +301,8 @@ if ($action === 'approve_send') {
         $emailLocal = '';
         if (!empty($to) && strpos($to, '@') !== false) $emailLocal = strtolower(explode('@', $to)[0]);
         $base = $emailLocal ?: strtolower(preg_replace('/[^a-z0-9]/', '', substr($res['first_name'],0,1) . $res['last_name']));
-
         if ($base === '') $base = 'student' . $student_id;
 
-        // ensure uniqueness
         $username = $base;
         $i = 0;
         $existsStmt = $conn->prepare("SELECT user_id FROM users WHERE username = ?");
@@ -223,19 +316,15 @@ if ($action === 'approve_send') {
         }
         $existsStmt->close();
 
-        // generate random password (plain for email, store plain to match current login.php)
         $createdPlainPassword = substr(bin2hex(random_bytes(5)), 0, 10);
-        // NOTE: storing plaintext — kept to match your current login.php. Replace with hashed value later.
         $passwordPlainToStore = $createdPlainPassword;
-
-        // insert into users (store plaintext password to match existing login logic)
         $officeForUser = $assignedOfficeName ?: null;
+
         $ins = $conn->prepare("INSERT INTO users (username, password, role, office_name, date_created) VALUES (?, ?, 'ojt', ?, NOW())");
         $ins->bind_param("sss", $username, $passwordPlainToStore, $officeForUser);
         $insOk = $ins->execute();
         if ($insOk) {
             $newUserId = $ins->insert_id;
-            // link to students.user_id
             $updS = $conn->prepare("UPDATE students SET user_id = ? WHERE student_id = ?");
             $updS->bind_param("ii", $newUserId, $student_id);
             $updS->execute();
@@ -247,7 +336,7 @@ if ($action === 'approve_send') {
         $ins->close();
     }
 
-    // update student status to ongoing (optional business rule)
+    // update student status to ongoing
     $u2 = $conn->prepare("UPDATE students SET status = 'ongoing' WHERE student_id = ?");
     $u2->bind_param("i", $student_id);
     $u2->execute();
@@ -272,7 +361,7 @@ if ($action === 'approve_send') {
     $html .= "<p>Please follow instructions sent by HR. Thank you.</p>"
            . "<p>— HR Department</p>";
 
-    // send with PHPMailer and capture debug output
+    // send with PHPMailer and capture debug output (existing send logic unchanged)
     $mailSent = false;
     $debugLog = '';
 
@@ -287,7 +376,6 @@ if ($action === 'approve_send') {
         $mail->Port       = SMTP_PORT;
         $mail->CharSet    = 'UTF-8';
 
-        // debugging - set to 0 once working
         $mail->SMTPDebug = 2;
         $mail->Debugoutput = function($str, $level) use (&$debugLog) {
             $debugLog .= trim($str) . "\n";
@@ -307,7 +395,6 @@ if ($action === 'approve_send') {
         $mailSent = false;
     }
 
-    // fallback to PHP mail() if PHPMailer fails
     if (!$mailSent && filter_var($to, FILTER_VALIDATE_EMAIL)) {
         $headers  = "MIME-Version: 1.0\r\n";
         $headers .= "Content-type: text/html; charset=utf-8\r\n";
