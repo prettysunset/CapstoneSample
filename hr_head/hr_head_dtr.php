@@ -26,16 +26,33 @@ $role_label = !empty($user['role']) ? ucwords(str_replace('_',' ', $user['role']
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>HR - Daily Logs (DTR)</title>
 <style>
-  *{box-sizing:border-box;font-family:'Poppins',sans-serif}
-  body{margin:0;background:#f7f8fc;display:flex;min-height:100vh}
-  .sidebar{width:220px;background:#2f3850;color:#fff;display:flex;flex-direction:column;align-items:center;padding:28px 12px;gap:8px}
-  .profile img{width:84px;height:84px;border-radius:50%;background:#cfd3db;margin-bottom:8px}
-  .profile h3{margin:0;font-size:16px}
-  .profile p{margin:0;font-size:13px;color:#bfc4d1}
-  .nav{display:flex;flex-direction:column;gap:10px;width:100%;margin-top:18px}
-  .nav a{display:block;padding:10px 16px;color:#fff;text-decoration:none;border-radius:22px;margin:0 8px;font-weight:600}
-  .nav a.active, .nav a:hover{background:#fff;color:#2f3850}
-  .main{flex:1;padding:24px}
+   *{box-sizing:border-box;font-family:'Poppins',sans-serif}
+    body{background:#f7f8fc;display:flex;min-height:100vh;margin:0}
+    .sidebar{background:#2f3850;width:220px;color:#fff;display:flex;flex-direction:column;align-items:center;padding:30px 0}
+    .profile{text-align:center;margin-bottom:20px}
+    .profile img{width:90px;height:90px;border-radius:50%;background:#cfd3db;margin-bottom:10px}
+    .profile h3{font-size:16px;font-weight:600}
+    .profile p{font-size:13px;color:#bfc4d1}
+    .nav{display:flex;flex-direction:column;gap:10px;width:100%}
+    .nav a{color:#fff;text-decoration:none;padding:10px 20px;display:flex;align-items:center;gap:10px;border-radius:25px;margin:0 15px}
+    .nav a:hover,.nav a.active{background:#fff;color:#2f3850;font-weight:600}
+    .main{flex:1;padding:24px}
+    .top-section{display:flex;justify-content:space-between;gap:20px;margin-bottom:20px}
+    .datetime h2{font-size:22px;color:#2f3850;margin:0}
+    .datetime p{color:#6d6d6d;margin:0}
+    .table-container{background:#fff;border-radius:8px;padding:16px;box-shadow:0 2px 8px rgba(0,0,0,0.06)}
+    .table-tabs{display:flex;gap:16px;margin-bottom:12px;border-bottom:2px solid #eee}
+    .table-tabs a{padding:8px 12px;text-decoration:none;color:#555;border-radius:6px}
+    .table-tabs a.active{background:#2f3850;color:#fff}
+    table{width:100%;border-collapse:collapse;font-size:14px}
+    th,td{padding:10px;border:1px solid #eee;text-align:left}
+    th{background:#f5f6fa}
+    .actions{display:flex;gap:8px;justify-content:center}
+    .actions button{border:none;background:none;cursor:pointer;font-size:16px}
+    .approve{color:green} .reject{color:red} .view{color:#0b74de}
+    .empty{padding:20px;text-align:center;color:#666}
+     
+ .main{flex:1;padding:24px}
   .top-bar{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}
   .card{background:#fff;border-radius:12px;padding:18px;box-shadow:0 6px 20px rgba(0,0,0,0.05)}
   .tabs{display:flex;gap:18px;border-bottom:2px solid #eef1f6;padding-bottom:12px;margin-bottom:16px}
@@ -112,32 +129,93 @@ $role_label = !empty($user['role']) ? ucwords(str_replace('_',' ', $user['role']
     </div>
     <div style="margin-top:auto;font-weight:700">OJT-MS</div>
   </div>
-
+ 
   <main class="main" role="main">
     <div class="top-bar">
-      <div>
-        <h2 style="margin:0;color:#2f3850">Daily Logs</h2>
-        <p style="margin:4px 0 0;color:#6d6d6d">View logs by date</p>
+      <div style="display:flex;flex-direction:column;justify-content:center">
+      <div style="font-size:22px;color:#2f3850;font-weight:700;line-height:1"><?= date('g:i A') ?></div>
+      <div style="color:#6d6d6d;margin-top:4px"><?= date('F j, Y') ?></div>
       </div>
-      <div style="display:flex;gap:12px;align-items:center">
-        <div style="background:#fff;padding:8px 12px;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.04)"><?=$current_date = date("F j, Y")?></div>
+            </div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:12px;">
+      <div class="tabs" role="tablist" aria-label="DTR Tabs"
+         style="display:flex;justify-content:center;align-items:flex-end;gap:24px;font-size:18px;border-bottom:2px solid #eee;padding-bottom:12px;position:relative;">
+      <button class="tab active" data-tab="daily" role="tab" aria-selected="true" aria-controls="panel-daily"
+          style="background:transparent;border:none;padding:10px 14px;border-radius:6px;cursor:pointer;color:#2f3850;font-weight:600;outline:none;font-size:18px;">
+        Daily Logs
+      </button>
+      <button class="tab" data-tab="late" role="tab" aria-selected="false" aria-controls="panel-late"
+          style="background:transparent;border:none;padding:10px 14px;border-radius:6px;cursor:pointer;color:#2f3850;font-weight:600;outline:none;font-size:18px;">
+        Late DTR Submissions
+      </button>
+      <button class="tab" data-tab="reports" role="tab" aria-selected="false" aria-controls="panel-reports"
+          style="background:transparent;border:none;padding:10px 14px;border-radius:6px;cursor:pointer;color:#2f3850;font-weight:600;outline:none;font-size:18px;">
+        Attendance Reports
+      </button>
+
+      <!-- underline indicating the selected tab -->
+      <div class="tab-underline" aria-hidden="true"
+         style="position:absolute;bottom:0;height:3px;background:#2f3850;border-radius:3px;transition:left .18s ease,width .18s ease;left:0;width:0;"></div>
       </div>
     </div>
 
-    <div class="card" role="region" aria-label="Daily Logs content">
-      <div class="tabs" role="tablist" aria-label="DTR tabs">
-        <button class="active" data-tab="daily">Daily Logs</button>
-        <button data-tab="late">Late DTR Submissions</button>
-        <button data-tab="reports">Attendance Reports</button>
-      </div>
+  <script>
+  (function(){
+    const tabsEl = document.querySelector('.tabs');
+    if (!tabsEl) return;
+    const underline = tabsEl.querySelector('.tab-underline');
+    const tabs = Array.from(tabsEl.querySelectorAll('.tab'));
+
+    function updateUnderline(){
+    const active = tabsEl.querySelector('.tab.active') || tabs[0];
+    if(!active || !underline) return;
+    const parentRect = tabsEl.getBoundingClientRect();
+    const rect = active.getBoundingClientRect();
+    underline.style.left = (rect.left - parentRect.left) + 'px';
+    underline.style.width = rect.width + 'px';
+    }
+
+    // ensure underline positions correctly on init, resize and load
+    updateUnderline();
+    window.addEventListener('resize', updateUnderline);
+    window.addEventListener('load', updateUnderline);
+
+    // keep aria-selected and active class in sync and update underline when tabs clicked
+    tabs.forEach(t=>{
+    t.addEventListener('click', () => {
+      tabs.forEach(x => { x.classList.remove('active'); x.setAttribute('aria-selected','false'); });
+      t.classList.add('active');
+      t.setAttribute('aria-selected','true');
+      updateUnderline();
+    });
+    });
+  })();
+  </script>
 
       <div id="panel-daily" class="panel" style="display:block">
         <div class="controls" style="margin-bottom:16px">
           <label for="dtrDate" style="font-weight:600">Date</label>
           <input type="date" id="dtrDate">
-          <button id="btnReload" type="button">Load</button>
+          <button id="btnReload" type="button" title="Load" aria-label="Load" style="border:none;background:#e6f2ff;color:#black;padding:8px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="color:inherit">
+              <polyline points="23 4 23 10 17 10"></polyline>
+              <polyline points="1 20 1 14 7 14"></polyline>
+              <path d="M3.51 9a9 9 0 0 1 14.13-3.36L23 10"></path>
+              <path d="M20.49 15a9 9 0 0 1-14.13 3.36L1 14"></path>
+            </svg>
+          </button>
           <div style="flex:1"></div>
-          <input type="text" id="search" placeholder="Search name / office / course" style="width:280px">
+          <div style="position:relative;display:inline-block">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"
+                 style="position:absolute;left:10px;top:50%;transform:translateY(-50%);pointer-events:none;color:#9aa4b2;width:16px;height:16px">
+              <circle cx="11" cy="11" r="6"></circle>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            </svg>
+            <input type="text" id="search" placeholder="Search name / office / course"
+                   style="width:280px;padding:10px 10px 10px 36px;border:1px solid #ddd;border-radius:8px">
+          </div>
         </div>
 
         <div id="tableWrap">
@@ -245,21 +323,21 @@ $role_label = !empty($user['role']) ? ucwords(str_replace('_',' ', $user['role']
 
   function renderDailyHeader(){
     return '<table class="tbl"><thead>'
-         + '<tr>'
-         + '<th class="left" rowspan="2">Date</th>'
-         + '<th class="left" rowspan="2">Name</th>'
-         + '<th class="left" rowspan="2">School</th>'
-         + '<th class="left" rowspan="2">Course</th>'
-         + '<th class="center" colspan="2">A.M.</th>'
-         + '<th class="center" colspan="2">P.M.</th>'
-         + '<th class="center" rowspan="2">Hours</th>'
-         + '<th class="left" rowspan="2">Office</th>'
-         + '</tr>'
-         + '<tr>'
-         + '<th class="center">Arrival</th><th class="center">Departure</th><th class="center">Arrival</th><th class="center">Departure</th>'
-         + '</tr>'
-         + '</thead>';
-  }
+       + '<tr>'
+       + '<th class="left" rowspan="2" style="background:#eceff3">Date</th>'
+       + '<th class="left" rowspan="2" style="background:#eceff3">Name</th>'
+       + '<th class="left" rowspan="2" style="background:#eceff3">School</th>'
+       + '<th class="left" rowspan="2" style="background:#eceff3">Course</th>'
+       + '<th class="center" colspan="2" style="background:#eceff3">A.M.</th>'
+       + '<th class="center" colspan="2" style="background:#eceff3">P.M.</th>'
+       + '<th class="center" rowspan="2" style="background:#eceff3">Hours</th>'
+       + '<th class="left" rowspan="2" style="background:#eceff3">Office</th>'
+       + '</tr>'
+       + '<tr>'
+       + '<th class="center" style="background:#eceff3">Arrival</th><th class="center" style="background:#eceff3">Departure</th><th class="center" style="background:#eceff3">Arrival</th><th class="center" style="background:#eceff3">Departure</th>'
+       + '</tr>'
+       + '</thead>';
+    }
 
   function renderDailyRows(rows, dt){
     let html = '';

@@ -177,7 +177,7 @@ if ($moa_q) {
       flex-direction:column;
       overflow:hidden; /* panel will scroll, not whole page */
     }
-
+    
     /* panels scroll internally */
     .view-panel { flex:1 1 auto; min-height:360px; box-sizing:border-box; overflow:auto; padding-top:8px; }
 
@@ -286,6 +286,7 @@ if ($moa_q) {
         </div>
     <p style="margin-top:auto;font-weight:600">OJT-MS</p>
 </div>
+ 
 <div class="main">
     <div class="top-section">
         <div>

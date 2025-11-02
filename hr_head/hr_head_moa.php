@@ -174,16 +174,33 @@ function fmtDate($d){ if (!$d) return '-'; $dt = date_create($d); return $dt ? d
 <title>HR - MOA</title>
 <style>
   *{box-sizing:border-box;font-family:'Poppins',sans-serif}
-  body{margin:0;background:#f7f8fc;display:flex;min-height:100vh}
-  .sidebar{width:220px;background:#2f3850;color:#fff;display:flex;flex-direction:column;align-items:center;padding:28px 12px;gap:8px}
-  .profile{ text-align:center; margin-top:12px; padding:8px 0; }
-  .profile img{ width:90px; height:90px; border-radius:50%; object-fit:cover; display:block; margin:0 auto 10px; background:#cfd3db; }
-  .profile h3{ margin:0; font-size:16px; color:#fff; font-weight:700; }
-  .profile p{ margin:0; font-size:13px; color:#bfc4d1; }
-  .nav{display:flex;flex-direction:column;gap:10px;width:100%;margin-top:18px}
-  .nav a{display:block;padding:10px 16px;color:#fff;text-decoration:none;border-radius:22px;margin:0 8px;font-weight:600}
-  .nav a.active, .nav a:hover{background:#fff;color:#2f3850}
-  .main{flex:1;padding:24px}
+    body{background:#f7f8fc;display:flex;min-height:100vh;margin:0}
+    .sidebar{background:#2f3850;width:220px;color:#fff;display:flex;flex-direction:column;align-items:center;padding:30px 0}
+    .profile{text-align:center;margin-bottom:20px}
+    .profile img{width:90px;height:90px;border-radius:50%;background:#cfd3db;margin-bottom:10px}
+    .profile h3{font-size:16px;font-weight:600}
+    .profile p{font-size:13px;color:#bfc4d1}
+    .nav{display:flex;flex-direction:column;gap:10px;width:100%}
+    .nav a{color:#fff;text-decoration:none;padding:10px 20px;display:flex;align-items:center;gap:10px;border-radius:25px;margin:0 15px}
+    .nav a:hover,.nav a.active{background:#fff;color:#2f3850;font-weight:600}
+    .main{flex:1;padding:24px}
+    .top-section{display:flex;justify-content:space-between;gap:20px;margin-bottom:20px}
+    .datetime h2{font-size:22px;color:#2f3850;margin:0}
+    .datetime p{color:#6d6d6d;margin:0}
+    .table-container{background:#fff;border-radius:8px;padding:16px;box-shadow:0 2px 8px rgba(0,0,0,0.06)}
+    .table-tabs{display:flex;gap:16px;margin-bottom:12px;border-bottom:2px solid #eee}
+    .table-tabs a{padding:8px 12px;text-decoration:none;color:#555;border-radius:6px}
+    .table-tabs a.active{background:#2f3850;color:#fff}
+    table{width:100%;border-collapse:collapse;font-size:14px}
+    th,td{padding:10px;border:1px solid #eee;text-align:left}
+    th{background:#f5f6fa}
+    .actions{display:flex;gap:8px;justify-content:center}
+    .actions button{border:none;background:none;cursor:pointer;font-size:16px}
+    .approve{color:green} .reject{color:red} .view{color:#0b74de}
+    .empty{padding:20px;text-align:center;color:#666}
+
+   
+.main{flex:1;padding:24px}
   .card{background:#fff;border-radius:12px;padding:18px;box-shadow:0 6px 20px rgba(0,0,0,0.05)}
   .controls{display:flex;gap:12px;align-items:center;margin-bottom:12px}
   input[type=text]{padding:10px;border:1px solid #ddd;border-radius:8px}
@@ -209,30 +226,78 @@ function fmtDate($d){ if (!$d) return '-'; $dt = date_create($d); return $dt ? d
 </style>
 </head>
 <body>
-  <div class="sidebar" role="navigation" aria-label="Sidebar">
+  <div class="sidebar">
     <div class="profile">
-      <!-- use local asset or CDN; keep size controlled by .profile img -->
-      <img src="<?= htmlspecialchars('../assets/img/avatar.png') ?>" alt="Profile">
-      <h3><?= htmlspecialchars($full_name ?: 'HR Head') ?></h3>
-      <p><?= htmlspecialchars($role_label) ?></p>
+        <img src="https://cdn-icons-png.flaticon.com/512/149/149071.png" alt="Profile">
+        <h3><?php echo htmlspecialchars($full_name ?: ($_SESSION['username'] ?? '')); ?></h3>
+        <p><?php echo htmlspecialchars($role_label); ?></p>
+        <?php if(!empty($user['office_name'])): ?>
+            <p style="font-size:12px;color:#bfc4d1"><?php echo htmlspecialchars($user['office_name']); ?></p>
+        <?php endif; ?>
     </div>
-    <nav class="nav" aria-label="Main navigation">
-      <a href="hr_head_home.php">🏠 Home</a>
-      <a href="hr_head_ojts.php">👥 OJTs</a>
-      <a href="hr_head_dtr.php">🕒 DTR</a>
-      <a href="hr_head_moa.php" class="active">📄 MOA</a>
-      <a href="hr_head_accounts.php">👤 Accounts</a>
-      <a href="hr_head_reports.php">📊 Reports</a>
-    </nav>
+
+    
+    <div class="nav">
+      <a href="hr_head_home.php">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px">
+          <path d="M3 11.5L12 4l9 7.5"></path>
+          <path d="M5 12v7a1 1 0 0 0 1 1h3v-5h6v5h3a1 1 0 0 0 1-1v-7"></path>
+        </svg>
+        Home
+      </a>
+      <a href="hr_head_ojts.php">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px">
+          <circle cx="12" cy="8" r="3"></circle>
+          <path d="M5.5 20a6.5 6.5 0 0 1 13 0"></path>
+        </svg>
+        OJTs
+      </a>
+      <a href="hr_head_dtr.php">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px">
+          <circle cx="12" cy="12" r="8"></circle>
+          <path d="M12 8v5l3 2"></path>
+        </svg>
+        DTR
+      </a>
+      <a href="#" class="active">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px">
+          <circle cx="12" cy="12" r="8"></circle>
+          <path d="M12 8v5l3 2"></path>
+        </svg>
+        MOA
+      </a>
+      <a href="hr_head_accounts.php">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px">
+          <circle cx="12" cy="12" r="3"></circle>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06A2 2 0 1 1 2.28 16.8l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09c.7 0 1.3-.4 1.51-1A1.65 1.65 0 0 0 4.27 6.3L4.2 6.23A2 2 0 1 1 6 3.4l.06.06c.5.5 1.2.7 1.82.33.7-.4 1.51-.4 2.21 0 .62.37 1.32.17 1.82-.33L12.6 3.4a2 2 0 1 1 1.72 3.82l-.06.06c-.5.5-.7 1.2-.33 1.82.4.7.4 1.51 0 2.21-.37.62-.17 1.32.33 1.82l.06.06A2 2 0 1 1 19.4 15z"></path>
+        </svg>
+        Accounts
+      </a>
+      <a href="hr_head_reports.php">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px">
+          <rect x="3" y="10" width="4" height="10"></rect>
+          <rect x="10" y="6" width="4" height="14"></rect>
+          <rect x="17" y="2" width="4" height="18"></rect>
+        </svg>
+        Reports
+      </a>
+    </div>
     <div style="margin-top:auto;font-weight:700">OJT-MS</div>
   </div>
+ 
 
   <main class="main" role="main">
     <div class="card" role="region" aria-label="MOA">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
         <h2 style="margin:0;color:#2f3850">MOA</h2>
         <div style="display:flex;gap:12px;align-items:center">
-          <input type="text" id="search" placeholder="Search school" style="width:320px">
+          <div style="position:relative;display:inline-block;vertical-align:middle;">
+            <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" width="16" height="16" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:#666;pointer-events:none" stroke="currentColor" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="11" cy="11" r="6"></circle>
+              <path d="M21 21l-4.35-4.35"></path>
+            </svg>
+            <input type="text" id="search" placeholder="Search school" style="width:320px;padding:8px 10px 8px 36px;border:1px solid #ddd;border-radius:8px">
+          </div>
           <button id="btnExport" style="padding:8px 12px;border-radius:8px;border:1px solid #ddd;background:#fff;cursor:pointer">Export</button>
           <button id="btnAdd" style="padding:8px 12px;border-radius:8px;border:1px solid #2f3850;background:#2f3850;color:#fff;cursor:pointer">+ Add</button>
         </div>
@@ -242,12 +307,12 @@ function fmtDate($d){ if (!$d) return '-'; $dt = date_create($d); return $dt ? d
         <table class="tbl" id="tblMoa">
           <thead>
             <tr>
-              <th style="text-align:center">Students</th>
-              <th>School Name</th>
-              <th>MOA Status</th>
-              <th>Date Signed</th>
-              <th>Valid Until</th>
-              <th>Uploaded Copy</th>
+              <th style="text-align:center;background:#f5f6fa">Students</th>
+              <th style="background:#f5f6fa">School Name</th>
+              <th style="background:#f5f6fa">MOA Status</th>
+              <th style="background:#f5f6fa">Date Signed</th>
+              <th style="background:#f5f6fa">Valid Until</th>
+              <th style="background:#f5f6fa">Uploaded Copy</th>
             </tr>
           </thead>
           <tbody>
