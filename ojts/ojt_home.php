@@ -36,12 +36,72 @@ if (!empty($user_id)) {
 }
 $role = $office_display ? "OJT - " . $office_display : "OJT";
 
-// sample hours values — ideally read from DB students.hours_rendered / total_hours_required
-$hours_completed = 180;
+// compute accurate OJT progress: start date from latest application remarks, hours from dtr
+$hours_completed = 0.0;
 $total_hours = 500;
-$percent = round(($hours_completed / $total_hours) * 100);
-$date_started = "July 21, 2025";
-$end_date = "November 13, 2025";
+$percent = 0;
+$date_started = '-';
+$end_date = '-';
+
+ // read student's required total from students table (if available)
+if (!empty($student_id)) {
+    $s = $conn->prepare("SELECT total_hours_required FROM students WHERE student_id = ? LIMIT 1");
+    $s->bind_param("i", $student_id);
+    $s->execute();
+    $sr = $s->get_result()->fetch_assoc();
+    $s->close();
+    if ($sr && !empty($sr['total_hours_required'])) $total_hours = (float)$sr['total_hours_required'];
+
+    // try to get Orientation/Start date from latest application remarks
+    $qa = $conn->prepare("SELECT remarks FROM ojt_applications WHERE student_id = ? ORDER BY date_updated DESC, application_id DESC LIMIT 1");
+    $qa->bind_param('i', $student_id);
+    $qa->execute();
+    $ar = $qa->get_result()->fetch_assoc();
+    $qa->close();
+    $startDateSql = null;
+    if ($ar && !empty($ar['remarks'])) {
+        $r = $ar['remarks'];
+        if (preg_match('/Orientation\/Start:\s*([0-9]{4}-[0-9]{2}-[0-9]{2})/i', $r, $m)) {
+            $startDateSql = $m[1];
+        } elseif (preg_match('/Orientation\/Start:\s*([0-9]{4}\/[0-9]{2}\/[0-9]{2})/i', $r, $m2)) {
+            $startDateSql = str_replace('/', '-', $m2[1]);
+        } elseif (preg_match('/Orientation\/Start:\s*([A-Za-z0-9\-\s,]+)/i', $r, $m3)) {
+            // fallback: try to parse a human date
+            $try = trim($m3[1]);
+            $ts = strtotime($try);
+            if ($ts !== false) $startDateSql = date('Y-m-d', $ts);
+        }
+    }
+
+    // compute hours completed from dtr (optionally restrict to start date if known)
+    if ($startDateSql) {
+        $q = $conn->prepare("SELECT IFNULL(SUM(hours + minutes/60),0) AS total FROM dtr WHERE student_id = ? AND log_date >= ?");
+        $q->bind_param("is", $student_id, $startDateSql);
+    } else {
+        $q = $conn->prepare("SELECT IFNULL(SUM(hours + minutes/60),0) AS total FROM dtr WHERE student_id = ?");
+        $q->bind_param("i", $student_id);
+    }
+    $q->execute();
+    $tr = $q->get_result()->fetch_assoc();
+    $q->close();
+    $hours_completed = isset($tr['total']) ? (float)$tr['total'] : 0.0;
+
+    // percentage
+    $percent = $total_hours > 0 ? round(($hours_completed / $total_hours) * 100) : 0;
+
+    // formatted dates
+    if ($startDateSql) {
+        $date_started = date('F j, Y', strtotime($startDateSql));
+        // expected end: assume 8 hours per active day (adjust if you store a different working day)
+        $hoursPerDay = 8;
+        $daysNeeded = (int)ceil($total_hours / $hoursPerDay);
+        $exp = (new DateTime($startDateSql))->modify("+{$daysNeeded} days");
+        $end_date = $exp->format('F j, Y');
+    } else {
+        $date_started = '-';
+        $end_date = '-';
+    }
+}
 
 // load DTR rows for current month
 $year = (int)date('Y');
@@ -133,7 +193,8 @@ if ($student_id) {
       display: flex;
       flex-direction: row;
       justify-content: space-between;
-      padding: 28px 32px;
+      /* increased top padding so main content (including DTR) sits below the top icons */
+      padding: 56px 32px 28px;
       height: 100vh;
       align-items: stretch;
       gap: 20px;
@@ -190,7 +251,8 @@ if ($student_id) {
       justify-content: flex-start;
       align-items: stretch;
       overflow: auto; /* allow internal scroll when needed */
-      height: calc(100vh - 56px);
+      /* account for increased top padding so DTR doesn't overlap top icons */
+      height: calc(100vh - 84px);
     }
     .dtr-section h3 { text-align: center; font-size: 13px; margin-bottom: 6px; }
     .dtr-section p { font-size: 12px; margin-bottom: 8px; text-align: center; }
@@ -218,6 +280,19 @@ if ($student_id) {
   </style>
 </head>
 <body>
+
+  <!-- top-right outline icons: notifications, settings, logout -->
+  <div id="top-icons" style="position:fixed;top:18px;right:28px;display:flex;gap:14px;z-index:1200;">
+      <a href="notifications.php" title="Notifications" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 17h5l-1.405-1.405A2.032 2.032 0 0 1 18 14.158V11a6 6 0 1 0-12 0v3.159c0 .538-.214 1.055-.595 1.436L4 17h5"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
+      </a>
+      <a href="settings.php" title="Settings" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82L4.3 4.46a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09c0 .64.38 1.2 1 1.51h.09a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.64.3 1.03.87 1.03 1.51V12c0 .64-.39 1.21-1.03 1.51z"></path></svg>
+      </a>
+      <a id="top-logout" href="/logout.php" title="Logout" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+      </a>
+  </div>
 
   <!-- Sidebar -->
   <div class="sidebar">
@@ -279,7 +354,7 @@ if ($student_id) {
       </div>
 
       <div style="padding:14px 12px 26px;">
-        <a href="/logout.php" style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:12px;text-decoration:none;color:#2f3459;background:#fff;">
+        <a id="sidebar-logout" href="/logout.php" style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:12px;text-decoration:none;color:#2f3459;background:#fff;">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex:0 0 18px;">
             <path d="M16 17l5-5-5-5"></path>
             <path d="M21 12H9"></path>
@@ -530,6 +605,22 @@ if ($student_id) {
       hh = ((hh + 11) % 12) + 1;
       return String(hh).padStart(2,'0') + ':' + mm;
     }
+
+    // confirm logout (both top icon and sidebar)
+    (function(){
+      function attachConfirm(id){
+        var el = document.getElementById(id);
+        if (!el) return;
+        el.addEventListener('click', function(e){
+          e.preventDefault();
+          if (confirm('Log out?')) {
+            window.location.href = el.getAttribute('href');
+          }
+        });
+      }
+      attachConfirm('top-logout');
+      attachConfirm('sidebar-logout');
+    })();
   </script>
 </body>
 </html>
