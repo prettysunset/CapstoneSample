@@ -94,12 +94,12 @@ $current_date = date("l, F j, Y");
     .top-section{display:flex;justify-content:space-between;gap:20px;margin-bottom:20px}
     .datetime h2{font-size:22px;color:#2f3850;margin:0}
     .datetime p{color:#6d6d6d;margin:0}
-    .table-container{background:#fff;border-radius:8px;padding:16px;box-shadow:0 2px 8px rgba(0,0,0,0.06)}
+    .table-container{background:#fff;border-radius:8px;padding:12px;box-shadow:0 2px 8px rgba(0,0,0,0.06)}
     .table-tabs{display:flex;gap:16px;margin-bottom:12px;border-bottom:2px solid #eee}
     .table-tabs a{padding:8px 12px;text-decoration:none;color:#555;border-radius:6px}
     .table-tabs a.active{background:#2f3850;color:#fff}
     table{width:100%;border-collapse:collapse;font-size:14px}
-    th,td{padding:10px;border:1px solid #eee;text-align:left}
+    th,td{padding:8px;border:1px solid #eee;text-align:left}
     th{background:#f5f6fa}
     .actions{display:flex;gap:8px;justify-content:center}
     .actions button{border:none;background:none;cursor:pointer;font-size:16px}
@@ -183,13 +183,16 @@ $current_date = date("l, F j, Y");
     .status-full{ color:#b22222; font-weight:700; background:#fff4f4; padding:6px 10px; border-radius:12px; display:inline-block; }
 
     /* make the left time/counters container smaller so slots table gets more horizontal space */
-    .time-card { min-width:220px; max-width:260px; padding:14px; }
+    .time-card { min-width:220px; max-width:260px; padding:12px; }
     .time-card .current-time { font-size:24px; color:#2f3850; margin:0; }
-    .time-card .current-date { color:#6d6d6d; font-size:13px; }
+    .time-card .current-date { color:#6d6d6d; font-size:14px; }
 
-    /* reduce counter size */
-    .counter { padding:12px; }
-    .counter h3 { margin:0; font-size:22px; color:#2f3850; }
+    /* slightly smaller vertical footprint */
+    .time-card { padding:12px; }
+    .time-card .current-time { font-size:28px; } /* slightly smaller */
+    .time-card .current-date { font-size:14px; } /* slightly smaller */
+    .counter { padding:10px; }
+    .counter h3 { margin:0; font-size:20px; color:#2f3850; }
     .counter p { margin:6px 0 0 0; color:#666; font-size:12px; }
 
     /* ensure slots card can expand */
@@ -297,23 +300,23 @@ $current_date = date("l, F j, Y");
   </div>
 
   <!-- Second row: left = date + counters, right = OJT slot availability (side-by-side) -->
-  <div style="display:flex;gap:18px;align-items:stretch;margin-bottom:16px;">
-    <!-- Left column: date on top, counters below -->
-    <div style="flex:1;min-width:280px;display:flex;flex-direction:column;">
-      <div style="background:#fff;border-radius:8px;padding:14px;box-shadow:0 2px 8px rgba(0,0,0,0.06);flex:1;display:flex;flex-direction:column;justify-content:space-between;">
-        <div class="datetime" style="margin-bottom:12px">
-          <h2 style="margin:0;font-size:34px;line-height:1"><?php echo $current_time; ?></h2>
-          <p style="margin:0;color:#6d6d6d;font-size:30px"><?php echo $current_date; ?></p>
+  <div style="display:flex;gap:18px;align-items:stretch;margin-bottom:12px;">
+    <!-- Left column: date on top, counters below (slightly narrower & lower height) -->
+    <div style="flex:0 0 240px;min-width:200px;display:flex;flex-direction:column;">
+      <div style="background:#fff;border-radius:8px;padding:10px 12px;box-shadow:0 2px 8px rgba(0,0,0,0.06);flex:1;display:flex;flex-direction:column;justify-content:space-between;">
+        <div class="datetime" style="margin-bottom:4px">
+          <h2 style="margin:0;font-size:28px;line-height:1"><?php echo $current_time; ?></h2>
+          <p style="margin:0;color:#6d6d6d;font-size:16px"><?php echo $current_date; ?></p>
         </div>
 
-        <div style="display:flex;gap:12px;align-items:center;margin-top:12px">
-          <div style="background:#eceff3;padding:20px;border-radius:8px;box-shadow:0 2px 6px rgba(0,0,0,0.02);text-align:center;flex:1;min-height:140px;display:flex;flex-direction:column;justify-content:center;">
-            <div style="font-size:36px;font-weight:700;color:#2f3850"><?php echo (int)$active_count; ?></div>
-            <div style="color:#666;font-size:14px;margin-top:6px">Active OJTs</div>
+        <div style="display:flex;gap:10px;align-items:center;margin-top:10px">
+          <div style="background:#eceff3;padding:14px;border-radius:8px;box-shadow:0 2px 6px rgba(0,0,0,0.02);text-align:center;flex:1;min-height:110px;display:flex;flex-direction:column;justify-content:center;">
+            <div style="font-size:30px;font-weight:700;color:#2f3850"><?php echo (int)$active_count; ?></div>
+            <div style="color:#666;font-size:12px;margin-top:6px">Active OJTs</div>
           </div>
-          <div style="background:#eceff3;padding:20px;border-radius:8px;box-shadow:0 2px 6px rgba(0,0,0,0.02);text-align:center;flex:1;min-height:140px;display:flex;flex-direction:column;justify-content:center;">
-            <div style="font-size:36px;font-weight:700;color:#2f3850"><?php echo (int)$completed_count; ?></div>
-            <div style="color:#666;font-size:14px;margin-top:6px">Completed OJTs</div>
+          <div style="background:#eceff3;padding:14px;border-radius:8px;box-shadow:0 2px 6px rgba(0,0,0,0.02);text-align:center;flex:1;min-height:110px;display:flex;flex-direction:column;justify-content:center;">
+            <div style="font-size:30px;font-weight:700;color:#2f3850"><?php echo (int)$completed_count; ?></div>
+            <div style="color:#666;font-size:12px;margin-top:6px">Completed OJTs</div>
           </div>
         </div>
       </div>
@@ -348,25 +351,25 @@ $stmtCount = $conn->prepare("
 ");
 ?>
 
-    <!-- Right column: slot availability -->
-    <div style="flex:1;min-width:360px;">
-      <div class="table-container" style="padding:12px;">
-        <h3 style="margin:0 0 12px 0; background:#3a4163;padding:12px;border-radius:8px; color:#fff">OJT Slot Availability by Office</h3>
+    <!-- Right column: slot availability (wider, slightly reduced vertical spacing) -->
+    <div style="flex:1 1 0%;min-width:420px;">
+      <div class="table-container" style="padding:8px;">
+        <h3 style="margin:0 0 8px 0; background:#3a4163;padding:8px;border-radius:8px; color:#fff">OJT Slot Availability by Office</h3>
 
         <?php if (empty($offices)): ?>
             <div class="empty">No offices found.</div>
         <?php else: ?>
-            <table style="width:100%;border-collapse:collapse">
-                <thead>
-                    <tr>
-                        <th style="text-align:left;padding:8px">Office</th>
-                        <th style="padding:8px">Capacity</th>
-                        <th style="padding:8px">Active OJTs</th>
-                        <th style="padding:8px">Available Slot</th>
-                        <th style="padding:8px">Status</th>
-                    </tr>
-                </thead>
-                <tbody>
+            <table style="width:100%;border-collapse:collapse;font-size:13px">
+                 <thead>
+                     <tr>
+                        <th style="text-align:left;padding:6px">Office</th>
+                        <th style="padding:6px">Capacity</th>
+                        <th style="padding:6px">Active OJTs</th>
+                        <th style="padding:6px">Available Slot</th>
+                        <th style="padding:6px">Status</th>
+                     </tr>
+                 </thead>
+                 <tbody>
                 <?php foreach ($offices as $o):
                     // support either 'capacity' or 'current_limit' depending on how $offices was built
                     $cap = isset($o['capacity']) ? (int)$o['capacity'] : (isset($o['current_limit']) ? (int)$o['current_limit'] : null);
@@ -390,19 +393,19 @@ $stmtCount = $conn->prepare("
                     }
                 ?>
                   <tr data-search="<?= htmlspecialchars(strtolower($o['office_name'] ?? '')) ?>">
-                    <td><?= htmlspecialchars($o['office_name'] ?? '—') ?></td>
-                    <td style="text-align:center"><?= $cap === null ? '—' : $cap ?></td>
-                    <td style="text-align:center"><?= $filled ?></td>
-                    <td style="text-align:center"><?= htmlspecialchars((string)$availableDisplay) ?></td>
-                    <td style="text-align:center"><span class="<?= $statusClass ?>"><?= htmlspecialchars($statusLabel) ?></span></td>
+                    <td style="padding:6px"><?= htmlspecialchars($o['office_name'] ?? '—') ?></td>
+                    <td style="text-align:center;padding:6px"><?= $cap === null ? '—' : $cap ?></td>
+                    <td style="text-align:center;padding:6px"><?= $filled ?></td>
+                    <td style="text-align:center;padding:6px"><?= htmlspecialchars((string)$availableDisplay) ?></td>
+                    <td style="text-align:center;padding:6px"><span class="<?= $statusClass ?>"><?= htmlspecialchars($statusLabel) ?></span></td>
                   </tr>
-                <?php endforeach; ?>
-                </tbody>
-            </table>
-        <?php endif; ?>
-      </div>
-    </div>
-  </div> <!-- end second row -->
+                 <?php endforeach; ?>
+                 </tbody>
+             </table>
+         <?php endif; ?>
+       </div>
+     </div>
+   </div> <!-- end second row -->
 
 <?php
 $stmtCount->close();
