@@ -64,8 +64,20 @@ function fetch_offices($conn){
 
 function fetch_moa($conn){
     $rows = [];
-    $res = $conn->query("SELECT moa_id, school_name, moa_file, date_uploaded, validity_months FROM moa ORDER BY date_uploaded DESC");
-    if ($res){ while ($r = $res->fetch_assoc()) $rows[] = $r; $res->free(); }
+    $sql = "
+      SELECT m.moa_id, m.school_name, m.moa_file, m.date_uploaded, m.validity_months,
+             (SELECT COUNT(*) FROM students s WHERE LOWER(TRIM(s.college)) = LOWER(TRIM(m.school_name))) AS student_count
+      FROM moa m
+      ORDER BY m.date_uploaded DESC
+    ";
+    $res = $conn->query($sql);
+    if ($res){
+        while ($r = $res->fetch_assoc()) {
+            $r['student_count'] = (int)($r['student_count'] ?? 0);
+            $rows[] = $r;
+        }
+        $res->free();
+    }
     return $rows;
 }
 
@@ -299,7 +311,7 @@ $moa = fetch_moa($conn);
         <div style="overflow-x:auto">
           <table class="tbl" id="tblMoa">
             <thead>
-              <tr><th>School</th><th>MOA File</th><th>Uploaded</th><th>Validity (months)</th></tr>
+              <tr><th>School</th><th style="text-align:center">Students</th><th>MOA File</th><th>Uploaded</th><th>Validity (months)</th></tr>
             </thead>
             <tbody>
               <?php if (empty($moa)): ?>
@@ -307,6 +319,7 @@ $moa = fetch_moa($conn);
               <?php else: foreach ($moa as $m): ?>
                 <tr data-search="<?= htmlspecialchars(strtolower($m['school_name'])) ?>">
                   <td><?= htmlspecialchars($m['school_name']) ?></td>
+                  <td style="text-align:center"><?= (int)($m['student_count'] ?? 0) ?></td>
                   <td>
                     <?php if (!empty($m['moa_file'])): ?>
                       <a href="<?= htmlspecialchars('../' . $m['moa_file']) ?>" target="_blank">View</a>
