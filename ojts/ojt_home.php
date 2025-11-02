@@ -52,28 +52,37 @@ if (!empty($student_id)) {
     $s->close();
     if ($sr && !empty($sr['total_hours_required'])) $total_hours = (float)$sr['total_hours_required'];
 
-    // try to get Orientation/Start date from latest application remarks
-    $qa = $conn->prepare("SELECT remarks FROM ojt_applications WHERE student_id = ? ORDER BY date_updated DESC, application_id DESC LIMIT 1");
-    $qa->bind_param('i', $student_id);
-    $qa->execute();
-    $ar = $qa->get_result()->fetch_assoc();
-    $qa->close();
+    // determine start date: use first recorded time-in (am_in or pm_in) in dtr; fallback to application remarks
     $startDateSql = null;
-    if ($ar && !empty($ar['remarks'])) {
-        $r = $ar['remarks'];
-        if (preg_match('/Orientation\/Start:\s*([0-9]{4}-[0-9]{2}-[0-9]{2})/i', $r, $m)) {
-            $startDateSql = $m[1];
-        } elseif (preg_match('/Orientation\/Start:\s*([0-9]{4}\/[0-9]{2}\/[0-9]{2})/i', $r, $m2)) {
-            $startDateSql = str_replace('/', '-', $m2[1]);
-        } elseif (preg_match('/Orientation\/Start:\s*([A-Za-z0-9\-\s,]+)/i', $r, $m3)) {
-            // fallback: try to parse a human date
-            $try = trim($m3[1]);
-            $ts = strtotime($try);
-            if ($ts !== false) $startDateSql = date('Y-m-d', $ts);
+    $qf = $conn->prepare("SELECT log_date FROM dtr WHERE student_id = ? AND (am_in IS NOT NULL AND am_in<>'' OR pm_in IS NOT NULL AND pm_in<>'') ORDER BY log_date ASC LIMIT 1");
+    $qf->bind_param('i', $student_id);
+    $qf->execute();
+    $fr = $qf->get_result()->fetch_assoc();
+    $qf->close();
+    if ($fr && !empty($fr['log_date'])) {
+        $startDateSql = $fr['log_date'];
+    } else {
+        // fallback: try to parse Orientation/Start from latest application remarks
+        $qa = $conn->prepare("SELECT remarks FROM ojt_applications WHERE student_id = ? ORDER BY date_updated DESC, application_id DESC LIMIT 1");
+        $qa->bind_param('i', $student_id);
+        $qa->execute();
+        $ar = $qa->get_result()->fetch_assoc();
+        $qa->close();
+        if ($ar && !empty($ar['remarks'])) {
+            $r = $ar['remarks'];
+            if (preg_match('/Orientation\/Start:\s*([0-9]{4}-[0-9]{2}-[0-9]{2})/i', $r, $m)) {
+                $startDateSql = $m[1];
+            } elseif (preg_match('/Orientation\/Start:\s*([0-9]{4}\/[0-9]{2}\/[0-9]{2})/i', $r, $m2)) {
+                $startDateSql = str_replace('/', '-', $m2[1]);
+            } elseif (preg_match('/Orientation\/Start:\s*([A-Za-z0-9\-\s,]+)/i', $r, $m3)) {
+                $try = trim($m3[1]);
+                $ts = strtotime($try);
+                if ($ts !== false) $startDateSql = date('Y-m-d', $ts);
+            }
         }
     }
 
-    // compute hours completed from dtr (optionally restrict to start date if known)
+    // compute hours completed from dtr (restrict to start date if known)
     if ($startDateSql) {
         $q = $conn->prepare("SELECT IFNULL(SUM(hours + minutes/60),0) AS total FROM dtr WHERE student_id = ? AND log_date >= ?");
         $q->bind_param("is", $student_id, $startDateSql);
@@ -86,17 +95,25 @@ if (!empty($student_id)) {
     $q->close();
     $hours_completed = isset($tr['total']) ? (float)$tr['total'] : 0.0;
 
-    // percentage
+    // percentage (use students.total_hours_required already loaded into $total_hours)
     $percent = $total_hours > 0 ? round(($hours_completed / $total_hours) * 100) : 0;
 
-    // formatted dates
+    // formatted start / expected end (8 hrs/day, 5-day work week). Use remaining hours.
     if ($startDateSql) {
         $date_started = date('F j, Y', strtotime($startDateSql));
-        // expected end: assume 8 hours per active day (adjust if you store a different working day)
         $hoursPerDay = 8;
-        $daysNeeded = (int)ceil($total_hours / $hoursPerDay);
-        $exp = (new DateTime($startDateSql))->modify("+{$daysNeeded} days");
-        $end_date = $exp->format('F j, Y');
+        $remaining = max(0, $total_hours - $hours_completed);
+        $daysNeeded = (int)ceil($remaining / $hoursPerDay);
+        // advance counting only weekdays (Mon-Fri)
+        $dt = new DateTime($startDateSql);
+        $added = 0;
+        while ($added < $daysNeeded) {
+            $dt->modify('+1 day');
+            $dow = (int)$dt->format('N'); // 1 (Mon) .. 7 (Sun)
+            if ($dow < 6) $added++;
+        }
+        // if daysNeeded == 0 the end date is the start date
+        $end_date = $dt->format('F j, Y');
     } else {
         $date_started = '-';
         $end_date = '-';
@@ -128,7 +145,8 @@ if ($student_id) {
         $hoursStored = isset($r['hours']) ? (int)$r['hours'] : 0;
         $minutesStored = isset($r['minutes']) ? (int)$r['minutes'] : 0;
 
-        $total_hours = ($hoursStored || $minutesStored) ? ($hoursStored + ($minutesStored / 60)) : 0.0;
+        // use a distinct local variable so we DON'T overwrite $total_hours (students.total_hours_required)
+        $row_total_hours = ($hoursStored || $minutesStored) ? ($hoursStored + ($minutesStored / 60)) : 0.0;
 
         $dtrMap[$d] = [
             'dtr_id' => (int)$r['dtr_id'],
@@ -139,7 +157,7 @@ if ($student_id) {
             'pm_out' => $pm_out,
             'hours' => $hoursStored,
             'minutes' => $minutesStored,
-            'total_hours' => $total_hours
+            'total_hours' => $row_total_hours
         ];
     }
     $q->close();
@@ -332,7 +350,7 @@ if ($student_id) {
             <span>Profile</span>
             </a>
 
-            <a href="#dtr" style="display:flex;align-items:center;gap:10px;padding:10px 12px;margin:8px 0;border-radius:12px;text-decoration:none;color:#fff;background:transparent;">
+            <a href="ojt_dtr.php" style="display:flex;align-items:center;gap:10px;padding:10px 12px;margin:8px 0;border-radius:12px;text-decoration:none;color:#fff;background:transparent;">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex:0 0 18px;">
               <rect x="3" y="4" width="18" height="18" rx="2"></rect>
               <line x1="16" y1="2" x2="16" y2="6"></line>
@@ -342,7 +360,7 @@ if ($student_id) {
             <span>DTR</span>
             </a>
 
-            <a href="#reports" style="display:flex;align-items:center;gap:10px;padding:10px 12px;margin:8px 0;border-radius:12px;text-decoration:none;color:#fff;background:transparent;">
+            <a href="ojt_reports.php" style="display:flex;align-items:center;gap:10px;padding:10px 12px;margin:8px 0;border-radius:12px;text-decoration:none;color:#fff;background:transparent;">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex:0 0 18px;">
               <rect x="3" y="3" width="4" height="18"></rect>
               <rect x="10" y="8" width="4" height="13"></rect>
@@ -354,14 +372,7 @@ if ($student_id) {
       </div>
 
       <div style="padding:14px 12px 26px;">
-        <a id="sidebar-logout" href="/logout.php" style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:12px;text-decoration:none;color:#2f3459;background:#fff;">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex:0 0 18px;">
-            <path d="M16 17l5-5-5-5"></path>
-            <path d="M21 12H9"></path>
-            <path d="M9 19H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h4"></path>
-          </svg>
-          <span style="font-weight:600;">Logout</span>
-        </a>
+        <!-- sidebar logout removed — use top-right logout icon instead -->
       </div>
     </div>
   </div>

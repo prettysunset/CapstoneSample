@@ -158,14 +158,7 @@ if ($user_id) {
       </div>
 
       <div style="padding:14px 12px 26px;">
-        <a href="/logout.php" style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:12px;text-decoration:none;color:#2f3459;background:#fff;">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex:0 0 18px;">
-            <path d="M16 17l5-5-5-5"></path>
-            <path d="M21 12H9"></path>
-            <path d="M9 19H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h4"></path>
-          </svg>
-          <span style="font-weight:600;">Logout</span>
-        </a>
+        <!-- sidebar logout removed — use top-right logout icon instead -->
       </div>
     </div>
   </div>
@@ -347,13 +340,20 @@ if ($user_id) {
                                     $total_required = $total_required ?? 500;
                                     $percent = $total_required > 0 ? round(($hours_rendered / $total_required) * 100) : 0;
                                     $orientation_display = $orientation ? (preg_match('/^\d{4}-\d{2}-\d{2}$/', $orientation) ? date('F j, Y', strtotime($orientation)) : $orientation) : '-';
-                                    // expected end: if orientation is Y-m-d compute by assuming 8 hrs/day default
+                                    // expected end (8 hrs/day, 5-day workweek) based on remaining hours
                                     $expected_end_display = '-';
                                     if (!empty($orientation) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $orientation)) {
                                         $hoursPerDay = 8;
-                                        $daysNeeded = ceil(($total_required) / $hoursPerDay);
-                                        $exp = (new DateTime($orientation))->modify("+{$daysNeeded} days");
-                                        $expected_end_display = $exp->format('F j, Y');
+                                        $remaining = max(0, (float)$total_required - (float)$hours_rendered);
+                                        $daysNeeded = (int)ceil($remaining / $hoursPerDay);
+                                        $dt = new DateTime($orientation);
+                                        $added = 0;
+                                        while ($added < $daysNeeded) {
+                                            $dt->modify('+1 day');
+                                            $dow = (int)$dt->format('N');
+                                            if ($dow < 6) $added++;
+                                        }
+                                        $expected_end_display = $dt->format('F j, Y');
                                     } elseif (!empty($orientation) && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $orientation)) {
                                         $expected_end_display = '-';
                                     }
