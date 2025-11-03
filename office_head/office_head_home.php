@@ -231,32 +231,78 @@ $late_dtr_res = $late_dtr->get_result();
 <body>
 
 <div class="sidebar">
-    <h3><?= htmlspecialchars($user_name) ?></h3>
-    <p>Office Head - <?= htmlspecialchars($office_display) ?></p>
-    <a href="#" class="active">🏠 Home</a>
-    <a href="#">👥 OJT</a>
-    <a href="#">📊 Reports</a>
-    <h3 style="position:absolute; bottom:20px; width:100%; text-align:center;">OJT-MS</h3>
+  <div style="text-align:center;padding:18px 12px 8px;">
+    <div style="width:64px;height:64px;border-radius:50%;background:#fff;color:#2f3459;display:inline-flex;align-items:center;justify-content:center;font-weight:700;margin:6px auto;font-size:20px;">
+      <?= htmlspecialchars(mb_strtoupper(substr(trim($user_name),0,1) ?: 'O')) ?>
+    </div>
+    <h3 style="margin:8px 0 4px;font-size:16px;"><?= htmlspecialchars($user_name) ?></h3>
+    <p style="margin:0;font-size:13px;opacity:0.9">Office Head — <?= htmlspecialchars($office_display) ?></p>
+  </div>
+
+  <nav class="nav" style="margin-top:14px;display:flex;flex-direction:column;gap:8px;padding:0 12px;">
+    <a href="office_head_home.php" class="active" title="Home" style="display:flex;align-items:center;gap:8px;">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 11.5L12 4l9 7.5"></path>
+        <path d="M5 12v7a1 1 0 0 0 1 1h3v-5h6v5h3a1 1 0 0 0 1-1v-7"></path>
+      </svg>
+      <span>Home</span>
+    </a>
+
+    <a href="office_head_ojts.php" title="OJTs" style="display:flex;align-items:center;gap:8px;">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="8" r="3"></circle>
+        <path d="M5.5 20a6.5 6.5 0 0 1 13 0"></path>
+      </svg>
+      <span>OJTs</span>
+    </a>
+
+    <a href="office_head_reports.php" title="Reports" style="display:flex;align-items:center;gap:8px;">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="10" width="4" height="10"></rect>
+        <rect x="10" y="6" width="4" height="14"></rect>
+        <rect x="17" y="2" width="4" height="18"></rect>
+      </svg>
+      <span>Reports</span>
+    </a>
+
+  </nav>
+
+  <h3 style="position:absolute; bottom:20px; width:100%; text-align:center;">OJT-MS</h3>
 </div>
 
 <div class="main">
+  <!-- top-right outline icons: notifications, settings, logout
+       NOTE: removed position:fixed to prevent overlapping; icons now flow with page
+       and stay visible. -->
+  <div id="top-icons" style="display:flex;justify-content:flex-end;gap:14px;align-items:center;margin:8px 0 12px 0;z-index:50;">
+      <a href="notifications.php" title="Notifications" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 17h5l-1.405-1.405A2.032 2.032 0 0 1 18 14.158V11a6 6 0 1 0-12 0v3.159c0 .538-.214 1.055-.595 1.436L4 17h5"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
+      </a>
+      <a href="settings.php" title="Settings" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82L4.3 4.46a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09c0 .64.38 1.2 1 1.51h.09a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.64.3 1.03.87 1.03 1.51V12c0 .64-.39 1.21-1.03 1.51z"></path></svg>
+      </a>
+      <a id="top-logout" href="/logout.php" title="Logout" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+      </a>
+  </div>
+
     <div class="cards">
-        <div class="card">
-            <p>Active OJTs</p>
-            <h2><?= $active_ojts ?></h2>
-        </div>
-        <div class="card">
-            <p>Completed OJTs</p>
-            <h2><?= $completed_ojts ?></h2>
-        </div>
-        <div class="card">
-            <p>Pending Student Applications</p>
-            <h2><?= $pending_students ?></h2>
-        </div>
-        <div class="card">
-            <p>Pending Office Request</p>
-            <h2><?= $pending_office ?></h2>
-        </div>
+      <div class="card" style="height:110px;min-height:90px;max-height:140px;display:flex;flex-direction:column;justify-content:center;align-items:center;box-sizing:border-box;overflow:hidden;">
+        <p style="margin:0 0 6px 0">Active OJTs</p>
+        <h2 style="margin:0"><?= $active_ojts ?></h2>
+      </div>
+      <div class="card" style="height:110px;min-height:90px;max-height:140px;display:flex;flex-direction:column;justify-content:center;align-items:center;box-sizing:border-box;overflow:hidden;">
+        <p style="margin:0 0 6px 0">Completed OJTs</p>
+        <h2 style="margin:0"><?= $completed_ojts ?></h2>
+      </div>
+      <div class="card" style="height:110px;min-height:90px;max-height:140px;display:flex;flex-direction:column;justify-content:center;align-items:center;box-sizing:border-box;overflow:hidden;">
+        <p style="margin:0 0 6px 0">Pending Student Applications</p>
+        <h2 style="margin:0"><?= $pending_students ?></h2>
+      </div>
+      <div class="card" style="height:110px;min-height:90px;max-height:140px;display:flex;flex-direction:column;justify-content:center;align-items:center;box-sizing:border-box;overflow:hidden;">
+        <p style="margin:0 0 6px 0">Pending Office Request</p>
+        <h2 style="margin:0"><?= $pending_office ?></h2>
+      </div>
     </div>
 
     <div class="table-section">

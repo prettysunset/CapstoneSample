@@ -186,12 +186,35 @@ if ($user_id) {
             <div style="max-width:980px; width:100%; display:grid; grid-template-columns:1fr; gap:20px;">
                     <div style="background:#fff; padding:20px; border-radius:12px; box-shadow:0 6px 20px rgba(47,52,89,0.04);">
                     <div style="display:flex; flex-direction:column; gap:12px;">
+                            <style>
+                              .tab-btn {
+                                padding:10px 14px;
+                                border-radius:8px;
+                                background:transparent !important;
+                                color:#2f3459 !important;
+                                border:1px solid #e6e9f2 !important;
+                                cursor:pointer;
+                                font-size:15px;
+                                text-decoration:none;
+                                line-height:1;
+                              }
+                              .tab-btn.active {
+                                background:transparent !important;
+                                color:#2f3459 !important;
+                                border:none !important;
+                                text-decoration:underline !important;
+                                text-underline-offset:6px;
+                                font-weight:600;
+                              }
+                              .tab-btn:focus { outline: none; box-shadow: none; }
+                            </style>
+
                             <!-- Tabs -->
                             <div role="tablist" aria-label="Profile tabs" style="display:flex; gap:8px; flex-wrap:wrap;">
-                            <button class="tab-btn active" data-tab="tab-info" aria-selected="true" style="padding:10px 14px; border-radius:8px; border:0; background:#2f3459; color:#fff; cursor:pointer; font-size:15px;">Information</button>
-                            <button class="tab-btn" data-tab="tab-journals" aria-selected="false" style="padding:10px 14px; border-radius:8px; border:1px solid #e6e9f2; background:transparent; color:#2f3459; cursor:pointer; font-size:15px;">Weekly Journals</button>
-                            <button class="tab-btn" data-tab="tab-attachments" aria-selected="false" style="padding:10px 14px; border-radius:8px; border:1px solid #e6e9f2; background:transparent; color:#2f3459; cursor:pointer; font-size:15px;">Attachments</button>
-                            <button class="tab-btn" data-tab="tab-eval" aria-selected="false" style="padding:10px 14px; border-radius:8px; border:1px solid #e6e9f2; background:transparent; color:#2f3459; cursor:pointer; font-size:15px;">Evaluation</button>
+                              <button class="tab-btn active" data-tab="tab-info" aria-selected="true" role="tab">Information</button>
+                              <button class="tab-btn" data-tab="tab-journals" aria-selected="false" role="tab">Weekly Journals</button>
+                              <button class="tab-btn" data-tab="tab-attachments" aria-selected="false" role="tab">Attachments</button>
+                              <button class="tab-btn" data-tab="tab-eval" aria-selected="false" role="tab">Evaluation</button>
                             </div>
 
                             <!-- Tab panels -->
