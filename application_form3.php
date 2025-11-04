@@ -10,6 +10,28 @@ if ($roff) {
     $roff->free();
 }
 
+// detect existing valid MOA for the school entered in AF2 (if any)
+$existing_moa = null;
+if (!empty($_SESSION['af2']['school'])) {
+    $school_search = trim($_SESSION['af2']['school']);
+    if ($school_search !== '') {
+        $stmtm = $conn->prepare("SELECT moa_file, date_uploaded, COALESCE(validity_months,12) AS validity_months FROM moa WHERE school_name LIKE ? ORDER BY date_uploaded DESC LIMIT 1");
+        if ($stmtm) {
+            $like = "%{$school_search}%";
+            $stmtm->bind_param('s', $like);
+            $stmtm->execute();
+            $rm = $stmtm->get_result()->fetch_assoc();
+            $stmtm->close();
+            if ($rm && !empty($rm['moa_file']) && !empty($rm['date_uploaded'])) {
+                $valid_until = date('Y-m-d', strtotime("+{$rm['validity_months']} months", strtotime($rm['date_uploaded'])));
+                if (strtotime($valid_until) >= strtotime(date('Y-m-d'))) {
+                    $existing_moa = $rm['moa_file'];
+                }
+            }
+        }
+    }
+}
+
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
     // Validate required hours
     $required_hours = intval($_POST['required_hours']);
@@ -54,28 +76,47 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 }
 
                 // Handle file uploads
-                function uploadFile($inputName, $uploadDir) {
-                    if (!empty($_FILES[$inputName]['name']) && is_uploaded_file($_FILES[$inputName]['tmp_name'])) {
-                        // basic validation: size <= 2MB and allowed types
-                        $maxBytes = 2 * 1024 * 1024;
-                        $allowed = ['image/jpeg','image/png','application/pdf'];
-                        if ($_FILES[$inputName]['size'] > $maxBytes) return '';
-                        if (!in_array(mime_content_type($_FILES[$inputName]['tmp_name']), $allowed)) return '';
-
-                        $fileName = time() . '_' . preg_replace('/[^A-Za-z0-9_\-\.]/', '_', basename($_FILES[$inputName]['name']));
-                        $targetPath = $uploadDir . $fileName;
-                        if (move_uploaded_file($_FILES[$inputName]['tmp_name'], $targetPath)) {
-                            return $targetPath;
-                        }
+                function uploadFile($inputName, $uploadDir, array $allowedMimes, $maxBytes = 2097152) {
+                    if (empty($_FILES[$inputName]['name']) || !is_uploaded_file($_FILES[$inputName]['tmp_name'])) {
+                        return ''; // no file provided
+                    }
+                    if ($_FILES[$inputName]['size'] > $maxBytes) {
+                        return ''; // too large
+                    }
+                    $finfoType = mime_content_type($_FILES[$inputName]['tmp_name']);
+                    if (!in_array($finfoType, $allowedMimes, true)) {
+                        return ''; // wrong mime
+                    }
+                    $fileName = time() . '_' . preg_replace('/[^A-Za-z0-9_\-\.]/', '_', basename($_FILES[$inputName]['name']));
+                    $targetPath = $uploadDir . $fileName;
+                    if (move_uploaded_file($_FILES[$inputName]['tmp_name'], $targetPath)) {
+                        return $targetPath;
                     }
                     return '';
                 }
 
-                $formal_pic      = uploadFile("formal_pic", $uploadDir);
-                $letter_intent   = uploadFile("letter_intent", $uploadDir);
-                $resume          = uploadFile("resume", $uploadDir);
-                $endorsement     = uploadFile("endorsement", $uploadDir);
-                $moa             = uploadFile("moa", $uploadDir);
+                // formal_pic: only JPG/PNG ; others: PDF only
+                $formal_pic      = uploadFile("formal_pic", $uploadDir, ['image/jpeg','image/png']);
+                $letter_intent   = uploadFile("letter_intent", $uploadDir, ['application/pdf']);
+                $resume          = uploadFile("resume", $uploadDir, ['application/pdf']);
+                $endorsement     = uploadFile("endorsement", $uploadDir, ['application/pdf']);
+                // if a valid MOA already exists for the applicant's school, use that file path
+                if (!empty($existing_moa)) {
+                    $moa = $existing_moa;
+                } else {
+                    $moa = uploadFile("moa", $uploadDir, ['application/pdf']);
+                }
+
+                // Server-side required file/type checks
+                if (empty($formal_pic)) {
+                    echo "<script>alert('Formal picture is required and must be JPG or PNG (max 2MB).'); window.history.back();</script>";
+                    exit;
+                }
+                // letter_intent, resume, endorsement are required per form; if any empty -> error
+                if (empty($letter_intent) || empty($resume) || empty($endorsement)) {
+                    echo "<script>alert('Letter of Intent, Resume, and Endorsement Letter are required and must be PDF (max 2MB).'); window.history.back();</script>";
+                    exit;
+                }
 
                 // Get AF1 and AF2 data from session
                 $af1 = $_SESSION['af1'] ?? [];
@@ -282,7 +323,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
           <fieldset>
             <select name="first_choice" required>
-              <option value="" disabled selected>1st choice</option>
+              <option value="" disabled selected>1st choice*</option>
               <?php foreach ($offices as $o): ?>
                 <option value="<?= (int)$o['office_id'] ?>"><?= htmlspecialchars($o['office_name']) ?></option>
               <?php endforeach; ?>
@@ -296,39 +337,43 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             </select>
           </fieldset>
 
-          <input type="number" name="required_hours" placeholder="Required Hours" required min="1">
+          <input type="number" name="required_hours" placeholder="Required Hours *" required min="1">
 
           <h3>UPLOAD REQUIREMENTS</h3>
 
           <fieldset>
             <div style="flex:1;">
-              <label>1x1 Formal Picture</label>
-              <input type="file" name="formal_pic" accept=".jpg,.jpeg,.png,.pdf" required>
+              <label>1x1 Formal Picture * (JPG / PNG only)</label>
+              <input type="file" name="formal_pic" accept=".jpg,.jpeg,.png" required>
             </div>
             <div style="flex:1;">
-              <label>Letter of Intent</label>
-              <input type="file" name="letter_intent" accept=".jpg,.jpeg,.png,.pdf" required>
+              <label>Letter of Intent * (PDF only)</label>
+              <input type="file" name="letter_intent" accept=".pdf" required>
             </div>
           </fieldset>
 
           <fieldset>
             <div style="flex:1;">
-              <label>Resume</label>
-              <input type="file" name="resume" accept=".jpg,.jpeg,.png,.pdf" required>
+              <label>Resume * (PDF only)</label>
+              <input type="file" name="resume" accept=".pdf" required>
             </div>
             <div style="flex:1;">
-              <label>Endorsement Letter</label>
-              <input type="file" name="endorsement" accept=".jpg,.jpeg,.png,.pdf" required>
+              <label>Endorsement Letter * (PDF only)</label>
+              <input type="file" name="endorsement" accept=".pdf" required>
             </div>
           </fieldset>
 
-          <label>Memorandum of Agreement (to follow)</label>
-          <input type="file" name="moa" accept=".jpg,.jpeg,.png,.pdf">
+          <?php if (!empty($existing_moa)): ?>
+            <label>Memorandum of Agreement</label>
+            <p><a href="<?= '../' . htmlspecialchars($existing_moa) ?>" target="_blank"><?= htmlspecialchars(basename($existing_moa)) ?></a> — MOA on file for your school; no upload required.</p>
+          <?php else: ?>
+            <label>Memorandum of Agreement (to follow) (PDF preferred)</label>
+            <input type="file" name="moa" accept=".pdf">
+          <?php endif; ?>
 
           <p class="note">
             <strong>Note:</strong><br>
-            • Supported file types: <span class="highlight">JPG, PNG, PDF</span><br>
-            • Maximum file size: <span class="highlight">2MB</span>
+            • Maximum file size for each file: <span class="highlight">2MB</span>
           </p>
 
           <div class="form-nav">
@@ -341,7 +386,79 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
   </div>
 
 <script>window.addEventListener('load', () => { document.body.style.opacity = 1; });</script>
-
+<script>
+// client-side validation: required fields + file types
++(function(){
+  const form = document.querySelector('form[method="POST"][enctype="multipart/form-data"]');
+  if (!form) return;
+  form.id = form.id || 'af3Form';
+  form.addEventListener('submit', function(e){
+    // required selects/inputs
+    const reqs = form.querySelectorAll('[required]');
+    for (let i=0;i<reqs.length;i++){
+      const el = reqs[i];
+      // skip hidden elements
+      if (el.offsetParent === null && el.type !== 'file') continue;
+      const val = (el.value || '').toString().trim();
+      if (val === '') {
+        alert('Please complete all required fields.');
+        el.focus();
+        e.preventDefault();
+        return false;
+      }
+    }
+    // required_hours positive
+    const rh = form.querySelector('input[name="required_hours"]');
+    if (rh && Number(rh.value) <= 0) {
+      alert('Required hours must be a positive number.');
+      rh.focus();
+      e.preventDefault();
+      return false;
+    }
+    // file validations
+    const fFormal = form.querySelector('input[name="formal_pic"]');
+    if (!fFormal || !fFormal.files || fFormal.files.length === 0) {
+      alert('Please upload your 1x1 Formal Picture (JPG/PNG).');
+      e.preventDefault();
+      return false;
+    } else {
+      const f = fFormal.files[0];
+      if (!/image\/(jpeg|png)/.test(f.type)) {
+        alert('Formal Picture must be JPG or PNG.');
+        e.preventDefault();
+        return false;
+      }
+      if (f.size > 2 * 1024 * 1024) {
+        alert('Formal Picture must be 2MB or smaller.');
+        e.preventDefault();
+        return false;
+      }
+    }
+    // other required PDFs
+    const pdfFields = ['letter_intent','resume','endorsement'];
+    for (let i=0;i<pdfFields.length;i++){
+      const el = form.querySelector('input[name="'+pdfFields[i]+'"]');
+      if (!el || !el.files || el.files.length === 0) {
+        alert('Please upload ' + el.previousElementSibling.textContent.replace('*','').trim() + ' (PDF).');
+        e.preventDefault();
+        return false;
+      }
+      const pf = el.files[0];
+      if (pf.type !== 'application/pdf' && !/\.pdf$/i.test(pf.name)) {
+        alert('Only PDF is accepted for ' + el.previousElementSibling.textContent.replace('*','').trim() + '.');
+        e.preventDefault();
+        return false;
+      }
+      if (pf.size > 2 * 1024 * 1024) {
+        alert(el.previousElementSibling.textContent.replace('*','').trim() + ' must be 2MB or smaller.');
+        e.preventDefault();
+        return false;
+      }
+    }
+    return true;
+  });
+})();
+</script>
 
 </body>
 </html>

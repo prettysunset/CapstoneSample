@@ -53,13 +53,24 @@ $af1 = isset($_SESSION['af1']) ? $_SESSION['af1'] : [];
       width: 100%;
     }
 
+    /* hide the browser's built-in date hint (e.g. "mm/dd/yyyy") when the field is empty.
+       the script toggles the 'has-value' class when a value exists so we can restore text color. */
     .input-with-placeholder input[type="date"] {
       width: 100%;
       padding: 10px 12px;
       border-radius: 10px;
       border: 1px solid #e0e7ef;
       font-size: 14px;
+      color: transparent; /* hide the browser placeholder text */
+      -webkit-text-fill-color: transparent; /* WebKit (Chrome/Safari) */
+      caret-color: #333;
+      background-clip: padding-box;
+    }
+
+    /* show the selected date text when value exists (script adds .has-value) */
+    .input-with-placeholder input[type="date"].has-value {
       color: #333;
+      -webkit-text-fill-color: #333;
     }
 
     .input-with-placeholder label.placeholder {
@@ -80,6 +91,27 @@ $af1 = isset($_SESSION['af1']) ? $_SESSION['af1'] : [];
       top: -8px;
       font-size: 12px;
       color: #3a4163;
+    }
+
+    /* layout for Birthday + Gender in the same row */
+    fieldset.field-date-gender {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+    }
+    fieldset.field-date-gender .input-with-placeholder {
+      flex: 1;
+      min-width: 0; /* allow flex children to shrink on small screens */
+    }
+    fieldset.field-date-gender select {
+      flex: 1;
+      min-width: 0;
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px solid #e0e7ef;
+      font-size: 14px;
+      background: #fff;
+      appearance: none;
     }
   </style>
 </head>
@@ -112,44 +144,44 @@ $af1 = isset($_SESSION['af1']) ? $_SESSION['af1'] : [];
 
         <form id="ojtForm" method="POST" novalidate>
           <fieldset>
-            <input type="text" name="first_name" placeholder="First Name" required value="<?= isset($af1['first_name']) ? htmlspecialchars($af1['first_name']) : '' ?>">
+            <input type="text" name="first_name" placeholder="First Name *" required value="<?= isset($af1['first_name']) ? htmlspecialchars($af1['first_name']) : '' ?>">
             <input type="text" name="middle_name" placeholder="Middle Name" value="<?= isset($af1['middle_name']) ? htmlspecialchars($af1['middle_name']) : '' ?>">
-            <input type="text" name="last_name" placeholder="Last Name" required value="<?= isset($af1['last_name']) ? htmlspecialchars($af1['last_name']) : '' ?>">
+            <input type="text" name="last_name" placeholder="Last Name *" required value="<?= isset($af1['last_name']) ? htmlspecialchars($af1['last_name']) : '' ?>">
           </fieldset>
-
-          <input type="text" name="address" placeholder="Complete Address" required value="<?= isset($af1['address']) ? htmlspecialchars($af1['address']) : '' ?>">
-
-          <fieldset>
-            <input type="email" name="email" id="email" placeholder="Email Address" required value="<?= isset($af1['email']) ? htmlspecialchars($af1['email']) : '' ?>">
-            <input type="text" name="contact" id="contact" placeholder="Contact Number" maxlength="11" required value="<?= isset($af1['contact']) ? htmlspecialchars($af1['contact']) : '' ?>">
-          </fieldset>
-
-          <fieldset>
-            <div class="input-with-placeholder">
+ 
+          <input type="text" name="address" placeholder="Complete Address *" required value="<?= isset($af1['address']) ? htmlspecialchars($af1['address']) : '' ?>">
+ 
+           <fieldset>
+            <input type="email" name="email" id="email" placeholder="Email Address *" required value="<?= isset($af1['email']) ? htmlspecialchars($af1['email']) : '' ?>">
+            <input type="text" name="contact" id="contact" placeholder="Contact Number *" maxlength="11" required value="<?= isset($af1['contact']) ? htmlspecialchars($af1['contact']) : '' ?>">
+           </fieldset>
+ 
+           <fieldset class="field-date-gender">
+             <div class="input-with-placeholder">
               <input type="date" name="birthday" id="birthday" required value="<?= isset($af1['birthday']) ? htmlspecialchars($af1['birthday']) : '' ?>">
-              <label class="placeholder">Birthday</label>
-            </div>
-
+              <label class="placeholder">Birthday *</label>
+             </div>
+ 
             <select name="gender" required>
-              <option value="" disabled <?= !isset($af1['gender']) ? 'selected' : '' ?>>Gender</option>
+              <option value="" disabled <?= !isset($af1['gender']) ? 'selected' : '' ?>>Gender *</option>
               <option value="Male" <?= (isset($af1['gender']) && $af1['gender'] == 'Male') ? 'selected' : '' ?>>Male</option>
               <option value="Female" <?= (isset($af1['gender']) && $af1['gender'] == 'Female') ? 'selected' : '' ?>>Female</option>
               <option value="Prefer not to say" <?= (isset($af1['gender']) && $af1['gender'] == 'Prefer not to say') ? 'selected' : '' ?>>Prefer not to say</option>
             </select>
-          </fieldset>
-
-          <h3>Emergency Contact</h3>
-          <fieldset>
-            <input type="text" name="emg_first" placeholder="First Name" required value="<?= isset($af1['emg_first']) ? htmlspecialchars($af1['emg_first']) : '' ?>">
+           </fieldset>
+ 
+           <h3>Emergency Contact</h3>
+           <fieldset>
+            <input type="text" name="emg_first" placeholder="First Name *" required value="<?= isset($af1['emg_first']) ? htmlspecialchars($af1['emg_first']) : '' ?>">
             <input type="text" name="emg_middle" placeholder="Middle Name" value="<?= isset($af1['emg_middle']) ? htmlspecialchars($af1['emg_middle']) : '' ?>">
-            <input type="text" name="emg_last" placeholder="Last Name" required value="<?= isset($af1['emg_last']) ? htmlspecialchars($af1['emg_last']) : '' ?>">
+            <input type="text" name="emg_last" placeholder="Last Name *" required value="<?= isset($af1['emg_last']) ? htmlspecialchars($af1['emg_last']) : '' ?>">
           </fieldset>
-
-          <fieldset>
-            <input type="text" name="emg_relation" placeholder="Relationship" required value="<?= isset($af1['emg_relation']) ? htmlspecialchars($af1['emg_relation']) : '' ?>">
-            <input type="text" name="emg_contact" id="emg_contact" placeholder="Contact Number" maxlength="11" required value="<?= isset($af1['emg_contact']) ? htmlspecialchars($af1['emg_contact']) : '' ?>">
+ 
+           <fieldset>
+            <input type="text" name="emg_relation" placeholder="Relationship *" required value="<?= isset($af1['emg_relation']) ? htmlspecialchars($af1['emg_relation']) : '' ?>">
+            <input type="text" name="emg_contact" id="emg_contact" placeholder="Contact Number *" maxlength="11" required value="<?= isset($af1['emg_contact']) ? htmlspecialchars($af1['emg_contact']) : '' ?>">
           </fieldset>
-
+ 
           <div class="form-nav">
             <button type="button" class="secondary" onclick="window.location='home.php'">Cancel</button>
             <button type="submit">Next →</button>
@@ -190,6 +222,20 @@ $af1 = isset($_SESSION['af1']) ? $_SESSION['af1'] : [];
       const form = document.getElementById('ojtForm');
       if (form) {
         form.addEventListener('submit', function(e) {
+          // 1) Ensure all required fields are filled first
+          const reqs = form.querySelectorAll('[required]');
+          for (let i = 0; i < reqs.length; i++) {
+            const el = reqs[i];
+            const val = (el.value || '').toString().trim();
+            if (val === '') {
+              alert('Please complete all required fields.');
+              el.focus();
+              e.preventDefault();
+              return false;
+            }
+          }
+
+          // 2) Validate email format
           const email = document.getElementById('email').value || '';
           const emailPattern = /^[a-zA-Z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/;
           if (!emailPattern.test(email)) {
@@ -198,29 +244,14 @@ $af1 = isset($_SESSION['af1']) ? $_SESSION['af1'] : [];
             return false;
           }
 
+          // 3) Validate contact number length
           const contact = contactInput ? contactInput.value : '';
           if (contact.length !== 11) {
             alert('Contact number must be exactly 11 digits.');
             e.preventDefault();
             return false;
           }
-
-          const ageVal = (function(dobStr){
-            if (!dobStr) return '';
-            const b = new Date(dobStr);
-            if (isNaN(b.getTime())) return '';
-            const today = new Date();
-            let age = today.getFullYear() - b.getFullYear();
-            const m = today.getMonth() - b.getMonth();
-            if (m < 0 || (m === 0 && today.getDate() < b.getDate())) age--;
-            return age;
-          })(birthdayInput ? birthdayInput.value : '');
-
-          if (ageVal === '' || ageVal < 15 || ageVal > 99) {
-            alert('Please ensure birthday produces an age between 15 and 99.');
-            e.preventDefault();
-            return false;
-          }
+ 
         });
       }
     })();

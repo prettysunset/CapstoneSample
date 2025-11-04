@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: 127.0.0.1
--- Generation Time: Oct 26, 2025 at 08:36 AM
+-- Generation Time: Nov 04, 2025 at 01:45 AM
 -- Server version: 10.4.32-MariaDB
 -- PHP Version: 8.0.30
 
@@ -45,7 +45,8 @@ CREATE TABLE `dtr` (
 
 INSERT INTO `dtr` (`dtr_id`, `student_id`, `log_date`, `am_in`, `am_out`, `pm_in`, `pm_out`, `hours`, `minutes`) VALUES
 (23, 7, '2025-10-19', NULL, NULL, '17:53', '17:53', 0, 0),
-(24, 7, '2025-10-23', NULL, NULL, '20:50', NULL, 0, 0);
+(24, 7, '2025-10-23', NULL, NULL, '20:50', NULL, 0, 0),
+(28, 9, '2025-11-02', NULL, NULL, '12:59', '15:59', 3, 0);
 
 -- --------------------------------------------------------
 
@@ -127,6 +128,13 @@ CREATE TABLE `moa` (
   `date_uploaded` date DEFAULT NULL,
   `validity_months` int(11) DEFAULT 12
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Dumping data for table `moa`
+--
+
+INSERT INTO `moa` (`moa_id`, `school_name`, `moa_file`, `date_uploaded`, `validity_months`) VALUES
+(8, 'Bulacan Polytechnic College', 'uploads/moa/img029_1761923740.jpg', '2025-10-31', 3);
 
 -- --------------------------------------------------------
 
@@ -267,6 +275,7 @@ CREATE TABLE `students` (
   `student_id` int(11) NOT NULL,
   `user_id` int(11) DEFAULT NULL,
   `first_name` varchar(100) DEFAULT NULL,
+  `middle_name` varchar(50) DEFAULT NULL,
   `last_name` varchar(100) DEFAULT NULL,
   `address` varchar(255) DEFAULT NULL,
   `contact_number` varchar(20) DEFAULT NULL,
@@ -278,6 +287,8 @@ CREATE TABLE `students` (
   `college` varchar(150) DEFAULT NULL,
   `course` varchar(150) DEFAULT NULL,
   `year_level` varchar(20) DEFAULT NULL,
+  `school_year` varchar(20) DEFAULT NULL,
+  `semester` varchar(50) DEFAULT NULL,
   `school_address` varchar(255) DEFAULT NULL,
   `ojt_adviser` varchar(100) DEFAULT NULL,
   `adviser_contact` varchar(20) DEFAULT NULL,
@@ -291,33 +302,33 @@ CREATE TABLE `students` (
 -- Dumping data for table `students`
 --
 
-INSERT INTO `students` (`student_id`, `user_id`, `first_name`, `last_name`, `address`, `contact_number`, `email`, `birthday`, `emergency_name`, `emergency_relation`, `emergency_contact`, `college`, `course`, `year_level`, `school_address`, `ojt_adviser`, `adviser_contact`, `total_hours_required`, `hours_rendered`, `status`) VALUES
-(1, NULL, 'Jasmine', 'Santiago', '#0546 Peter Street, Phase 2, Caingin, Malolos, Bulacan', '09454659878', 'santiagojasminem@gmail.com', NULL, 'memen', 'mother', '09134664654', 'Bulacan Polytechnic College', 'BSIS', '4', 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '08089989898', 500, 0, 'pending'),
-(2, NULL, 'Jasmine', 'Santiago', '#0546 Peter Street, Phase 2, Caingin, Malolos, Bulacan', '09454659878', 'santiagojasminem@gmail.com', NULL, 'memen', 'mother', '09134664654', 'Bulacan Polytechnic College', 'BSIS', '4', 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '08089989898', 500, 0, 'pending'),
-(3, NULL, 'John Paul', 'Sayo', 'Pulilan', '09457842558', 'jasmine.santiago@bpc.edu.ph', NULL, 'Jampol', 'Father', '09345646546', 'Bulacan Polytechnic College', 'BSIS', '4', 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '08089989898', 500, 0, 'pending'),
-(4, 11, 'Jasmine', 'Santiago', '#0546 Peter Street, Phase 2, Caingin, Malolos, Bulacan', '09454659878', 'santiagojasminem@gmail.com', NULL, 'memen', 'mother', '09134664654', 'Bulacan Polytechnic College', 'BSIS', '4', 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '08089989898', 500, 0, 'ongoing'),
-(5, NULL, 'Blair', 'Santiago', '#0546 Peter Street, Phase 2, Caingin, Malolos, Bulacan', '09454659878', 'santiagojasminem@gmail.com', NULL, 'memen', 'mother', '09134664654', 'Bulacan Polytechnic College', 'BSIS', '4', 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '08089989898', 500, 0, 'ongoing'),
-(6, NULL, 'Jasmine', 'Santiago', '#0546 Peter Street, Phase 2, Caingin, Malolos, Bulacan', '09457842558', 'santiagojasminem@gmail.com', NULL, 'memen', 'mother', '09134664654', 'Bulacan Polytechnic College', 'BSIS', '4', 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '08089989898', 500, 0, 'ongoing'),
-(7, 12, 'John Paul', 'Sayo', 'Pulilan', '09454659878', 'santiagojasminem@gmail.com', NULL, 'Jampol', 'Father', '09345646546', 'Bulacan Polytechnic College', 'BSIS', '4', 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '08089989898', 500, 0, 'ongoing'),
-(8, NULL, 'Jenny ', 'Robles', 'Sumapang Matanda, Malolos, Bulacan', '09454659878', 'jasmine.santiago@bpc.edu.ph', NULL, 'Jen', 'mother', '09134664654', 'Centro Escolar University – Malolos Campus', 'BSIS', '4', 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '08089989898', 250, 0, 'pending'),
-(9, 13, 'Jim Well', 'Diamante', 'Bagna', '09454659878', 'jimwell@gmail.com', NULL, 'Jampol', 'Father', '09345646546', 'Bulacan Polytechnic College', 'BSIS-4B', '4', 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '08089989898', 500, 0, 'ongoing'),
-(10, 14, 'Jim Well', 'Diamante', 'Bagna', '09454659878', 'jimwelldiamante@gmail.com', NULL, 'Jampol', 'Father', '09345646546', 'Bulacan Polytechnic College', 'BSIS-4B', '4', 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '08089989898', 500, 0, 'ongoing'),
-(11, 15, 'Arvin', 'Delos Santos', 'Blk 3 Lot 12, Brgy. San Rafael, Malolos, Bulacan', '09171230001', 'arvin.delossantos@example.com', NULL, 'Maribel Delos Santos', 'Mother', '09171230002', 'Bulacan Polytechnic College', 'BS Information Systems', '4', 'Brgy. San Rafael, Malolos', 'Dr. Liza Ramos', '09171230010', 500, 0, 'ongoing'),
-(12, NULL, 'Beatriz', 'Mendoza', 'Poblacion West, Hagonoy, Bulacan', '09172230011', 'beatriz.mendoza@example.com', NULL, 'Ricardo Mendoza', 'Father', '09172230012', 'Bulacan State University', 'BS Accountancy', '4', 'Poblacion West, Hagonoy', 'Prof. Josephine Cruz', '09172230020', 500, 0, 'pending'),
-(13, NULL, 'Carl', 'Reyes', 'Brgy. San Jose, Baliuag, Bulacan', '09173230021', 'carl.reyes@example.com', NULL, 'Lorna Reyes', 'Mother', '09173230022', 'Baliuag University', 'BS Information Technology', '3', 'Brgy. San Jose, Baliuag', 'Engr. Mark Dela Cruz', '09173230030', 500, 0, 'pending'),
-(14, NULL, 'Diana', 'Lopez', 'Km 36 MacArthur Hi-way, Pulilan, Bulacan', '09174230031', 'diana.lopez@example.com', NULL, 'Ana Lopez', 'Mother', '09174230032', 'La Consolacion University Philippines', 'BS Nursing', '3', 'MacArthur Highway, Pulilan', 'Dr. Mary Ann Reyes', '09174230040', 500, 0, ''),
-(15, NULL, 'Edgar', 'Garcia', 'Brgy. Poblacion, Meycauayan, Bulacan', '09175230041', 'edgar.garcia@example.com', NULL, 'Rosa Garcia', 'Mother', '09175230042', 'Meycauayan College', 'BS Accounting Information System', '4', 'Meycauayan City', 'Prof. Liza Cortez', '09175230050', 500, 120, 'ongoing'),
-(16, NULL, 'Fatima', 'Santos', 'Blk 7, Brgy. Sta. Cruz, San Jose del Monte, Bulacan', '09176230051', 'fatima.santos@example.com', NULL, 'Jose Santos', 'Father', '09176230052', 'AMA Computer College – Malolos', 'BS Information Systems', '4', 'Malolos Campus', 'Dr. Romualdo', '09176230060', 500, 0, ''),
-(17, NULL, 'Gino', 'Valdez', 'Brgy. San Isidro, City of Malolos, Bulacan', '09177230061', 'gino.valdez@example.com', NULL, 'Marta Valdez', 'Mother', '09177230062', 'Asian Institute of Computer Studies – Malolos', 'BS Computer Science', '2', 'Malolos', 'Prof. Allan Perez', '09177230070', 500, 0, 'pending'),
-(18, NULL, 'Hannah', 'Ramos', 'Villasis St., Brgy. San Agustin, Calumpit, Bulacan', '09178230071', 'hannah.ramos@example.com', NULL, 'Liza Ramos', 'Mother', '09178230072', 'St. Mary’s College of Meycauayan', 'BS Tourism Management', '3', 'Meycauayan', 'Dr. Sheila Bautista', '09178230080', 500, 0, 'pending'),
-(19, NULL, 'Ian', 'Delacruz', 'Purok 5, Brgy. San Roque, Plaridel, Bulacan', '09179230081', 'ian.delacruz@example.com', NULL, 'Nelly Delacruz', 'Mother', '09179230082', 'Immaculate Conception International College of Arts and Technology', 'BS Business Administration', '4', 'Plaridel Campus', 'Prof. Edwin Navarro', '09179230090', 500, 0, 'pending'),
-(20, NULL, 'Joana', 'Velasco', 'Brgy. Baywalk, Hagonoy, Bulacan', '09170230091', 'joana.velasco@example.com', NULL, 'Rogelio Velasco', 'Father', '09170230092', 'La Verdad Christian College – Apalit', 'BS Criminology', '3', 'Apalit Campus', 'Dr. Teresa L. Cruz', '09170230100', 500, 0, 'pending'),
-(21, NULL, 'Jasmin', 'Santiago', '#0547 Peter Street, Phase 2, Caingin, Malolos, Bulacan', '09454659878', 'santiagojasminem@gmail.com', NULL, 'memen', 'mother', '09134664654', 'Bulacan Polytechnic College', 'BSIS', '4', 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '09234342354', 500, 0, 'pending'),
-(22, NULL, 'Jasmineee', 'Santiago', '#0547 Peter Street, Phase 2, Caingin, Malolos, Bulacan', '09454659878', 'santiagojasminem@gmail.com', '2004-11-06', 'memen san', 'mother', '09134664654', 'Bulacan Polytechnic College', 'BSIS', '4', 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '09234342354', 500, 0, 'pending'),
-(23, NULL, 'Jasmineee', 'Santiago', '#0547 Peter Street, Phase 2, Caingin, Malolos, Bulacan', '09454659878', 'santiagojasminem@gmail.com', '2004-11-06', 'memen san', 'mother', '09134664654', 'Bulacan Polytechnic College', 'BSIS', '4', 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '09234342354', 500, 0, 'pending'),
-(24, NULL, 'Jasmineee', 'Santiago', '#0547 Peter Street, Phase 2, Caingin, Malolos, Bulacan', '09454659878', 'santiagojasminem@gmail.com', NULL, 'memen san', 'mother', '09134664654', 'Bulacan Polytechnic College', 'BSIS', '4', 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '09234342354', 500, 0, 'pending'),
-(25, NULL, 'Jasmineee', 'Santiago', '#0547 Peter Street, Phase 2, Caingin, Malolos, Bulacan', '09454659878', 'santiagojasminem@gmail.com', NULL, 'memen san', 'mother', '09134664654', 'Bulacan Polytechnic College', 'BSIS', '4', 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '09234342354', 500, 0, 'pending'),
-(26, 16, 'Jas Mine', 'Santiago', '#0547 Peter Street, Phase 2, Caingin, Malolos, Bulacan', '09454659878', 'santiagojasminem@gmail.com', '2004-11-01', 'memen san', 'mother', '09134664654', 'Bulacan Polytechnic College', 'BSIS', '4', 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '09234342354', 500, 0, 'ongoing');
+INSERT INTO `students` (`student_id`, `user_id`, `first_name`, `middle_name`, `last_name`, `address`, `contact_number`, `email`, `birthday`, `emergency_name`, `emergency_relation`, `emergency_contact`, `college`, `course`, `year_level`, `school_year`, `semester`, `school_address`, `ojt_adviser`, `adviser_contact`, `total_hours_required`, `hours_rendered`, `status`) VALUES
+(1, NULL, 'Jasmine', NULL, 'Santiago', '#0546 Peter Street, Phase 2, Caingin, Malolos, Bulacan', '09454659878', 'santiagojasminem@gmail.com', NULL, 'memen', 'mother', '09134664654', 'Bulacan Polytechnic College', 'BSIS', '4', NULL, NULL, 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '08089989898', 500, 0, 'pending'),
+(2, NULL, 'Jasmine', NULL, 'Santiago', '#0546 Peter Street, Phase 2, Caingin, Malolos, Bulacan', '09454659878', 'santiagojasminem@gmail.com', NULL, 'memen', 'mother', '09134664654', 'Bulacan Polytechnic College', 'BSIS', '4', NULL, NULL, 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '08089989898', 500, 0, 'pending'),
+(3, NULL, 'John Paul', NULL, 'Sayo', 'Pulilan', '09457842558', 'jasmine.santiago@bpc.edu.ph', NULL, 'Jampol', 'Father', '09345646546', 'Bulacan Polytechnic College', 'BSIS', '4', NULL, NULL, 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '08089989898', 500, 0, 'pending'),
+(4, 11, 'Jasmine', NULL, 'Santiago', '#0546 Peter Street, Phase 2, Caingin, Malolos, Bulacan', '09454659878', 'santiagojasminem@gmail.com', NULL, 'memen', 'mother', '09134664654', 'Bulacan Polytechnic College', 'BSIS', '4', NULL, NULL, 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '08089989898', 500, 0, 'ongoing'),
+(5, NULL, 'Blair', NULL, 'Santiago', '#0546 Peter Street, Phase 2, Caingin, Malolos, Bulacan', '09454659878', 'santiagojasminem@gmail.com', NULL, 'memen', 'mother', '09134664654', 'Bulacan Polytechnic College', 'BSIS', '4', NULL, NULL, 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '08089989898', 500, 0, 'ongoing'),
+(6, NULL, 'Jasmine', NULL, 'Santiago', '#0546 Peter Street, Phase 2, Caingin, Malolos, Bulacan', '09457842558', 'santiagojasminem@gmail.com', NULL, 'memen', 'mother', '09134664654', 'Bulacan Polytechnic College', 'BSIS', '4', NULL, NULL, 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '08089989898', 500, 0, 'ongoing'),
+(7, 12, 'John Paul', NULL, 'Sayo', 'Pulilan', '09454659878', 'santiagojasminem@gmail.com', NULL, 'Jampol', 'Father', '09345646546', 'Bulacan Polytechnic College', 'BSIS', '4', NULL, NULL, 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '08089989898', 500, 0, 'ongoing'),
+(8, NULL, 'Jenny ', NULL, 'Robles', 'Sumapang Matanda, Malolos, Bulacan', '09454659878', 'jasmine.santiago@bpc.edu.ph', NULL, 'Jen', 'mother', '09134664654', 'Centro Escolar University – Malolos Campus', 'BSIS', '4', NULL, NULL, 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '08089989898', 250, 0, 'pending'),
+(9, 13, 'Jim Well', NULL, 'Diamante', 'Bagna', '09454659878', 'jimwell@gmail.com', '2004-11-06', 'Jampol', 'Father', '09345646546', 'Bulacan Polytechnic College', 'BSIS-4B', '4', NULL, NULL, 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '08089989898', 500, 0, 'ongoing'),
+(10, 14, 'Jim Well', NULL, 'Diamante', 'Bagna', '09454659878', 'jimwelldiamante@gmail.com', NULL, 'Jampol', 'Father', '09345646546', 'Bulacan Polytechnic College', 'BSIS-4B', '4', NULL, NULL, 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '08089989898', 500, 0, 'ongoing'),
+(11, 15, 'Arvin', NULL, 'Delos Santos', 'Blk 3 Lot 12, Brgy. San Rafael, Malolos, Bulacan', '09171230001', 'arvin.delossantos@example.com', NULL, 'Maribel Delos Santos', 'Mother', '09171230002', 'Bulacan Polytechnic College', 'BS Information Systems', '4', NULL, NULL, 'Brgy. San Rafael, Malolos', 'Dr. Liza Ramos', '09171230010', 500, 0, 'ongoing'),
+(12, NULL, 'Beatriz', NULL, 'Mendoza', 'Poblacion West, Hagonoy, Bulacan', '09172230011', 'beatriz.mendoza@example.com', NULL, 'Ricardo Mendoza', 'Father', '09172230012', 'Bulacan State University', 'BS Accountancy', '4', NULL, NULL, 'Poblacion West, Hagonoy', 'Prof. Josephine Cruz', '09172230020', 500, 0, 'pending'),
+(13, NULL, 'Carl', NULL, 'Reyes', 'Brgy. San Jose, Baliuag, Bulacan', '09173230021', 'carl.reyes@example.com', NULL, 'Lorna Reyes', 'Mother', '09173230022', 'Baliuag University', 'BS Information Technology', '3', NULL, NULL, 'Brgy. San Jose, Baliuag', 'Engr. Mark Dela Cruz', '09173230030', 500, 0, 'pending'),
+(14, NULL, 'Diana', NULL, 'Lopez', 'Km 36 MacArthur Hi-way, Pulilan, Bulacan', '09174230031', 'diana.lopez@example.com', NULL, 'Ana Lopez', 'Mother', '09174230032', 'La Consolacion University Philippines', 'BS Nursing', '3', NULL, NULL, 'MacArthur Highway, Pulilan', 'Dr. Mary Ann Reyes', '09174230040', 500, 0, ''),
+(15, NULL, 'Edgar', NULL, 'Garcia', 'Brgy. Poblacion, Meycauayan, Bulacan', '09175230041', 'edgar.garcia@example.com', NULL, 'Rosa Garcia', 'Mother', '09175230042', 'Meycauayan College', 'BS Accounting Information System', '4', NULL, NULL, 'Meycauayan City', 'Prof. Liza Cortez', '09175230050', 500, 120, 'ongoing'),
+(16, NULL, 'Fatima', NULL, 'Santos', 'Blk 7, Brgy. Sta. Cruz, San Jose del Monte, Bulacan', '09176230051', 'fatima.santos@example.com', NULL, 'Jose Santos', 'Father', '09176230052', 'AMA Computer College – Malolos', 'BS Information Systems', '4', NULL, NULL, 'Malolos Campus', 'Dr. Romualdo', '09176230060', 500, 0, ''),
+(17, NULL, 'Gino', NULL, 'Valdez', 'Brgy. San Isidro, City of Malolos, Bulacan', '09177230061', 'gino.valdez@example.com', NULL, 'Marta Valdez', 'Mother', '09177230062', 'Asian Institute of Computer Studies – Malolos', 'BS Computer Science', '2', NULL, NULL, 'Malolos', 'Prof. Allan Perez', '09177230070', 500, 0, 'pending'),
+(18, NULL, 'Hannah', NULL, 'Ramos', 'Villasis St., Brgy. San Agustin, Calumpit, Bulacan', '09178230071', 'hannah.ramos@example.com', NULL, 'Liza Ramos', 'Mother', '09178230072', 'St. Mary’s College of Meycauayan', 'BS Tourism Management', '3', NULL, NULL, 'Meycauayan', 'Dr. Sheila Bautista', '09178230080', 500, 0, 'pending'),
+(19, NULL, 'Ian', NULL, 'Delacruz', 'Purok 5, Brgy. San Roque, Plaridel, Bulacan', '09179230081', 'ian.delacruz@example.com', NULL, 'Nelly Delacruz', 'Mother', '09179230082', 'Immaculate Conception International College of Arts and Technology', 'BS Business Administration', '4', NULL, NULL, 'Plaridel Campus', 'Prof. Edwin Navarro', '09179230090', 500, 0, 'pending'),
+(20, NULL, 'Joana', NULL, 'Velasco', 'Brgy. Baywalk, Hagonoy, Bulacan', '09170230091', 'joana.velasco@example.com', NULL, 'Rogelio Velasco', 'Father', '09170230092', 'La Verdad Christian College – Apalit', 'BS Criminology', '3', NULL, NULL, 'Apalit Campus', 'Dr. Teresa L. Cruz', '09170230100', 500, 0, 'pending'),
+(21, NULL, 'Jasmin', NULL, 'Santiago', '#0547 Peter Street, Phase 2, Caingin, Malolos, Bulacan', '09454659878', 'santiagojasminem@gmail.com', NULL, 'memen', 'mother', '09134664654', 'Bulacan Polytechnic College', 'BSIS', '4', NULL, NULL, 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '09234342354', 500, 0, 'pending'),
+(22, NULL, 'Jasmineee', NULL, 'Santiago', '#0547 Peter Street, Phase 2, Caingin, Malolos, Bulacan', '09454659878', 'santiagojasminem@gmail.com', '2004-11-06', 'memen san', 'mother', '09134664654', 'Bulacan Polytechnic College', 'BSIS', '4', NULL, NULL, 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '09234342354', 500, 0, 'pending'),
+(23, NULL, 'Jasmineee', NULL, 'Santiago', '#0547 Peter Street, Phase 2, Caingin, Malolos, Bulacan', '09454659878', 'santiagojasminem@gmail.com', '2004-11-06', 'memen san', 'mother', '09134664654', 'Bulacan Polytechnic College', 'BSIS', '4', NULL, NULL, 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '09234342354', 500, 0, 'pending'),
+(24, NULL, 'Jasmineee', NULL, 'Santiago', '#0547 Peter Street, Phase 2, Caingin, Malolos, Bulacan', '09454659878', 'santiagojasminem@gmail.com', NULL, 'memen san', 'mother', '09134664654', 'Bulacan Polytechnic College', 'BSIS', '4', NULL, NULL, 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '09234342354', 500, 0, 'pending'),
+(25, NULL, 'Jasmineee', NULL, 'Santiago', '#0547 Peter Street, Phase 2, Caingin, Malolos, Bulacan', '09454659878', 'santiagojasminem@gmail.com', NULL, 'memen san', 'mother', '09134664654', 'Bulacan Polytechnic College', 'BSIS', '4', NULL, NULL, 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '09234342354', 500, 0, 'pending'),
+(26, 16, 'Jas Mine', NULL, 'Santiago', '#0547 Peter Street, Phase 2, Caingin, Malolos, Bulacan', '09454659878', 'santiagojasminem@gmail.com', '2004-11-01', 'memen san', 'mother', '09134664654', 'Bulacan Polytechnic College', 'BSIS', '4', NULL, NULL, 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '09234342354', 500, 0, 'ongoing');
 
 -- --------------------------------------------------------
 
@@ -348,14 +359,15 @@ INSERT INTO `users` (`user_id`, `username`, `email`, `first_name`, `middle_name`
 (6, 'hrstaff', NULL, 'Andrea', NULL, 'Lopez', '123456', 'hr_staff', NULL, 'active', '2025-10-12 13:34:28'),
 (7, 'ojtjuan', NULL, 'Juan', NULL, 'Dela Cruz', '123456', 'ojt', 'Accounting', 'active', '2025-10-12 13:34:28'),
 (8, 'head_accounting', NULL, 'Maria', NULL, 'Santos', '123456', 'office_head', 'Accounting', 'active', '2025-10-12 13:34:28'),
-(9, 'head_it', NULL, 'Carlo', NULL, 'Reyes', '123456', 'office_head', 'IT', 'active', '2025-10-12 13:34:28'),
+(9, 'head_it', 'carloreyes@gmail.com', 'Carlo', NULL, 'Reyes', '123456', 'office_head', 'IT', 'active', '2025-10-12 13:34:28'),
 (10, 'head_cityplanning', NULL, 'Angela', NULL, 'Bautista', '123456', 'office_head', 'City Planning', 'active', '2025-10-12 13:34:28'),
 (11, 'santiagojasminem', NULL, NULL, NULL, NULL, '$2y$10$J9oKj44vbZTs9DlbPngg9OJwjxCTPvXjuM7B5lVx/PiSkkqHkvUUy', 'ojt', 'Accounting Office', 'active', '2025-10-19 03:15:03'),
 (12, 'santiagojasminem1', NULL, NULL, NULL, NULL, '8fbe6a7954', 'ojt', 'Treasury Office', 'active', '2025-10-19 03:27:30'),
 (13, 'jimwell', NULL, NULL, NULL, NULL, '60a69c38c2', 'ojt', 'IT Office', 'active', '2025-10-25 12:09:07'),
 (14, 'jimwelldiamante', NULL, NULL, NULL, NULL, '25aa9957ea', 'ojt', 'IT Office', 'active', '2025-10-25 12:09:18'),
 (15, 'arvin.delossantos', NULL, NULL, NULL, NULL, '1b896adc1a', 'ojt', 'IT Office', 'active', '2025-10-26 02:31:02'),
-(16, 'santiagojasminem2', NULL, NULL, NULL, NULL, '8380c8cf34', 'ojt', 'Human Resources', 'active', '2025-10-26 04:08:13');
+(16, 'santiagojasminem2', NULL, NULL, NULL, NULL, '8380c8cf34', 'ojt', 'Human Resources', 'active', '2025-10-26 04:08:13'),
+(18, 'narchibald428', 'nate@gmail.com', 'Nate', NULL, 'Archibald', 'NbgGB3pGkp', 'office_head', 'City General Services Office', 'active', '2025-10-26 07:40:09');
 
 -- --------------------------------------------------------
 
@@ -468,7 +480,7 @@ ALTER TABLE `weekly_journal`
 -- AUTO_INCREMENT for table `dtr`
 --
 ALTER TABLE `dtr`
-  MODIFY `dtr_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=25;
+  MODIFY `dtr_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=29;
 
 --
 -- AUTO_INCREMENT for table `evaluations`
@@ -492,7 +504,7 @@ ALTER TABLE `late_dtr`
 -- AUTO_INCREMENT for table `moa`
 --
 ALTER TABLE `moa`
-  MODIFY `moa_id` int(11) NOT NULL AUTO_INCREMENT;
+  MODIFY `moa_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=9;
 
 --
 -- AUTO_INCREMENT for table `notifications`
@@ -528,7 +540,7 @@ ALTER TABLE `students`
 -- AUTO_INCREMENT for table `users`
 --
 ALTER TABLE `users`
-  MODIFY `user_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=18;
+  MODIFY `user_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=19;
 
 --
 -- AUTO_INCREMENT for table `weekly_journal`
