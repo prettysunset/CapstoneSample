@@ -6,8 +6,13 @@ header('Expires: 0');
 require_once __DIR__ . '/../conn.php';
 if (!isset($_SESSION['user_id'])) { header('Location: ../login.php'); exit; }
 $user_id = (int)$_SESSION['user_id'];
+
 $su = $conn->prepare("SELECT first_name,last_name,office_name FROM users WHERE user_id=? LIMIT 1");
-$su->bind_param('i',$user_id); $su->execute(); $u=$su->get_result()->fetch_assoc(); $su->close();
+$su->bind_param('i',$user_id);
+$su->execute();
+$u=$su->get_result()->fetch_assoc();
+$su->close();
+
 $display_name = trim(($u['first_name']??'').' '.($u['last_name']??'')) ?: 'Office Head';
 $office_name = $u['office_name'] ?? '';
 $office_display = preg_replace('/\s+Office\s*$/i','',$office_name ?: 'Unknown Office');
@@ -38,7 +43,7 @@ $stmt->close();
   body{font-family:Poppins, sans-serif;margin:0;background:#f5f6fa}
   .sidebar{width:220px;background:#2f3459;position:fixed;height:100vh;padding-top:30px;color:#fff}
   .main{margin-left:240px;padding:20px}
-  .table{background:#fff;padding:12px;border-radius:8px}
+  .card{background:#fff;border-radius:12px;padding:18px;box-shadow:0 6px 20px rgba(0,0,0,0.05)}
   .controls{display:flex;gap:12px;align-items:center;margin-bottom:12px}
   .btn{padding:10px 14px;border-radius:20px;border:0;background:#4f4aa6;color:#fff;cursor:pointer}
   .late-modal-overlay{position:fixed;inset:0;background:rgba(15,15,20,0.45);display:none;align-items:center;justify-content:center;z-index:2200}
@@ -47,50 +52,88 @@ $stmt->close();
   .late-modal input[type="date"], .late-modal input[type="time"], .late-modal select{width:100%;padding:8px;border-radius:8px;border:1px solid #e6e9f2;box-sizing:border-box}
   .late-modal .actions{display:flex;gap:10px;justify-content:flex-end;margin-top:10px}
   .late-modal .error{color:#a00;font-size:13px;margin-top:6px;display:none}
+  .tabs{display:flex;gap:24px;border-bottom:2px solid #eee;padding-bottom:12px;margin-bottom:16px;position:relative}
+  .tabs .tab{background:transparent;border:none;padding:10px 12px;border-radius:6px;cursor:pointer;font-weight:600;color:#2f3850}
+  .tabs .tab.active{color:#2f3850}
+  .tab-underline{position:absolute;bottom:0;height:3px;background:#2f3850;border-radius:3px;transition:left .18s ease,width .18s ease;left:0;width:0}
+  table{width:100%;border-collapse:collapse}
+  th,td{padding:12px;text-align:left;border-bottom:1px solid #eef1f6;font-size:14px}
+  thead th{background:#f5f7fb;color:#2f3459}
+  @media(max-width:900px){ .sidebar{display:none} .main{padding:12px} }
 </style>
 </head>
 <body>
 <?php include __DIR__ . '/../includes/sidebar_home.php'; ?>
 
 <div class="main">
-  <h1>Daily Logs — <?= htmlspecialchars($office_display) ?></h1>
-
-  <div class="table">
+  <div class="card">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-      <div>
-        <div style="font-weight:600;margin-bottom:6px">Daily Logs</div>
-        <div style="color:#6b6f8b;font-size:13px">View daily attendance records for your office</div>
-      </div>
-
+      
       <div style="display:flex;gap:12px;align-items:center">
-        <div style="display:flex;align-items:center;gap:8px">
-          <input id="lateDate" type="date" value="<?= date('Y-m-d') ?>" />
-        </div>
+        <input id="datePicker" type="date" value="<?= date('Y-m-d') ?>" />
         <button id="btnCreateLate" class="btn">Create Late DTR</button>
       </div>
     </div>
 
-    <div style="overflow:auto">
-      <table style="width:100%;border-collapse:collapse">
-        <thead>
-          <tr>
-            <th style="padding:12px;text-align:left">DATE</th>
-            <th style="padding:12px;text-align:left">NAME</th>
-            <th style="padding:12px;text-align:left">SCHOOL</th>
-            <th style="padding:12px;text-align:left">COURSE</th>
-            <th style="padding:12px;text-align:left">A.M. ARRIVAL</th>
-            <th style="padding:12px;text-align:left">A.M. DEPARTURE</th>
-            <th style="padding:12px;text-align:left">P.M. ARRIVAL</th>
-            <th style="padding:12px;text-align:left">P.M. DEPARTURE</th>
-            <th style="padding:12px;text-align:left">HOURS</th>
-            <th style="padding:12px;text-align:left">STATUS</th>
-          </tr>
-        </thead>
-        <tbody id="dtrBody">
-          <tr><td colspan="10" style="text-align:center;color:#8a8f9d;padding:18px">Loading…</td></tr>
-        </tbody>
-      </table>
+    <div class="tabs" role="tablist" aria-label="DTR Tabs">
+      <button class="tab active" data-tab="daily" aria-selected="true">Daily Logs</button>
+      <button class="tab" data-tab="late" aria-selected="false">Late DTR Submissions</button>
+      <div class="tab-underline" aria-hidden="true"></div>
     </div>
+
+    <div id="panel-daily" class="panel" style="display:block">
+      <div class="controls" style="margin-bottom:8px">
+        <input id="searchDaily" type="text" placeholder="Search name / school / course" style="flex:1;padding:10px;border-radius:8px;border:1px solid #ddd" />
+      </div>
+      <div style="overflow:auto">
+        <table id="dailyTable">
+          <thead>
+            <tr>
+              <th>DATE</th>
+              <th>NAME</th>
+              <th>SCHOOL</th>
+              <th>COURSE</th>
+              <th>A.M. ARRIVAL</th>
+              <th>A.M. DEPARTURE</th>
+              <th>P.M. ARRIVAL</th>
+              <th>P.M. DEPARTURE</th>
+              <th>HOURS</th>
+              <th>STATUS</th>
+            </tr>
+          </thead>
+          <tbody id="dtrBody">
+            <tr><td colspan="10" style="text-align:center;color:#8a8f9d;padding:18px">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div id="panel-late" class="panel" style="display:none">
+      <div class="controls" style="margin-bottom:8px">
+        <input id="lateSearch" type="text" placeholder="Search late submissions" style="flex:1;padding:10px;border-radius:8px;border:1px solid #ddd" />
+      </div>
+      <div style="overflow:auto">
+        <table id="lateTable">
+          <thead>
+            <tr>
+              <th>Date Filed</th>
+              <th>Name</th>
+              <th>School</th>
+              <th>Course</th>
+              <th>AM In</th>
+              <th>AM Out</th>
+              <th>PM In</th>
+              <th>PM Out</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="lateBody">
+            <tr><td colspan="9" style="text-align:center;color:#8a8f9d;padding:18px">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
   </div>
 </div>
 
@@ -130,56 +173,132 @@ $stmt->close();
 
 <script>
 (function(){
-  const dateInput = document.getElementById('lateDate');
-  const tbody = document.getElementById('dtrBody');
+  // tabs underline and switching
+  const tabs = Array.from(document.querySelectorAll('.tabs .tab'));
+  const underline = document.querySelector('.tab-underline');
+  function updateUnderline(){
+    const active = document.querySelector('.tabs .tab.active') || tabs[0];
+    if(!active || !underline) return;
+    const parentRect = document.querySelector('.tabs').getBoundingClientRect();
+    const rect = active.getBoundingClientRect();
+    underline.style.left = (rect.left - parentRect.left) + 'px';
+    underline.style.width = rect.width + 'px';
+  }
+  tabs.forEach(t=>{
+    t.addEventListener('click', ()=>{
+      tabs.forEach(x=>x.classList.remove('active'));
+      t.classList.add('active');
+      const tab = t.getAttribute('data-tab');
+      document.querySelectorAll('.panel').forEach(p=>p.style.display = p.id === 'panel-'+tab ? 'block' : 'none');
+      updateUnderline();
+    });
+  });
+  window.addEventListener('load', updateUnderline);
+  window.addEventListener('resize', updateUnderline);
+
+  // elements
+  const datePicker = document.getElementById('datePicker');
+  const dtrBody = document.getElementById('dtrBody');
+  const lateBody = document.getElementById('lateBody');
+  const searchDaily = document.getElementById('searchDaily');
+  const lateSearch = document.getElementById('lateSearch');
+
   const overlay = document.getElementById('lateModalOverlay');
   const btnCreate = document.getElementById('btnCreateLate');
   const btnCancel = document.getElementById('lateCancel');
   const btnSave = document.getElementById('lateUpload');
   const errEl = document.getElementById('lateError');
 
-  function render(rows){
-    tbody.innerHTML = '';
+  function renderDaily(rows){
+    dtrBody.innerHTML = '';
     if (!rows || rows.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:#8a8f9d;padding:18px">No records found.</td></tr>';
+      dtrBody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:#8a8f9d;padding:18px">No records found.</td></tr>';
       return;
     }
     rows.forEach(r=>{
       const tr = document.createElement('tr');
+      tr.setAttribute('data-search', ((r.first_name||'')+' '+(r.last_name||'')+' '+(r.school||'')+' '+(r.course||'')).toLowerCase());
       tr.innerHTML = '<td>'+ (r.log_date||'') +'</td>'
-                   + '<td>'+ (r.first_name?'': '') + (r.first_name||'') + ' ' + (r.last_name||'') +'</td>'
+                   + '<td>'+ (r.first_name||'') + ' ' + (r.last_name||'') +'</td>'
                    + '<td>'+ (r.school||'-') +'</td>'
                    + '<td>'+ (r.course||'-') +'</td>'
-                   + '<td style="color:'+ (r.am_in && r.am_in.match(/:?[0-9]+/)? '#e03' : '#111') + '">'+ (r.am_in||'-') +'</td>'
+                   + '<td>'+ (r.am_in||'-') +'</td>'
                    + '<td>'+ (r.am_out||'-') +'</td>'
                    + '<td>'+ (r.pm_in||'-') +'</td>'
                    + '<td>'+ (r.pm_out||'-') +'</td>'
                    + '<td>'+ (r.hours||'-') +'</td>'
                    + '<td>'+ (r.status||'-') +'</td>';
-      tbody.appendChild(tr);
+      dtrBody.appendChild(tr);
     });
   }
 
-  async function fetchFor(d){
-    tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:#8a8f9d;padding:18px">Loading…</td></tr>';
+  function renderLate(rows){
+    lateBody.innerHTML = '';
+    if (!rows || rows.length === 0) {
+      lateBody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:#8a8f9d;padding:18px">No records found.</td></tr>';
+      return;
+    }
+    rows.forEach(r=>{
+      const tr = document.createElement('tr');
+      tr.setAttribute('data-search', ((r.first_name||'')+' '+(r.last_name||'')+' '+(r.school||'')+' '+(r.course||'')).toLowerCase());
+      tr.innerHTML = '<td>'+ (r.date_filed||'') +'</td>'
+                   + '<td>'+ (r.first_name||'') + ' ' + (r.last_name||'') +'</td>'
+                   + '<td>'+ (r.school||'-') +'</td>'
+                   + '<td>'+ (r.course||'-') +'</td>'
+                   + '<td>'+ (r.am_in||'-') +'</td>'
+                   + '<td>'+ (r.am_out||'-') +'</td>'
+                   + '<td>'+ (r.pm_in||'-') +'</td>'
+                   + '<td>'+ (r.pm_out||'-') +'</td>'
+                   + '<td>'+ (r.status||'-') +'</td>';
+      lateBody.appendChild(tr);
+    });
+  }
+
+  async function fetchDaily(date){
+    dtrBody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:#8a8f9d;padding:18px">Loading…</td></tr>';
     try {
       const res = await fetch('office_head_action.php', {
         method:'POST',
         headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ action: 'get_daily_logs', date: d })
+        body: JSON.stringify({ action: 'get_daily_logs', date: date })
       });
       const j = await res.json();
-      if (j && j.success) render(j.data || []); else render([]);
-    } catch(e){ console.error(e); render([]); }
+      if (j && j.success) renderDaily(j.data || []); else renderDaily([]);
+    } catch(e){ console.error(e); renderDaily([]); }
   }
 
-  dateInput.addEventListener('change', ()=>fetchFor(dateInput.value));
-  fetchFor(dateInput.value);
+  async function fetchLate(date){
+    lateBody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:#8a8f9d;padding:18px">Loading…</td></tr>';
+    try {
+      const res = await fetch('office_head_action.php', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ action: 'get_late_dtr', date: date })
+      });
+      const j = await res.json();
+      if (j && j.success) renderLate(j.data || []); else renderLate([]);
+    } catch(e){ console.error(e); renderLate([]); }
+  }
 
-  // modal logic
-  function openModal(){ errEl.style.display='none'; errEl.textContent=''; overlay.style.display='flex'; overlay.setAttribute('aria-hidden','false'); document.getElementById('late_date').value = dateInput.value || new Date().toISOString().slice(0,10); }
+  // search filters
+  searchDaily.addEventListener('input', function(){
+    const q = (this.value||'').toLowerCase().trim();
+    document.querySelectorAll('#dtrBody tr').forEach(r=> r.style.display = (r.getAttribute('data-search')||'').indexOf(q)===-1 ? 'none' : '');
+  });
+  lateSearch.addEventListener('input', function(){
+    const q = (this.value||'').toLowerCase().trim();
+    document.querySelectorAll('#lateBody tr').forEach(r=> r.style.display = (r.getAttribute('data-search')||'').indexOf(q)===-1 ? 'none' : '');
+  });
+
+  // init fetch on date change
+  datePicker.addEventListener('change', ()=>{ fetchDaily(datePicker.value); fetchLate(datePicker.value); });
+  // initial
+  fetchDaily(datePicker.value);
+  fetchLate(datePicker.value);
+
+  // modal logic (same as before)
+  function openModal(){ errEl.style.display='none'; errEl.textContent=''; overlay.style.display='flex'; overlay.setAttribute('aria-hidden','false'); document.getElementById('late_date').value = datePicker.value || new Date().toISOString().slice(0,10); }
   function closeModal(){ overlay.style.display='none'; overlay.setAttribute('aria-hidden','true'); ['late_student','late_date','late_am_in','late_am_out','late_pm_in','late_pm_out'].forEach(id=>{const el=document.getElementById(id); if(el) el.value='';}); errEl.style.display='none'; errEl.textContent=''; }
-
   btnCreate.addEventListener('click', openModal);
   btnCancel.addEventListener('click', closeModal);
   overlay.addEventListener('click', function(e){ if (e.target === overlay) closeModal(); });
@@ -225,10 +344,11 @@ $stmt->close();
         })
       });
       const j = await res.json();
-      if (j && j.success) { closeModal(); fetchFor(dateInput.value); }
+      if (j && j.success) { closeModal(); fetchDaily(datePicker.value); fetchLate(datePicker.value); }
       else { showError(j.message || 'Save failed.'); btnSave.disabled=false; btnSave.textContent='Save'; }
     } catch(e){ console.error(e); showError('Request failed.'); btnSave.disabled=false; btnSave.textContent='Save'; }
   });
+
 })();
 </script>
 </body>
