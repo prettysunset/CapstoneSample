@@ -11,6 +11,8 @@
         color: white;
         position: fixed;
         padding-top: 30px;
+        z-index: 1300; /* ensure sidebar is on top so links are clickable */
+        pointer-events: auto;
     }
     .sidebar h3 {
         text-align: center;
@@ -29,6 +31,7 @@
         background: white;
         border-radius: 20px;
         text-decoration: none;
+        pointer-events: auto;
     }
     .sidebar a.active {
         background-color: #b3b7d6;
