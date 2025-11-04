@@ -1,3 +1,4 @@
+
 <?php
 session_start();
 // Development helpers: return JSON on any error/exception so frontend won't get "Request failed"
