@@ -212,7 +212,7 @@ $role_label = !empty($user['role']) ? ucwords(str_replace('_',' ', $user['role']
         <div class="controls" style="margin-bottom:16px">
           <label for="dtrDate" style="font-weight:600">Date</label>
           <input type="date" id="dtrDate">
-          <button id="btnReload" type="button" title="Load" aria-label="Load" style="border:none;background:#e6f2ff;color:#black;padding:8px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer">
+          <button id="btnReload" type="button" title="Load" aria-label="Load" style="border:none;background:#e6f2ff;color:#black;padding:8px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;opacity:0;pointer-events:none">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="color:inherit">
               <polyline points="23 4 23 10 17 10"></polyline>
               <polyline points="1 20 1 14 7 14"></polyline>
@@ -242,7 +242,7 @@ $role_label = !empty($user['role']) ? ucwords(str_replace('_',' ', $user['role']
         <div class="controls" style="margin-bottom:16px">
           <label for="lateDate">Date</label>
           <input type="date" id="lateDate">
-          <button id="lateLoad">Load</button>
+          <button id="lateLoad" style="opacity:0;pointer-events:none">Load</button>
           <div style="flex:1"></div>
           <input type="text" id="lateSearch" placeholder="Search" style="width:220px">
         </div>
@@ -297,8 +297,12 @@ $role_label = !empty($user['role']) ? ucwords(str_replace('_',' ', $user['role']
   lateDate.value = today;
   repDate.value = today;
 
-  btn.addEventListener('click', loadForDate);
+  // automatically load when the date is changed via the calendar
+  dateInput.addEventListener('change', loadForDate);
+  // support Enter key as well
   dateInput.addEventListener('keydown', (e)=>{ if(e.key==='Enter') loadForDate(); });
+  // keep reload button as a fallback
+  btn.addEventListener('click', loadForDate);
   search.addEventListener('input', filterRows);
 
   lateLoad.addEventListener('click', ()=>fetchLate(lateDate.value));

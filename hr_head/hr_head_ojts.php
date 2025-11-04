@@ -75,6 +75,19 @@ if ($off_q) {
     }
     $stmtCount->close();
     $off_q->free();
+
+    // Ensure approved requests appear at the bottom of the table
+    if (!empty($offices_for_requests) && is_array($offices_for_requests)) {
+        usort($offices_for_requests, function($a, $b){
+            $rank = function($status){
+                $s = strtolower(trim((string)($status ?? '')));
+                if ($s === 'approved') return 2;
+                if ($s === 'declined' || $s === 'rejected') return 1;
+                return 0; // pending / other first
+            };
+            return $rank($a['status']) <=> $rank($b['status']);
+        });
+    }
 }
 
 // --- NEW: load MOA rows for client usage (array of {school_name, moa_file}) ---
