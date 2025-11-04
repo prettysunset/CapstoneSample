@@ -164,8 +164,9 @@ $role_label = !empty($user['role']) ? ucwords(str_replace('_',' ', $user['role']
           style="background:transparent;border:none;padding:10px 14px;border-radius:6px;cursor:pointer;color:#2f3850;font-weight:600;outline:none;font-size:18px;">
         Late DTR Submissions
       </button>
+      <!-- Attendance Reports hidden (opacity:0 to avoid breaking existing JS) -->
       <button class="tab" data-tab="reports" role="tab" aria-selected="false" aria-controls="panel-reports"
-          style="background:transparent;border:none;padding:10px 14px;border-radius:6px;cursor:pointer;color:#2f3850;font-weight:600;outline:none;font-size:18px;">
+          style="background:transparent;border:none;padding:10px 14px;border-radius:6px;cursor:pointer;color:#2f3850;font-weight:600;outline:none;font-size:18px;opacity:0;pointer-events:none;">
         Attendance Reports
       </button>
 
@@ -251,7 +252,7 @@ $role_label = !empty($user['role']) ? ucwords(str_replace('_',' ', $user['role']
         </div>
       </div>
 
-      <div id="panel-reports" class="panel" style="display:none">
+      <div id="panel-reports" class="panel" style="display:none;opacity:0;pointer-events:none">
         <div class="controls" style="margin-bottom:16px">
           <label for="repDate">Filter</label>
           <input type="date" id="repDate">
@@ -323,7 +324,8 @@ $role_label = !empty($user['role']) ? ucwords(str_replace('_',' ', $user['role']
   // DAILY: always render headers; fill rows if backend returns data
   async function loadForDate(){
     const dt = dateInput.value || today;
-    tableWrap.innerHTML = renderDailyHeader() + '<tbody id="dtrRows"><tr><td colspan="10" style="text-align:center;padding:18px;color:#777">Loading…</td></tr></tbody></table>';
+    // render header immediately with empty tbody (no "Loading…" row)
+    tableWrap.innerHTML = renderDailyHeader() + '<tbody id="dtrRows"></tbody></table>';
     try {
       const res = await fetch('../hr_actions.php', {
         method:'POST',
@@ -340,16 +342,17 @@ $role_label = !empty($user['role']) ? ucwords(str_replace('_',' ', $user['role']
   }
 
   function renderDailyHeader(){
+    // Title case headers and center-align TH cells
     return '<table class="tbl"><thead>'
        + '<tr>'
-       + '<th class="left" rowspan="2" style="background:#eceff3">Date</th>'
-       + '<th class="left" rowspan="2" style="background:#eceff3">Name</th>'
-       + '<th class="left" rowspan="2" style="background:#eceff3">School</th>'
-       + '<th class="left" rowspan="2" style="background:#eceff3">Course</th>'
+       + '<th class="center" rowspan="2" style="background:#eceff3">Date</th>'
+       + '<th class="center" rowspan="2" style="background:#eceff3">Name</th>'
+       + '<th class="center" rowspan="2" style="background:#eceff3">School</th>'
+       + '<th class="center" rowspan="2" style="background:#eceff3">Course</th>'
        + '<th class="center" colspan="2" style="background:#eceff3">A.M.</th>'
        + '<th class="center" colspan="2" style="background:#eceff3">P.M.</th>'
        + '<th class="center" rowspan="2" style="background:#eceff3">Hours</th>'
-       + '<th class="left" rowspan="2" style="background:#eceff3">Office</th>'
+       + '<th class="center" rowspan="2" style="background:#eceff3">Office</th>'
        + '</tr>'
        + '<tr>'
        + '<th class="center" style="background:#eceff3">Arrival</th><th class="center" style="background:#eceff3">Departure</th><th class="center" style="background:#eceff3">Arrival</th><th class="center" style="background:#eceff3">Departure</th>'
@@ -358,144 +361,141 @@ $role_label = !empty($user['role']) ? ucwords(str_replace('_',' ', $user['role']
     }
 
   function renderDailyRows(rows, dt){
-    let html = '';
+    // build tbody based on rows; keep header rendered separately
+    let tbody = '';
     if (!rows || rows.length === 0) {
-      html += '<tbody id="dtrRows"><tr><td colspan="10" style="text-align:center;padding:20px;color:#777">No logs for ' + escapeHtml(dt) + '.</td></tr></tbody></table>';
-    } else {
-      html += '<tbody id="dtrRows">';
-      for (const r of rows) {
-        const name = ((r.first_name||'') + ' ' + (r.last_name||'')).trim() || 'N/A';
-        html += '<tr data-search="'+escapeHtml((name+' '+(r.school||'')+' '+(r.course||'')+' '+(r.office||'')).toLowerCase())+'">'
-             + '<td>' + (r.log_date || '') + '</td>'
-             + '<td>' + escapeHtml(name) + '</td>'
-             + '<td>' + escapeHtml(r.school||'') + '</td>'
-             + '<td>' + escapeHtml(r.course||'') + '</td>'
-             + '<td class="center">' + escapeHtml(r.am_in||'') + '</td>'
-             + '<td class="center">' + escapeHtml(r.am_out||'') + '</td>'
-             + '<td class="center">' + escapeHtml(r.pm_in||'') + '</td>'
-             + '<td class="center">' + escapeHtml(r.pm_out||'') + '</td>'
-             + '<td class="center">' + (parseInt(r.hours||0) + (parseInt(r.minutes||0) ? 'h '+(r.minutes||0)+'m' : '')) + '</td>'
-             + '<td>' + escapeHtml(r.office||'') + '</td>'
-             + '</tr>';
-      }
-      html += '</tbody></table>';
+      tbody = '<tbody id="dtrRows"><tr><td colspan="10" style="text-align:center;padding:20px;color:#777">No logs for ' + escapeHtml(dt) + '.</td></tr></tbody></table>';
+      tableWrap.innerHTML = renderDailyHeader() + tbody;
+      return;
     }
-    tableWrap.innerHTML = renderDailyHeader() + html.replace(/^<tbody.*<\/tbody><\/table>$/,'').slice(renderDailyHeader().length) ? (html) : html;
-    // simpler assign: ensure full table set
-    if (html.indexOf('<table') === -1) {
-      tableWrap.innerHTML = renderDailyHeader() + html;
-    } else {
-      tableWrap.innerHTML = html;
+    tbody = '<tbody id="dtrRows">';
+    for (const r of rows) {
+      const name = ((r.first_name||'') + ' ' + (r.last_name||'')).trim() || 'N/A';
+      tbody += '<tr data-search="'+escapeHtml((name+' '+(r.school||'')+' '+(r.course||'')+' '+(r.office||'')).toLowerCase())+'">'
+           + '<td>' + escapeHtml(r.log_date || '') + '</td>'
+           + '<td>' + escapeHtml(name) + '</td>'
+           + '<td>' + escapeHtml(r.school||'') + '</td>'
+           + '<td>' + escapeHtml(r.course||'') + '</td>'
+           + '<td class="center">' + escapeHtml(r.am_in||'') + '</td>'
+           + '<td class="center">' + escapeHtml(r.am_out||'') + '</td>'
+           + '<td class="center">' + escapeHtml(r.pm_in||'') + '</td>'
+           + '<td class="center">' + escapeHtml(r.pm_out||'') + '</td>'
+           + '<td class="center">' + (parseInt(r.hours||0) + (parseInt(r.minutes||0) ? 'h '+(r.minutes||0)+'m' : '')) + '</td>'
+           + '<td>' + escapeHtml(r.office||'') + '</td>'
+           + '</tr>';
     }
-  }
-
-  // LATE: always render headers
-  function renderLateHeader(){
-    return '<table class="tbl"><thead>'
-         + '<tr>'
-         + '<th class="left" rowspan="2">Date Filed</th>'
-         + '<th class="left" rowspan="2">NAME</th>'
-         + '<th class="left" rowspan="2">School</th>'
-         + '<th class="left" rowspan="2">Course</th>'
-         + '<th class="center" colspan="2">A.M.</th>'
-         + '<th class="center" colspan="2">P.M.</th>'
-         + '<th class="center" rowspan="2">HOURS</th>'
-         + '<th class="left" rowspan="2">Date</th>'
-         + '<th class="left" rowspan="2">OFFICE</th>'
-         + '<th class="left" rowspan="2">STATUS</th>'
-         + '</tr>'
-         + '<tr>'
-         + '<th class="center">ARRIVAL</th><th class="center">DEPARTURE</th><th class="center">ARRIVAL</th><th class="center">DEPARTURE</th>'
-         + '</tr>'
-         + '</thead>';
-  }
-
-  function fetchLate(d){
-    const dt = d || today;
-    lateWrap.innerHTML = renderLateHeader() + '<tbody><tr><td colspan="12" style="text-align:center;padding:18px;color:#777">Loading…</td></tr></tbody></table>';
-    fetch('../office_head/office_head_action.php', {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ action:'get_late_dtr', office_id:0, date:dt })
-    }).then(r=>r.json()).then(j=>{
-      let html = '';
-      if (!j || !j.success || !j.data || j.data.length === 0) {
+    tbody += '</tbody></table>';
+    tableWrap.innerHTML = renderDailyHeader() + tbody;
+   }
+ 
+   // LATE: always render headers
+   function renderLateHeader(){
+     return '<table class="tbl"><thead>'
+          + '<tr>'
+          + '<th class="center" rowspan="2">Date Filed</th>'
+          + '<th class="center" rowspan="2">Name</th>'
+          + '<th class="center" rowspan="2">School</th>'
+          + '<th class="center" rowspan="2">Course</th>'
+          + '<th class="center" colspan="2">A.M.</th>'
+          + '<th class="center" colspan="2">P.M.</th>'
+          + '<th class="center" rowspan="2">Hours</th>'
+          + '<th class="center" rowspan="2">Date</th>'
+          + '<th class="center" rowspan="2">Office</th>'
+          + '<th class="center" rowspan="2">Status</th>'
+          + '</tr>'
+          + '<tr>'
+          + '<th class="center">Arrival</th><th class="center">Departure</th><th class="center">Arrival</th><th class="center">Departure</th>'
+          + '</tr>'
+          + '</thead>';
+   }
+ 
+   function fetchLate(d){
+     const dt = d || today;
+    // render header immediately with empty body
+    lateWrap.innerHTML = renderLateHeader() + '<tbody id="lateRows"></tbody></table>';
+     fetch('../office_head/office_head_action.php', {
+       method:'POST',
+       headers:{'Content-Type':'application/json'},
+       body: JSON.stringify({ action:'get_late_dtr', office_id:0, date:dt })
+     }).then(r=>r.json()).then(j=>{
+       let html = '';
+       if (!j || !j.success || !j.data || j.data.length === 0) {
         html = '<tbody><tr><td colspan="12" style="text-align:center;padding:20px;color:#777">No records for selected date.</td></tr></tbody></table>';
         lateWrap.innerHTML = renderLateHeader() + html;
-        return;
-      }
-      html = '<tbody>';
-      j.data.forEach(r=>{
-        const name = ((r.first_name||'')+' '+(r.last_name||'')).trim() || 'N/A';
-        html += '<tr data-search="'+escapeHtml((name+' '+(r.school||'')+' '+(r.course||'')+' '+(r.office||'')).toLowerCase())+'">'
-             + '<td>' + escapeHtml(r.date_filed || r.date || '') + '</td>'
-             + '<td>' + escapeHtml(name) + '</td>'
-             + '<td>' + escapeHtml(r.school || '') + '</td>'
-             + '<td>' + escapeHtml(r.course || '') + '</td>'
-             + '<td class="center">' + escapeHtml(r.am_in || '') + '</td>'
-             + '<td class="center">' + escapeHtml(r.am_out || '') + '</td>'
-             + '<td class="center">' + escapeHtml(r.pm_in || '') + '</td>'
-             + '<td class="center">' + escapeHtml(r.pm_out || '') + '</td>'
-             + '<td class="center">' + (r.hours!==null && r.hours!==undefined ? String(r.hours) : '') + '</td>'
-             + '<td>' + escapeHtml(r.late_date || r.log_date || '') + '</td>'
-             + '<td>' + escapeHtml(r.office || '') + '</td>'
-             + '<td>' + escapeHtml(r.status || '') + '</td>'
-             + '</tr>';
-      });
-      html += '</tbody></table>';
-      lateWrap.innerHTML = renderLateHeader() + html;
-    }).catch(err=>{
+         return;
+       }
+       html = '<tbody>';
+       j.data.forEach(r=>{
+         const name = ((r.first_name||'')+' '+(r.last_name||'')).trim() || 'N/A';
+         html += '<tr data-search="'+escapeHtml((name+' '+(r.school||'')+' '+(r.course||'')+' '+(r.office||'')).toLowerCase())+'">'
+              + '<td>' + escapeHtml(r.date_filed || r.date || '') + '</td>'
+              + '<td>' + escapeHtml(name) + '</td>'
+              + '<td>' + escapeHtml(r.school || '') + '</td>'
+              + '<td>' + escapeHtml(r.course || '') + '</td>'
+              + '<td class="center">' + escapeHtml(r.am_in || '') + '</td>'
+              + '<td class="center">' + escapeHtml(r.am_out || '') + '</td>'
+              + '<td class="center">' + escapeHtml(r.pm_in || '') + '</td>'
+              + '<td class="center">' + escapeHtml(r.pm_out || '') + '</td>'
++            + '<td class="center">' + (r.hours!==null && r.hours!==undefined ? String(r.hours) : '') + '</td>'
++            + '<td>' + escapeHtml(r.late_date || r.log_date || '') + '</td>'
+              + '<td>' + escapeHtml(r.office || '') + '</td>'
+              + '<td>' + escapeHtml(r.status || '') + '</td>'
+              + '</tr>';
+       });
+       html += '</tbody></table>';
+       lateWrap.innerHTML = renderLateHeader() + html;
+     }).catch(err=>{
       lateWrap.innerHTML = renderLateHeader() + '<tbody><tr><td colspan="12" style="text-align:center;padding:20px;color:#777">No records for selected date.</td></tr></tbody></table>';
-    });
-  }
+     });
+   }
+ 
+   // REPORTS: always show headers; attempt fetch, else show "No records"
+   function renderReportsHeader(){
+     return '<table class="tbl"><thead><tr>'
+          + '<th class="left">NAME</th>'
+          + '<th class="left">School</th>'
+          + '<th class="left">Course</th>'
+          + '<th class="left">OFFICE</th>'
+          + '<th class="center">HOURS RENDERED</th>'
+          + '<th class="center">TOTAL DAYS</th>'
+          + '<th class="left">EXPECTED END DATE</th>'
+          + '</tr></thead>';
+   }
 
-  // REPORTS: always show headers; attempt fetch, else show "No records"
-  function renderReportsHeader(){
-    return '<table class="tbl"><thead><tr>'
-         + '<th class="left">NAME</th>'
-         + '<th class="left">School</th>'
-         + '<th class="left">Course</th>'
-         + '<th class="left">OFFICE</th>'
-         + '<th class="center">HOURS RENDERED</th>'
-         + '<th class="center">TOTAL DAYS</th>'
-         + '<th class="left">EXPECTED END DATE</th>'
-         + '</tr></thead>';
-  }
-
-  async function renderReports(){
-    const dt = repDate.value || today;
-    reportsWrap.innerHTML = renderReportsHeader() + '<tbody><tr><td colspan="7" style="text-align:center;padding:18px;color:#777">Loading…</td></tr></tbody></table>';
-    // try backend; if not available show empty header + message
-    try {
-      const res = await fetch('../hr_actions.php', {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ action: 'get_attendance_report', date: dt })
-      });
-      const j = await res.json();
-      if (!j || !j.success || !j.rows || j.rows.length === 0) {
-        reportsWrap.innerHTML = renderReportsHeader() + '<tbody><tr><td colspan="7" style="text-align:center;padding:18px;color:#777">No records.</td></tr></tbody></table>';
-        return;
-      }
-      let html = '<tbody>';
-      j.rows.forEach(r=>{
-        const name = ((r.first_name||'')+' '+(r.last_name||'')).trim() || 'N/A';
-        html += '<tr data-search="'+escapeHtml((name+' '+(r.office||'')+' '+(r.course||'')).toLowerCase())+'">'
-             + '<td>' + escapeHtml(name) + '</td>'
-             + '<td>' + escapeHtml(r.school||'') + '</td>'
-             + '<td>' + escapeHtml(r.course||'') + '</td>'
-             + '<td>' + escapeHtml(r.office||'') + '</td>'
-             + '<td class="center">' + (r.hours_rendered !== undefined ? String(r.hours_rendered) : '') + '</td>'
-             + '<td class="center">' + (r.total_days !== undefined ? String(r.total_days) : '') + '</td>'
-             + '<td>' + escapeHtml(r.expected_end_date || '') + '</td>'
-             + '</tr>';
-      });
-      html += '</tbody></table>';
-      reportsWrap.innerHTML = renderReportsHeader() + html;
-    } catch (err) {
-      reportsWrap.innerHTML = renderReportsHeader() + '<tbody><tr><td colspan="7" style="text-align:center;padding:18px;color:#777">No records.</td></tr></tbody></table>';
-    }
-  }
+   async function renderReports(){
+     const dt = repDate.value || today;
+     reportsWrap.innerHTML = renderReportsHeader() + '<tbody><tr><td colspan="7" style="text-align:center;padding:18px;color:#777">Loading…</td></tr></tbody></table>';
+     // try backend; if not available show empty header + message
+     try {
+       const res = await fetch('../hr_actions.php', {
+         method:'POST',
+         headers:{'Content-Type':'application/json'},
+         body: JSON.stringify({ action: 'get_attendance_report', date: dt })
+       });
+       const j = await res.json();
+       if (!j || !j.success || !j.rows || j.rows.length === 0) {
+         reportsWrap.innerHTML = renderReportsHeader() + '<tbody><tr><td colspan="7" style="text-align:center;padding:18px;color:#777">No records.</td></tr></tbody></table>';
+         return;
+       }
+       let html = '<tbody>';
+       j.rows.forEach(r=>{
+         const name = ((r.first_name||'')+' '+(r.last_name||'')).trim() || 'N/A';
+         html += '<tr data-search="'+escapeHtml((name+' '+(r.office||'')+' '+(r.course||'')).toLowerCase())+'">'
+              + '<td>' + escapeHtml(name) + '</td>'
+              + '<td>' + escapeHtml(r.school||'') + '</td>'
+              + '<td>' + escapeHtml(r.course||'') + '</td>'
+              + '<td>' + escapeHtml(r.office||'') + '</td>'
+              + '<td class="center">' + (r.hours_rendered !== undefined ? String(r.hours_rendered) : '') + '</td>'
+              + '<td class="center">' + (r.total_days !== undefined ? String(r.total_days) : '') + '</td>'
+              + '<td>' + escapeHtml(r.expected_end_date || '') + '</td>'
+              + '</tr>';
+       });
+       html += '</tbody></table>';
+       reportsWrap.innerHTML = renderReportsHeader() + html;
+     } catch (err) {
+       reportsWrap.innerHTML = renderReportsHeader() + '<tbody><tr><td colspan="7" style="text-align:center;padding:18px;color:#777">No records.</td></tr></tbody></table>';
+     }
+   }
 
   function filterRows(){
     const q = (search.value || '').toLowerCase().trim();

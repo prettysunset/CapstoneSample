@@ -134,9 +134,39 @@ function respond($data) {
 if ($action === 'approve_send') {
     $app_id = isset($input['application_id']) ? (int)$input['application_id'] : 0;
     $orientation = trim($input['orientation_date'] ?? '');
+    // new fields from frontend
+    $orientation_time = trim($input['orientation_time'] ?? '');
+    $orientation_location = trim($input['orientation_location'] ?? '');
 
     if ($app_id <= 0 || $orientation === '') {
         respond(['success' => false, 'message' => 'Missing application_id or orientation_date.']);
+    }
+
+    // normalize time: accept "HH:MM" or "HH:MM:SS"; store as HH:MM:SS
+    if ($orientation_time === '') {
+        $orientation_time = '08:30:00';
+    } else {
+        // allow "H:MM" or "HH:MM"
+        if (preg_match('/^\d{1,2}:\d{2}$/', $orientation_time)) {
+            $parts = explode(':', $orientation_time);
+            $h = str_pad($parts[0], 2, '0', STR_PAD_LEFT);
+            $m = str_pad($parts[1], 2, '0', STR_PAD_LEFT);
+            $orientation_time = "{$h}:{$m}:00";
+        } elseif (preg_match('/^\d{1,2}:\d{2}:\d{2}$/', $orientation_time)) {
+            // normalize parts
+            $parts = explode(':', $orientation_time);
+            $h = str_pad($parts[0], 2, '0', STR_PAD_LEFT);
+            $m = str_pad($parts[1], 2, '0', STR_PAD_LEFT);
+            $s = str_pad($parts[2], 2, '0', STR_PAD_LEFT);
+            $orientation_time = "{$h}:{$m}:{$s}";
+        } else {
+            // fallback
+            $orientation_time = '08:30:00';
+        }
+    }
+
+    if ($orientation_location === '') {
+        $orientation_location = 'CHRMO/3rd Floor';
     }
 
     // fetch application + student (include preferences)
@@ -197,7 +227,6 @@ if ($action === 'approve_send') {
     if ($info1) {
         if ($info1['capacity'] !== null && $info1['filled'] >= $info1['capacity']) $pref1_full = true;
     } elseif ($pref1) {
-        // office not found -> treat as full to avoid assigning
         $pref1_full = true;
     }
 
@@ -219,7 +248,6 @@ if ($action === 'approve_send') {
 
         // send rejection email (reuse existing rejection template)
         $mailSent = false;
-        $mailError = '';
         if (filter_var($to, FILTER_VALIDATE_EMAIL)) {
             try {
                 $mail = new PHPMailer(true);
@@ -245,37 +273,36 @@ if ($action === 'approve_send') {
                 $mail->send();
                 $mailSent = true;
             } catch (Exception $e) {
-                $mailError = $mail->ErrorInfo ?? $e->getMessage();
                 $mailSent = false;
-            }
-
-            if (!$mailSent) {
-                // fallback to PHP mail
-                $headers  = "MIME-Version: 1.0\r\n";
-                $headers .= "Content-type: text/html; charset=utf-8\r\n";
-                $headers .= "From: " . SMTP_FROM_NAME . " <" . SMTP_FROM_EMAIL . ">\r\n";
-                $mailSent = mail($to, "OJT Application Update", "<p>Your application was rejected: Full slots in preferred offices.</p>", $headers);
             }
         }
 
         respond(['success' => true, 'action' => 'auto_reject', 'mail' => $mailSent ? 'sent' : 'failed', 'message' => 'Application auto-rejected due to full slots.']);
     }
 
-    // else proceed with existing behaviour: assign pref1 if available, else pref2, else approve with office name fallback
+    // decide assigned office (same logic as before)
     $assignedOfficeName = '';
     if ($info1 && ($info1['capacity'] === null || $info1['filled'] < $info1['capacity'])) {
         $assignedOfficeName = $info1['office_name'];
     } elseif ($info2 && ($info2['capacity'] === null || $info2['filled'] < $info2['capacity'])) {
         $assignedOfficeName = $info2['office_name'];
     } else {
-        // fallback: if either pref exists but we couldn't compute capacity (null), prefer pref1 then pref2
         if ($info1) $assignedOfficeName = $info1['office_name'];
         elseif ($info2) $assignedOfficeName = $info2['office_name'];
     }
 
     // update application: status, remarks, date_updated
+    // include orientation time/location in remarks
     $remarks = "Orientation/Start: {$orientation}";
+    // append time and location if provided
+    if (!empty($orientation_time)) {
+        $remarks .= " {$orientation_time}";
+    }
+    if (!empty($orientation_location)) {
+        $remarks .= " | Location: {$orientation_location}";
+    }
     if ($assignedOfficeName) $remarks .= " | Assigned Office: {$assignedOfficeName}";
+
     $u = $conn->prepare("UPDATE ojt_applications SET status = 'approved', remarks = ?, date_updated = CURDATE() WHERE application_id = ?");
     $u->bind_param("si", $remarks, $app_id);
     $ok = $u->execute();
@@ -283,13 +310,49 @@ if ($action === 'approve_send') {
 
     if (!$ok) respond(['success' => false, 'message' => 'Failed to update application.']);
 
-    // continue with account creation, email sending etc. (keep existing logic)
+    // create/find orientation session and assign application to it
+    try {
+        // check if orientation_sessions table exists
+        $tblChk = $conn->query("SHOW TABLES LIKE 'orientation_sessions'");
+        if ($tblChk && $tblChk->num_rows > 0) {
+            // try to find existing session for same date/time/location
+            $sfind = $conn->prepare("SELECT session_id FROM orientation_sessions WHERE session_date = ? AND session_time = ? AND location = ? LIMIT 1");
+            $sfind->bind_param("sss", $orientation, $orientation_time, $orientation_location);
+            $sfind->execute();
+            $sres = $sfind->get_result()->fetch_assoc();
+            $sfind->close();
+
+            if ($sres && !empty($sres['session_id'])) {
+                $session_id = (int)$sres['session_id'];
+            } else {
+                // create new session
+                $sins = $conn->prepare("INSERT INTO orientation_sessions (session_date, session_time, location) VALUES (?, ?, ?)");
+                $sins->bind_param("sss", $orientation, $orientation_time, $orientation_location);
+                $sins->execute();
+                $session_id = (int)$sins->insert_id;
+                $sins->close();
+            }
+
+            // insert assignment (ignore duplicates)
+            if (!empty($session_id)) {
+                $ass = $conn->prepare("INSERT IGNORE INTO orientation_assignments (session_id, application_id) VALUES (?, ?)");
+                $ass->bind_param("ii", $session_id, $app_id);
+                $ass->execute();
+                $ass->close();
+            }
+            if ($tblChk) $tblChk->free();
+        }
+    } catch (Exception $e) {
+        // non-fatal: log and continue
+        error_log("Orientation session assign error: " . $e->getMessage());
+    }
+
+    // continue with account creation, student status update, and email send (existing logic)
     // create user account for student if not already linked
     $createdAccount = false;
     $createdUsername = '';
     $createdPlainPassword = '';
 
-    // check existing user_id in students
     $chk = $conn->prepare("SELECT user_id FROM students WHERE student_id = ?");
     $chk->bind_param("i", $student_id);
     $chk->execute();
@@ -297,7 +360,6 @@ if ($action === 'approve_send') {
     $chk->close();
 
     if (empty($rowChk['user_id'])) {
-        // helper to build unique username base
         $emailLocal = '';
         if (!empty($to) && strpos($to, '@') !== false) $emailLocal = strtolower(explode('@', $to)[0]);
         $base = $emailLocal ?: strtolower(preg_replace('/[^a-z0-9]/', '', substr($res['first_name'],0,1) . $res['last_name']));
@@ -336,16 +398,14 @@ if ($action === 'approve_send') {
         $ins->close();
     }
 
-    // update student status to ongoing
     $u2 = $conn->prepare("UPDATE students SET status = 'ongoing' WHERE student_id = ?");
     $u2->bind_param("i", $student_id);
     $u2->execute();
     $u2->close();
 
-    // prepare email content (HTML) — format orientation date and add 7‑day login requirement
+    // prepare email content (HTML) — format orientation date + time + location
     $subject = "OJT Application Approved";
 
-    // format orientation date (expecting YYYY-MM-DD from the form); fallback to raw value
     $orientation_display = $orientation;
     try {
         if (!empty($orientation)) {
@@ -353,13 +413,14 @@ if ($action === 'approve_send') {
             $orientation_display = $dt->format('F j, Y'); // e.g. November 11, 2024
         }
     } catch (Exception $e) {
-        // keep raw value if parsing fails
         $orientation_display = $orientation;
     }
 
-    // update stored remarks to use the formatted orientation (optional — keep DB consistent)
+    // format time for display (HH:MM)
+    $time_display = substr($orientation_time,0,5);
+
     try {
-        $remarks_formatted = "Orientation/Start: {$orientation_display}";
+        $remarks_formatted = "Orientation/Start: {$orientation_display} {$time_display} | Location: {$orientation_location}";
         if ($assignedOfficeName) $remarks_formatted .= " | Assigned Office: {$assignedOfficeName}";
         $updRemarksStmt = $conn->prepare("UPDATE ojt_applications SET remarks = ? WHERE application_id = ?");
         if ($updRemarksStmt) {
@@ -368,13 +429,10 @@ if ($action === 'approve_send') {
             $updRemarksStmt->close();
         }
     } catch (Exception $e) {
-        // ignore update failure — email should still go out
+        // ignore
     }
 
-    // compute deadline: 7 days from now (by which the student must log in to secure the slot)
     $deadline = date('F j, Y', strtotime('+7 days'));
-
-    // try to build an absolute login URL if possible
     $loginUrl = '/login.php';
     if (!empty($_SERVER['HTTP_HOST'])) {
         $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https://' : 'http://';
@@ -383,7 +441,8 @@ if ($action === 'approve_send') {
 
     $html = "<p>Hi <strong>" . htmlspecialchars($student_name) . "</strong>,</p>"
           . "<p>Your OJT application has been <strong>approved</strong>.</p>"
-          . "<p><strong>Orientation / Starting Date:</strong> " . htmlspecialchars($orientation_display) . "</p>"
+          . "<p><strong>Orientation / Starting Date:</strong> " . htmlspecialchars($orientation_display) . " at " . htmlspecialchars($time_display) . "</p>"
+          . "<p><strong>Location:</strong> " . htmlspecialchars($orientation_location) . "</p>"
           . ($assignedOfficeName ? "<p><strong>Assigned Office:</strong> " . htmlspecialchars($assignedOfficeName) . "</p>" : "");
 
     if ($createdAccount) {
@@ -395,21 +454,15 @@ if ($action === 'approve_send') {
         $html .= "<p>If you already have an account, use your existing credentials to login.</p>";
     }
 
-    // add 7-day login requirement and link
     $html .= "<p style=\"background:#fff4f4;padding:10px;border-radius:6px;\"><strong>Important:</strong> Please log in within 7 days (by <strong>" . htmlspecialchars($deadline) . "</strong>) to secure your assigned slot. Failure to log in within 7 days from the date of this email will result in forfeiture of your assigned slot.</p>"
-          . "<p>You may log in here: <a href=\"" . htmlspecialchars($loginUrl) . "\">" . htmlspecialchars($loginUrl) . "</a></p>";
-
-    // INSTRUCTION: request applicant to bring hard copy documents to orientation
-    $html .= "<p style=\"margin-top:12px;\"><strong>Bring hard copies:</strong> Please bring the original/hard copy of all required documents (Letter of Intent, Resume, Endorsement Letter, and 1x1 Formal Picture) to the Orientation/Start date listed above. Present these to the HR staff to secure your placement.</p>";
-
-    $html .= "<p>Please follow instructions sent by HR. Thank you.</p>"
+          . "<p>You may log in here: <a href=\"" . htmlspecialchars($loginUrl) . "\">" . htmlspecialchars($loginUrl) . "</a></p>"
+          . "<p style=\"margin-top:12px;\"><strong>Bring hard copies:</strong> Please bring the original/hard copy of all required documents (Letter of Intent, Resume, Endorsement Letter, and 1x1 Formal Picture) to the Orientation/Start date listed above. Present these to the HR staff to secure your placement.</p>"
+          . "<p>Please follow instructions sent by HR. Thank you.</p>"
           . "<p>— HR Department</p>";
 
-    // NOTE: assume hard copies were submitted — add to email and attempt to mark in DB if column exists
     $hardcopy_note = "<p><strong>Hard copy requirements:</strong> Our records indicate that we have received all required hard copy documents for your application.</p>";
     $html = $hardcopy_note . $html;
 
-    // Try to persist flag in DB if the column exists (safe no-op if column missing)
     try {
         $colChk = $conn->query("SHOW COLUMNS FROM `ojt_applications` LIKE 'hard_copies_received'");
         if ($colChk && $colChk->num_rows > 0) {
@@ -422,10 +475,9 @@ if ($action === 'approve_send') {
         }
         if ($colChk) $colChk->free();
     } catch (Exception $e) {
-        // ignore persistence failures — email should still go out
+        // ignore
     }
-    
-    // send with PHPMailer and capture debug output (existing send logic unchanged)
+
     $mailSent = false;
     $debugLog = '';
 
@@ -467,7 +519,21 @@ if ($action === 'approve_send') {
         if (!$mailSent) $debugLog .= "PHP mail() fallback failed\n";
     }
 
-    respond(['success' => true, 'mail' => $mailSent ? 'sent' : 'failed', 'debug' => $debugLog, 'account_created' => $createdAccount, 'username' => $createdUsername]);
+    respond([
+        'success' => true,
+        'mail' => $mailSent ? 'sent' : 'failed',
+        'debug' => $debugLog,
+        'account_created' => $createdAccount,
+        'username' => $createdUsername,
+        // include assigned session info for frontend if available
+        'orientation' => [
+            'date' => $orientation,
+            'time' => $orientation_time,
+            'location' => $orientation_location,
+            'assigned_office' => $assignedOfficeName,
+            'session_id' => isset($session_id) ? (int)$session_id : null
+        ]
+    ]);
 }
 
 // quick reject/approve endpoints (no email)

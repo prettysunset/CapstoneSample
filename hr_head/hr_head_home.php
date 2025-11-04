@@ -506,6 +506,14 @@ $stmtCount->close();
       <label>Orientation / Starting Date</label>
       <input type="date" id="modal_date">
     </div>
+    <div class="row">
+      <label>Location</label>
+      <input type="text" id="modal_location" value="CHRMO/3rd Floor" placeholder="CHRMO/3rd Floor">
+    </div>
+    <div class="row">
+      <label>Time</label>
+      <input type="time" id="modal_time" value="08:30">
+    </div>
 
     <!-- status message area (hidden until send result) -->
     <div id="modal_status" class="values" style="display:none;margin-top:10px;"></div>
