@@ -275,7 +275,10 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
                 $stmt2->close();
 
-                echo "<script>alert('Application submitted successfully!'); window.location='application_form4.php';</script>";
+                // clear saved application data so forms no longer pre-fill
+                unset($_SESSION['af1'], $_SESSION['af2'], $_SESSION['student_id']);
+                // server-side redirect (no reliance on JS)
+                header("Location: application_form4.php");
                 exit;
             }
         }
@@ -364,8 +367,37 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
           </fieldset>
 
           <?php if (!empty($existing_moa)): ?>
-            <label>Memorandum of Agreement</label>
-            <p><a href="<?= '../' . htmlspecialchars($existing_moa) ?>" target="_blank"><?= htmlspecialchars(basename($existing_moa)) ?></a> — MOA on file for your school; no upload required.</p>
+<?php
+  // Try resolve filesystem path and public URL safely
+  $fsCandidate = $existing_moa;
+  // if stored relative (e.g. "uploads/xxx.pdf"), try relative to script
+  if (!file_exists($fsCandidate)) {
+      $fsCandidate = __DIR__ . DIRECTORY_SEPARATOR . ltrim($existing_moa, '/\\');
+  }
+  // If still not found, try DOCUMENT_ROOT prefix
+  if (!file_exists($fsCandidate) && !empty($_SERVER['DOCUMENT_ROOT'])) {
+      $fsCandidate = rtrim($_SERVER['DOCUMENT_ROOT'], '/\\') . DIRECTORY_SEPARATOR . ltrim($existing_moa, '/\\');
+  }
+
+  if (file_exists($fsCandidate) && is_readable($fsCandidate)) {
+      // build public URL from realpath -> remove DOCUMENT_ROOT
+      $real = realpath($fsCandidate);
+      $docroot = realpath($_SERVER['DOCUMENT_ROOT']) ?: '';
+      if ($docroot !== '' && strpos($real, $docroot) === 0) {
+          $publicUrl = str_replace(DIRECTORY_SEPARATOR, '/', substr($real, strlen($docroot)));
+          $publicUrl = '/' . ltrim($publicUrl, '/');
+      } else {
+          // fallback: if existing_moa already looks like a web path, use it; else use uploads basename
+          $publicUrl = htmlspecialchars($existing_moa);
+      }
+      $base = htmlspecialchars(basename($real));
+      echo "<label>Memorandum of Agreement</label>";
+      echo "<p><a href=\"{$publicUrl}\" target=\"_blank\">{$base}</a> — MOA on file for your school; no upload required.</p>";
+  } else {
+      echo "<label>Memorandum of Agreement</label>";
+      echo "<p><strong>MOA file is recorded but cannot be accessed.</strong> Possible reasons: file missing or permission issue. Please contact the administrator.</p>";
+  }
+?>
           <?php else: ?>
             <label>Memorandum of Agreement (to follow) (PDF preferred)</label>
             <input type="file" name="moa" accept=".pdf">

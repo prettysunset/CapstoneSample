@@ -183,7 +183,7 @@ $af1 = isset($_SESSION['af1']) ? $_SESSION['af1'] : [];
           </fieldset>
  
           <div class="form-nav">
-            <button type="button" class="secondary" onclick="window.location='home.php'">Cancel</button>
+            <button type="button" class="secondary" onclick="window.location='clear_application.php'">Cancel</button>
             <button type="submit">Next →</button>
           </div>
         </form>

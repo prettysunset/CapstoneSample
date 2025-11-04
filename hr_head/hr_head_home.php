@@ -915,7 +915,36 @@ async function openViewModal(appId) {
     document.getElementById('view_year').textContent = s.year_level || '—';
     document.getElementById('view_school_address').textContent = s.school_address || '—';
     document.getElementById('view_adviser').textContent = (s.ojt_adviser || '') + (s.adviser_contact ? ' | ' + s.adviser_contact : '');
+    
+    // render avatar: use application picture if available; fallback to initials or emoji
+    (function(){
+      const avatarEl = document.getElementById('view_avatar');
+      // reset styles/text
+      avatarEl.style.backgroundImage = '';
+      avatarEl.style.backgroundSize = '';
+      avatarEl.style.backgroundPosition = '';
+      avatarEl.style.backgroundRepeat = '';
+      avatarEl.textContent = '';
 
+      const pic = (d.picture || '').toString().trim();
+      if (pic !== '') {
+        // normalize path: if not absolute URL, prefix with ../ to match attachments behavior
+        const url = (/^https?:\/\//i.test(pic)) ? pic : ('../' + pic.replace(/^\/+/, ''));
+        // show image; let browser handle 404 (attachments also use ../ + path)
+        avatarEl.style.backgroundImage = `url("${url}")`;
+        avatarEl.style.backgroundSize = 'cover';
+        avatarEl.style.backgroundPosition = 'center';
+        avatarEl.setAttribute('aria-label', 'Applicant photo');
+      } else {
+        // fallback: initials or emoji
+        const fn = (s.first_name || '').trim();
+        const ln = (s.last_name || '').trim();
+        const initials = ((fn.charAt(0) || '') + (ln.charAt(0) || '')).toUpperCase();
+        avatarEl.textContent = initials || '👤';
+        avatarEl.style.backgroundImage = '';
+      }
+    })();
+    
     document.getElementById('view_emg_name').textContent = s.emergency_name || '—';
     document.getElementById('view_emg_relation').textContent = s.emergency_relation || '—';
     document.getElementById('view_emg_contact').textContent = s.emergency_contact || '—';

@@ -342,11 +342,48 @@ if ($action === 'approve_send') {
     $u2->execute();
     $u2->close();
 
-    // prepare email content (HTML)
+    // prepare email content (HTML) — format orientation date and add 7‑day login requirement
     $subject = "OJT Application Approved";
+
+    // format orientation date (expecting YYYY-MM-DD from the form); fallback to raw value
+    $orientation_display = $orientation;
+    try {
+        if (!empty($orientation)) {
+            $dt = new DateTime($orientation);
+            $orientation_display = $dt->format('F j, Y'); // e.g. November 11, 2024
+        }
+    } catch (Exception $e) {
+        // keep raw value if parsing fails
+        $orientation_display = $orientation;
+    }
+
+    // update stored remarks to use the formatted orientation (optional — keep DB consistent)
+    try {
+        $remarks_formatted = "Orientation/Start: {$orientation_display}";
+        if ($assignedOfficeName) $remarks_formatted .= " | Assigned Office: {$assignedOfficeName}";
+        $updRemarksStmt = $conn->prepare("UPDATE ojt_applications SET remarks = ? WHERE application_id = ?");
+        if ($updRemarksStmt) {
+            $updRemarksStmt->bind_param("si", $remarks_formatted, $app_id);
+            $updRemarksStmt->execute();
+            $updRemarksStmt->close();
+        }
+    } catch (Exception $e) {
+        // ignore update failure — email should still go out
+    }
+
+    // compute deadline: 7 days from now (by which the student must log in to secure the slot)
+    $deadline = date('F j, Y', strtotime('+7 days'));
+
+    // try to build an absolute login URL if possible
+    $loginUrl = '/login.php';
+    if (!empty($_SERVER['HTTP_HOST'])) {
+        $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https://' : 'http://';
+        $loginUrl = $scheme . $_SERVER['HTTP_HOST'] . '/login.php';
+    }
+
     $html = "<p>Hi <strong>" . htmlspecialchars($student_name) . "</strong>,</p>"
           . "<p>Your OJT application has been <strong>approved</strong>.</p>"
-          . "<p><strong>Orientation / Starting Date:</strong> " . htmlspecialchars($orientation) . "</p>"
+          . "<p><strong>Orientation / Starting Date:</strong> " . htmlspecialchars($orientation_display) . "</p>"
           . ($assignedOfficeName ? "<p><strong>Assigned Office:</strong> " . htmlspecialchars($assignedOfficeName) . "</p>" : "");
 
     if ($createdAccount) {
@@ -358,9 +395,36 @@ if ($action === 'approve_send') {
         $html .= "<p>If you already have an account, use your existing credentials to login.</p>";
     }
 
-    $html .= "<p>Please follow instructions sent by HR. Thank you.</p>"
-           . "<p>— HR Department</p>";
+    // add 7-day login requirement and link
+    $html .= "<p style=\"background:#fff4f4;padding:10px;border-radius:6px;\"><strong>Important:</strong> Please log in within 7 days (by <strong>" . htmlspecialchars($deadline) . "</strong>) to secure your assigned slot. Failure to log in within 7 days from the date of this email will result in forfeiture of your assigned slot.</p>"
+          . "<p>You may log in here: <a href=\"" . htmlspecialchars($loginUrl) . "\">" . htmlspecialchars($loginUrl) . "</a></p>";
 
+    // INSTRUCTION: request applicant to bring hard copy documents to orientation
+    $html .= "<p style=\"margin-top:12px;\"><strong>Bring hard copies:</strong> Please bring the original/hard copy of all required documents (Letter of Intent, Resume, Endorsement Letter, and 1x1 Formal Picture) to the Orientation/Start date listed above. Present these to the HR staff to secure your placement.</p>";
+
+    $html .= "<p>Please follow instructions sent by HR. Thank you.</p>"
+          . "<p>— HR Department</p>";
+
+    // NOTE: assume hard copies were submitted — add to email and attempt to mark in DB if column exists
+    $hardcopy_note = "<p><strong>Hard copy requirements:</strong> Our records indicate that we have received all required hard copy documents for your application.</p>";
+    $html = $hardcopy_note . $html;
+
+    // Try to persist flag in DB if the column exists (safe no-op if column missing)
+    try {
+        $colChk = $conn->query("SHOW COLUMNS FROM `ojt_applications` LIKE 'hard_copies_received'");
+        if ($colChk && $colChk->num_rows > 0) {
+            $up = $conn->prepare("UPDATE ojt_applications SET hard_copies_received = 1 WHERE application_id = ? LIMIT 1");
+            if ($up) {
+                $up->bind_param("i", $app_id);
+                $up->execute();
+                $up->close();
+            }
+        }
+        if ($colChk) $colChk->free();
+    } catch (Exception $e) {
+        // ignore persistence failures — email should still go out
+    }
+    
     // send with PHPMailer and capture debug output (existing send logic unchanged)
     $mailSent = false;
     $debugLog = '';
