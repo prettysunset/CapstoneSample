@@ -229,17 +229,58 @@ try {
         </div>
 
         <nav style="padding: 6px 10px 12px;">
-          <a href="ojt_home.php" style="display:flex;align-items:center;gap:10px;padding:10px 12px;margin:8px 0;border-radius:12px;text-decoration:none;color:#fff;background:transparent;">Home</a>
-          <a href="ojt_profile.php" style="display:flex;align-items:center;gap:10px;padding:10px 12px;margin:8px 0;border-radius:12px;text-decoration:none;color:#fff;background:transparent;">Profile</a>
-          <a href="ojt_dtr.php" class="active" aria-current="page" style="display:flex;align-items:center;gap:10px;padding:10px 12px;margin:8px 0;border-radius:12px;text-decoration:none;color:#2f3459;background:#fff;">DTR</a>
-          <a href="ojt_reports.php" style="display:flex;align-items:center;gap:10px;padding:10px 12px;margin:8px 0;border-radius:12px;text-decoration:none;color:#fff;background:transparent;">Reports</a>
+          <a href="ojt_home.php"
+             style="display:flex;align-items:center;gap:10px;padding:10px 12px;margin:8px 0;border-radius:12px;text-decoration:none;color:#fff;background:transparent;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex:0 0 18px;">
+              <path d="M3 11.5L12 4l9 7.5"></path>
+              <path d="M5 12v7a1 1 0 0 0 1 1h3v-5h6v5h3a1 1 0 0 0 1-1v-7"></path>
+            </svg>
+            <span style="font-weight:600;">Home</span>
+          </a>
+
+            <a href="ojt_profile.php"
+             style="display:flex;align-items:center;gap:10px;padding:10px 12px;margin:8px 0;border-radius:12px;text-decoration:none;color:#fff;background:transparent;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex:0 0 18px;">
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+              <circle cx="12" cy="7" r="4"></circle>
+            </svg>
+            <span style="font-weight:600;">Profile</span>
+            </a>
+
+            <a href="ojt_dtr.php" class="active" aria-current="page"
+             style="display:flex;align-items:center;gap:10px;padding:10px 12px;margin:8px 0;border-radius:12px;text-decoration:none;color:#2f3459;background:#fff;box-shadow:0 4px 10px rgba(0,0,0,0.04);">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex:0 0 18px;">
+              <rect x="3" y="4" width="18" height="18" rx="2"></rect>
+              <line x1="16" y1="2" x2="16" y2="6"></line>
+              <line x1="8" y1="2" x2="8" y2="6"></line>
+              <line x1="3" y1="10" x2="21" y2="10"></line>
+            </svg>
+            <span style="font-weight:600;">DTR</span>
+            </a>
+
+            <a href="ojt_reports.php" style="display:flex;align-items:center;gap:10px;padding:10px 12px;margin:8px 0;border-radius:12px;text-decoration:none;color:#fff;background:transparent;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex:0 0 18px;">
+              <rect x="3" y="3" width="4" height="18"></rect>
+              <rect x="10" y="8" width="4" height="13"></rect>
+              <rect x="17" y="13" width="4" height="8"></rect>
+            </svg>
+            <span>Reports</span>
+          </a>
         </nav>
+      </div>
+
+      <div style="padding:14px 12px 26px;">
+        <!-- sidebar logout removed — use top-right logout icon instead -->
+      </div>
+    </div>
+  </div>
+
       </div>
       <div style="padding:14px 12px 26px;"></div>
     </div>
   </div>
 
-  <div class="content-wrap">
+  <div class="content-wrap" style="left:140px;">
     <div class="card">
       <div class="top-actions" style="flex-direction:column;align-items:stretch;">
         <div style="display:flex;justify-content:space-between;align-items:center;">

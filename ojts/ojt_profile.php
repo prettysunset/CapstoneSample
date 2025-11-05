@@ -87,6 +87,37 @@ if ($user_id) {
     <title>OJT Profile</title>
     <link rel="stylesheet" type="text/css" href="stylesforojt.css">
     <script src="../js/ojt_profile.js"></script>
+    <style>
+        .sidebar {
+        width: 220px;
+        background-color: #2f3459;
+        height: 100vh;
+        color: white;
+        position: fixed;
+        padding-top: 30px;
+    }
+    .sidebar h3 {
+        text-align: center;
+        margin-bottom: 5px;
+    }
+    .sidebar p {
+        text-align: center;
+        font-size: 14px;
+        margin-top: 0;
+    }
+    .sidebar a {
+        display: block;
+        padding: 10px 20px;
+        margin: 10px;
+        color: black;
+        background: white;
+        border-radius: 20px;
+        text-decoration: none;
+    }
+    .sidebar a.active {
+        background-color: #b3b7d6;
+    }
+    </style>
 </head>
 <body>
     <!-- top-right outline icons: notifications, settings, logout -->
@@ -117,15 +148,16 @@ if ($user_id) {
 <p style="color:#d6d9ee;font-size:13px;margin-top:0;"><?php echo htmlspecialchars($display_role); ?></p>
         </div>
 
+      
         <nav style="padding: 6px 10px 12px;">
-            <a href="ojt_home.php"
-                 style="display:flex;align-items:center;gap:10px;padding:10px 12px;margin:8px 0;border-radius:12px;text-decoration:none;color:#fff;background:transparent;">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex:0 0 18px;">
-                    <path d="M3 11.5L12 4l9 7.5"></path>
-                    <path d="M5 12v7a1 1 0 0 0 1 1h3v-5h6v-5h3a1 1 0 0 0 1-1v-7"></path>
-                </svg>
-                <span style="font-weight:600;">Home</span>
-            </a>
+          <a href="ojt_home.php"
+             style="display:flex;align-items:center;gap:10px;padding:10px 12px;margin:8px 0;border-radius:12px;text-decoration:none;color:#fff;background:transparent;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex:0 0 18px;">
+              <path d="M3 11.5L12 4l9 7.5"></path>
+              <path d="M5 12v7a1 1 0 0 0 1 1h3v-5h6v5h3a1 1 0 0 0 1-1v-7"></path>
+            </svg>
+            <span style="font-weight:600;">Home</span>
+          </a>
 
           <a href="ojt_profile.php" class="active" aria-current="page"
              style="display:flex;align-items:center;gap:10px;padding:10px 12px;margin:8px 0;border-radius:12px;text-decoration:none;color:#2f3459;background:#fff;box-shadow:0 4px 10px rgba(0,0,0,0.04);">
@@ -137,16 +169,16 @@ if ($user_id) {
           </a>
 
             <a href="ojt_dtr.php" style="display:flex;align-items:center;gap:10px;padding:10px 12px;margin:8px 0;border-radius:12px;text-decoration:none;color:#fff;background:transparent;">
-                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex:0 0 18px;">
-                   <rect x="3" y="4" width="18" height="18" rx="2"></rect>
-                   <line x1="16" y1="2" x2="16" y2="6"></line>
-                   <line x1="8" y1="2" x2="8" y2="6"></line>
-                   <line x1="3" y1="10" x2="21" y2="10"></line>
-                 </svg>
-                 <span>DTR</span>
-             </a>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex:0 0 18px;">
+              <rect x="3" y="4" width="18" height="18" rx="2"></rect>
+              <line x1="16" y1="2" x2="16" y2="6"></line>
+              <line x1="8" y1="2" x2="8" y2="6"></line>
+              <line x1="3" y1="10" x2="21" y2="10"></line>
+            </svg>
+            <span>DTR</span>
+            </a>
 
-            <a href="#reports" style="display:flex;align-items:center;gap:10px;padding:10px 12px;margin:8px 0;border-radius:12px;text-decoration:none;color:#fff;background:transparent;">
+            <a href="ojt_reports.php" style="display:flex;align-items:center;gap:10px;padding:10px 12px;margin:8px 0;border-radius:12px;text-decoration:none;color:#fff;background:transparent;">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex:0 0 18px;">
               <rect x="3" y="3" width="4" height="18"></rect>
               <rect x="10" y="8" width="4" height="13"></rect>
