@@ -174,12 +174,11 @@ $late_dtr_res = $late_dtr->get_result();
         padding: 10px 20px;
         margin: 10px;
         color: black;
-        background: white;
         border-radius: 20px;
         text-decoration: none;
     }
     .sidebar a.active {
-        background-color: #b3b7d6;
+        background-color: #fff;
     }
     .main {
         margin-left: 240px;
@@ -240,7 +239,7 @@ $late_dtr_res = $late_dtr->get_result();
   </div>
 
   <nav class="nav" style="margin-top:14px;display:flex;flex-direction:column;gap:8px;padding:0 12px;">
-    <a href="office_head_home.php" class="active" title="Home" style="display:flex;align-items:center;gap:8px;">
+    <a href="office_head_home.php" class="active" title="Home" style="display:flex;align-items:center;gap:8px;color:#2f3459;">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
         <path d="M3 11.5L12 4l9 7.5"></path>
         <path d="M5 12v7a1 1 0 0 0 1 1h3v-5h6v5h3a1 1 0 0 0 1-1v-7"></path>
@@ -248,7 +247,7 @@ $late_dtr_res = $late_dtr->get_result();
       <span>Home</span>
     </a>
 
-    <a href="office_head_ojts.php" title="OJTs" style="display:flex;align-items:center;gap:8px;">
+    <a href="office_head_ojts.php" title="OJTs" style="display:flex;align-items:center;gap:8px;color:#fff;">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
         <circle cx="12" cy="8" r="3"></circle>
         <path d="M5.5 20a6.5 6.5 0 0 1 13 0"></path>
@@ -256,7 +255,7 @@ $late_dtr_res = $late_dtr->get_result();
       <span>OJTs</span>
     </a>
 
-    <a href="office_head_dtr.php" title="DTR" style="display:flex;align-items:center;gap:8px;">
+    <a href="office_head_dtr.php" title="DTR" style="display:flex;align-items:center;gap:8px;color:#fff;">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
         <rect x="3" y="4" width="18" height="18" rx="2"></rect>
         <line x1="16" y1="2" x2="16" y2="6"></line>
@@ -266,7 +265,7 @@ $late_dtr_res = $late_dtr->get_result();
       <span>DTR</span>
     </a>
 
-    <a href="office_head_reports.php" title="Reports" style="display:flex;align-items:center;gap:8px;">
+    <a href="office_head_reports.php" title="Reports" style="display:flex;align-items:center;gap:8px;color:#fff;">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
         <rect x="3" y="10" width="4" height="10"></rect>
         <rect x="10" y="6" width="4" height="14"></rect>

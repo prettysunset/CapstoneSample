@@ -41,7 +41,6 @@ $stmt->close();
 <link rel="stylesheet" href="../ojts/stylesforojt.css">
 <style>
   body{font-family:Poppins, sans-serif;margin:0;background:#f5f6fa}
-  .sidebar{width:220px;background:#2f3459;position:fixed;height:100vh;padding-top:30px;color:#fff}
   .main{margin-left:240px;padding:20px}
   .card{background:#fff;border-radius:12px;padding:18px;box-shadow:0 6px 20px rgba(0,0,0,0.05)}
   .controls{display:flex;gap:12px;align-items:center;margin-bottom:12px}
@@ -60,10 +59,61 @@ $stmt->close();
   th,td{padding:12px;text-align:left;border-bottom:1px solid #eef1f6;font-size:14px}
   thead th{background:#f5f7fb;color:#2f3459}
   @media(max-width:900px){ .sidebar{display:none} .main{padding:12px} }
+  
 </style>
 </head>
 <body>
-<?php include __DIR__ . '/../includes/sidebar_home.php'; ?>
+<?php
+// ensure we have a display name available
+$user_name = $display_name ?? 'Office Head';
+?>
+<div class="sidebar">
+  <div style="text-align:center;padding:18px 12px 8px;">
+    <div style="width:64px;height:64px;border-radius:50%;background:#fff;color:#2f3459;display:inline-flex;align-items:center;justify-content:center;font-weight:700;margin:6px auto;font-size:20px;">
+      <?= htmlspecialchars(mb_strtoupper(substr(trim($user_name),0,1) ?: 'O')) ?>
+    </div>
+    <h3 style="margin:8px 0 4px;font-size:16px;"><?= htmlspecialchars($user_name) ?></h3>
+    <p style="margin:0;font-size:13px;opacity:0.9">Office Head — <?= htmlspecialchars($office_display) ?></p>
+  </div>
+
+  <nav class="nav" style="margin-top:14px;display:flex;flex-direction:column;gap:8px;padding:0 12px;">
+    <a href="office_head_home.php" title="Home" style="display:flex;align-items:center;gap:8px;color:#fff;background:transparent;">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 11.5L12 4l9 7.5"></path>
+        <path d="M5 12v7a1 1 0 0 0 1 1h3v-5h6v5h3a1 1 0 0 0 1-1v-7"></path>
+      </svg>
+      <span>Home</span>
+    </a>
+
+    <a href="office_head_ojts.php" title="OJTs" style="display:flex;align-items:center;gap:8px;color:#fff;background:transparent;">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="8" r="3"></circle>
+        <path d="M5.5 20a6.5 6.5 0 0 1 13 0"></path>
+      </svg>
+      <span>OJTs</span>
+    </a>
+
+    <a href="office_head_dtr.php" class="active" title="DTR" style="display:flex;align-items:center;gap:8px;color:#2f3859;background:#fff;">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="3" y="4" width="18" height="18" rx="2"></rect>
+      <line x1="16" y1="2" x2="16" y2="6"></line>
+      <line x1="8" y1="2" x2="8" y2="6"></line>
+      <line x1="3" y1="10" x2="21" y2="10"></line>
+      </svg>
+      <span>DTR</span>
+    </a>
+
+    <a href="office_head_reports.php" title="Reports" style="display:flex;align-items:center;gap:8px;color:#fff;background:transparent;">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="10" width="4" height="10"></rect>
+        <rect x="10" y="6" width="4" height="14"></rect>
+        <rect x="17" y="2" width="4" height="18"></rect>
+      </svg>
+      <span>Reports</span>
+    </a>
+
+  </nav>
+</div>
 
 <div class="main">
   <div class="card">

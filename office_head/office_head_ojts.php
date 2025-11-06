@@ -123,29 +123,85 @@ foreach ($ojts as $r) {
   .pill{background:#f0f0f0;padding:6px 10px;border-radius:16px;display:inline-block}
   .tab-panel{display:none}
   .tab-panel.active{display:block}
+  .sidebar {
+        width: 220px;
+        background-color: #2f3459;
+        height: 100vh;
+        color: white;
+        position: fixed;
+        padding-top: 30px;
+    }
+    .sidebar h3 {
+        text-align: center;
+        margin-bottom: 5px;
+    }
+    .sidebar p {
+        text-align: center;
+        font-size: 14px;
+        margin-top: 0;
+    }
+    .sidebar a {
+        display: block;
+        padding: 10px 20px;
+        margin: 10px;
+        color: black;
+        border-radius: 20px;
+        text-decoration: none;
+    }
+    .sidebar a.active {
+        background-color: #fff;
+    }
 </style>
 </head>
 <body>
 
 <div class="sidebar">
   <div style="text-align:center;padding:18px 12px 8px;">
-    <div style="width:76px;height:76px;border-radius:50%;background:#ffffff22;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;margin:0 auto 8px;font-size:24px;">
-      <?php
-        $initials = '';
-        foreach (explode(' ', trim($user_name)) as $p) if ($p!=='') $initials .= strtoupper($p[0]);
-        echo htmlspecialchars(substr($initials,0,2) ?: 'OH');
-      ?>
+    <div style="width:64px;height:64px;border-radius:50%;background:#fff;color:#2f3459;display:inline-flex;align-items:center;justify-content:center;font-weight:700;margin:6px auto;font-size:20px;">
+      <?= htmlspecialchars(mb_strtoupper(substr(trim($user_name),0,1) ?: 'O')) ?>
     </div>
-    <h3 style="color:#fff;font-size:16px;margin:6px 0 2px;"><?php echo htmlspecialchars($user_name); ?></h3>
-    <p style="color:#d6d9ee;font-size:13px;margin:0;"><?php echo htmlspecialchars('Office Head — ' . $office_display); ?></p>
+    <h3 style="margin:8px 0 4px;font-size:16px;"><?= htmlspecialchars($user_name) ?></h3>
+    <p style="margin:0;font-size:13px;opacity:0.9">Office Head — <?= htmlspecialchars($office_display) ?></p>
   </div>
 
-  <nav style="padding:6px 12px;margin-top:14px;">
-    <a href="office_head_home.php" style="display:block;padding:10px 12px;margin:8px 0;border-radius:12px;text-decoration:none;color:#fff;background:transparent">Home</a>
-    <a href="office_head_ojts.php" style="display:block;padding:10px 12px;margin:8px 0;border-radius:12px;text-decoration:none;color:#2f3459;background:#fff">OJT</a>
-    <a href="office_head_dtr.php" style="display:block;padding:10px 12px;margin:8px 0;border-radius:12px;text-decoration:none;color:#fff;background:transparent">DTR</a>
-    <a href="office_head_reports.php" style="display:block;padding:10px 12px;margin:8px 0;border-radius:12px;text-decoration:none;color:#fff;background:transparent">Reports</a>
+  <nav class="nav" style="margin-top:14px;display:flex;flex-direction:column;gap:8px;padding:0 12px;">
+    <a href="office_head_home.php" title="Home" style="display:flex;align-items:center;gap:8px;color:#fff;">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 11.5L12 4l9 7.5"></path>
+        <path d="M5 12v7a1 1 0 0 0 1 1h3v-5h6v5h3a1 1 0 0 0 1-1v-7"></path>
+      </svg>
+      <span>Home</span>
+    </a>
+
+    <a href="office_head_ojts.php" class="active" title="OJTs" style="display:flex;align-items:center;gap:8px;color:#2f3459;">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="8" r="3"></circle>
+        <path d="M5.5 20a6.5 6.5 0 0 1 13 0"></path>
+      </svg>
+      <span>OJTs</span>
+    </a>
+
+    <a href="office_head_dtr.php" title="DTR" style="display:flex;align-items:center;gap:8px;color:#fff;">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="4" width="18" height="18" rx="2"></rect>
+        <line x1="16" y1="2" x2="16" y2="6"></line>
+        <line x1="8" y1="2" x2="8" y2="6"></line>
+        <line x1="3" y1="10" x2="21" y2="10"></line>
+      </svg>
+      <span>DTR</span>
+    </a>
+
+    <a href="office_head_reports.php" title="Reports" style="display:flex;align-items:center;gap:8px;color:#fff;">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="10" width="4" height="10"></rect>
+        <rect x="10" y="6" width="4" height="14"></rect>
+        <rect x="17" y="2" width="4" height="18"></rect>
+      </svg>
+      <span>Reports</span>
+    </a>
+
   </nav>
+
 
   <div style="position:absolute;bottom:20px;width:100%;text-align:center;font-weight:700;padding-bottom:6px">OJT-MS</div>
 </div>
