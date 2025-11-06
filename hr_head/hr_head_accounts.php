@@ -336,11 +336,48 @@ async function toggleStatus(userId, btn) {
     btn.disabled = false;
   }
 }
+
+// modal helpers (ensure Add Account works)
+function openAdd(){
+  const m = document.getElementById('addModal');
+  if(!m) return;
+  m.style.display = 'flex';
+}
+function closeAdd(){
+  const m = document.getElementById('addModal');
+  if(!m) return;
+  m.style.display = 'none';
+  // optional: reset form fields
+  const inputs = m.querySelectorAll('input');
+  inputs.forEach(i => { if (i.type !== 'hidden') i.value = ''; });
+  if (window.__hr_modal && window.__hr_modal.reset) window.__hr_modal.reset();
+}
+
+// simple random password generator used by submitAdd()
+function randomPassword(len = 10){
+  const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  let out = '';
+  for (let i = 0; i < len; i++) out += chars.charAt(Math.floor(Math.random() * chars.length));
+  return out;
+}
+
+// close modal when clicking backdrop
+document.addEventListener('click', function(e){
+  const m = document.getElementById('addModal');
+  if (!m || m.style.display !== 'flex') return;
+  // if clicked directly on backdrop (not the modal card)
+  if (e.target === m) closeAdd();
+});
+
+// allow ESC to close modal
+document.addEventListener('keydown', function(e){
+  if (e.key === 'Escape') closeAdd();
+});
 </script>
 
 <!-- Add Account Modal -->
 <div id="addModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.35);align-items:center;justify-content:center;z-index:9999">
-  <div style="background:#fff;padding:18px;border-radius:10px;width:520px;max-width:94%;box-shadow:0 12px 30px rgba(0,0,0,0.15)">
+  <div style="background:#fff;padding:18px;border-radius:10px;width:560px;max-width:94%;box-shadow:0 12px 30px rgba(0,0,0,0.15)">
     <h3 style="margin:0 0 12px">Create Office Head Account</h3>
 
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
@@ -349,6 +386,15 @@ async function toggleStatus(userId, btn) {
       <input id="m_email" placeholder="Email" style="padding:10px;border:1px solid #ddd;border-radius:8px;grid-column:span 2" />
       <!-- replaced dropdown with free-text office input -->
       <input id="m_office" placeholder="Office" style="padding:10px;border:1px solid #ddd;border-radius:8px;grid-column:span 2" />
+      <input id="m_initial_limit" type="number" min="0" placeholder="Initial OJT limit (e.g. 10)" style="padding:10px;border:1px solid #ddd;border-radius:8px" />
+      <div style="display:flex;gap:8px;align-items:center">
+        <input id="m_course_input" placeholder="Related course (e.g. BSIT)" style="padding:10px;border:1px solid #ddd;border-radius:8px;flex:1" />
+        <button type="button" id="m_add_course_btn" class="btn" style="padding:9px 12px;border-radius:8px;background:#3a4163;color:#fff;border:none">Add</button>
+      </div>
+      <div id="m_course_tags" style="grid-column:span 2;display:flex;flex-wrap:wrap;gap:8px"></div>
+
+      <!-- hidden field to store CSV courses -->
+      <input type="hidden" id="m_accept_courses" />
     </div>
 
     <div style="display:flex;gap:8px;justify-content:flex-end">
@@ -360,33 +406,77 @@ async function toggleStatus(userId, btn) {
 </div>
 
 <script>
-function openAdd(){
-  document.getElementById('addModal').style.display = 'flex';
-  // reset fields
-  document.getElementById('m_first').value = '';
-  document.getElementById('m_last').value = '';
-  document.getElementById('m_email').value = '';
-  document.getElementById('m_office').value = '';
-  const st = document.getElementById('addModalStatus');
-  st.style.display = 'none'; st.textContent = '';
-}
+// course tag helpers (scoped for the modal)
+(function(){
+  const input = document.getElementById('m_course_input');
+  const addBtn = document.getElementById('m_add_course_btn');
+  const tagsWrap = document.getElementById('m_course_tags');
+  const hidden = document.getElementById('m_accept_courses');
+  let tags = [];
 
-function closeAdd(){
-  document.getElementById('addModal').style.display = 'none';
-}
+  function renderTags(){
+    tagsWrap.innerHTML = '';
+    tags.forEach((t, idx)=>{
+      const el = document.createElement('div');
+      el.style.padding = '6px 10px';
+      el.style.background = '#f1f4fb';
+      el.style.borderRadius = '16px';
+      el.style.display = 'flex';
+      el.style.gap = '8px';
+      el.style.alignItems = 'center';
+      el.style.fontSize = '13px';
+      el.innerHTML = `<span>${escapeHtml(t)}</span><button type="button" data-idx="${idx}" style="background:transparent;border:0;cursor:pointer;color:#a00;font-weight:700">×</button>`;
+      tagsWrap.appendChild(el);
+      el.querySelector('button').addEventListener('click', function(){
+        const i = parseInt(this.getAttribute('data-idx'),10);
+        tags.splice(i,1);
+        updateHidden();
+        renderTags();
+      });
+    });
+    updateHidden();
+  }
 
-function randomPassword(len = 10){
-  const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-  let s = '';
-  for (let i=0;i<len;i++) s += chars[Math.floor(Math.random()*chars.length)];
-  return s;
-}
+  function updateHidden(){
+    hidden.value = tags.join(',');
+  }
 
+  function addTagFromInput(){
+    const v = (input.value || '').trim();
+    if (!v) return;
+    // avoid duplicates (case-insensitive)
+    const lc = v.toLowerCase();
+    if (tags.some(t => t.toLowerCase() === lc)) {
+      input.value = '';
+      return;
+    }
+    tags.push(v);
+    input.value = '';
+    renderTags();
+    input.focus();
+  }
+
+  addBtn.addEventListener('click', addTagFromInput);
+  input.addEventListener('keydown', function(e){
+    if (e.key === 'Enter') { e.preventDefault(); addTagFromInput(); }
+  });
+
+  // expose for submitAdd to read
+  window.__hr_modal = { getCourses: ()=>tags, reset: ()=>{ tags = []; renderTags(); } };
+  function escapeHtml(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+})();
+</script>
+
+<script>
+// ...existing code...
 async function submitAdd(){
   const first_name = (document.getElementById('m_first').value || '').trim();
   const last_name = (document.getElementById('m_last').value || '').trim();
   const email = (document.getElementById('m_email').value || '').trim();
   const office = (document.getElementById('m_office').value || '').trim();
+  const initial_limit = parseInt(document.getElementById('m_initial_limit').value || '0', 10) || 0;
+  const courses = (window.__hr_modal && window.__hr_modal.getCourses()) ? window.__hr_modal.getCourses() : [];
+  const accept_courses = courses.join(',');
 
   if (!first_name || !last_name || !email) {
     alert('Please fill first name, last name and email.');
@@ -406,7 +496,9 @@ async function submitAdd(){
     last_name: last_name,
     email: email,
     role: 'office_head',
-    office: office
+    office: office,
+    initial_limit: initial_limit,
+    accept_courses: accept_courses
   };
 
   const statusEl = document.getElementById('addModalStatus');
@@ -431,7 +523,8 @@ async function submitAdd(){
     statusEl.style.background = '#e6f9ee';
     statusEl.style.color = '#0b7a3a';
     statusEl.textContent = 'Account created successfully.';
-    // close after short delay and reload to show new account
+    // reset tags and close modal after short delay
+    if (window.__hr_modal) window.__hr_modal.reset();
     setTimeout(()=>{ closeAdd(); location.reload(); }, 900);
   } catch (err) {
     console.error(err);

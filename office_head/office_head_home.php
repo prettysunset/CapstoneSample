@@ -346,13 +346,13 @@ $late_dtr_res = $late_dtr->get_result();
                   <input id="ci_available_slots" type="text" value="<?= max((int)$office['current_limit'] - $active_ojts, 0) ?>" readonly style="width:70px;border:0;background:transparent;text-align:center;">
                 </td>
                 <td style="padding:8px; border:1px solid #e0e0e0;">
-                  <input id="ci_requested_limit" type="text" value="<?= htmlspecialchars($office['requested_limit']) ?>" readonly style="width:90px;border:0;background:transparent;text-align:center;">
+                  <input id="ci_requested_limit" type="text" value="<?= htmlspecialchars($office['requested_limit'] ?? '') ?>" readonly style="width:90px;border:0;background:transparent;text-align:center;">
                 </td>
                 <td style="padding:8px; border:1px solid #e0e0e0; max-width:300px;">
-                  <input id="ci_reason" type="text" value="<?= htmlspecialchars($office['reason']) ?>" readonly style="width:100%;border:0;background:transparent;text-align:left;">
+                  <input id="ci_reason" type="text" value="<?= htmlspecialchars($office['reason'] ?? '') ?>" readonly style="width:100%;border:0;background:transparent;text-align:left;">
                 </td>
                 <td style="padding:8px; border:1px solid #e0e0e0;">
-                  <input id="ci_status" type="text" value="<?= ucfirst($office['status']) ?>" readonly style="width:90px;border:0;background:transparent;text-align:center;">
+                  <input id="ci_status" type="text" value="<?= htmlspecialchars(ucfirst($office['status'] ?? '')) ?>" readonly style="width:90px;border:0;background:transparent;text-align:center;">
                 </td>
               </tr>
             </tbody>
