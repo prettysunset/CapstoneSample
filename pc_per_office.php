@@ -155,57 +155,147 @@ if ($office_id) {
     $s->close();
     $office_name = $of['office_name'] ?? '';
 }
-?><!doctype html>
+?>
+<!doctype html>
 <html>
 <head>
 <meta charset="utf-8">
 <title>PC — Time In / Time Out</title>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
-  body{font-family:Arial,Helvetica,sans-serif;background:#f7f9ff;margin:0;padding:28px;color:#222}
-  .card{max-width:420px;margin:40px auto;padding:18px;background:#fff;border-radius:10px;box-shadow:0 8px 30px rgba(45,57,120,0.06)}
-  h2{margin:0 0 8px;font-size:20px}
-  .sub{color:#666;margin-bottom:12px}
-  input[type=text], input[type=password]{width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;margin-bottom:10px;box-sizing:border-box}
-  .row{display:flex;gap:8px}
-  button{flex:1;padding:12px;border-radius:8px;border:0;cursor:pointer;font-weight:700}
-  .in{background:#4f4aa6;color:#fff}
-  .out{background:#2f9a66;color:#fff}
-  button:disabled{background:#ccc;cursor:not-allowed;color:#333}
-  .now{font-weight:700;font-size:18px;margin-bottom:8px}
-  .msg{display:none;padding:10px;border-radius:6px;margin-top:10px}
+  :root{
+    --bg1:#e6f2ff;
+    --card-bg: rgba(255,255,255,0.95);
+    --accent:#3a4163;
+    --btn-in:#3d44a8;
+    --btn-out:#355e4a;
+  }
+  /* make page area full viewport and hide scrollbar on desktop */
+  html,body{
+    height:100%;
+    margin:0;
+    font-family:'Poppins',sans-serif;
+    background:var(--bg1);
+    overflow:hidden; /* hides scrollbar — see note below */
+  }
+
+  /* background like login */
+  .page-bg{
+    min-height:100vh;
+    background-image:url('123456.png');
+    background-size:cover;
+    background-position:center;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    padding:40px;
+    box-sizing:border-box;
+    width:100%;
+  }
+
+  /* larger card, responsive max-width so it never forces a horizontal scrollbar */
+  .card{
+    width:640px;           /* increased container width */
+    max-width:calc(100% - 48px); /* leave breathing room to avoid overflow */
+    background:linear-gradient(180deg, rgba(255,255,255,0.95), rgba(255,255,255,0.90));
+    border-radius:20px;
+    padding:32px;
+    box-shadow: 8px 14px 40px rgba(58,65,99,0.12);
+    position:relative;
+    overflow:visible;
+  }
+
+  .logo{font-size:14px;color:var(--accent);text-align:center;font-weight:700;margin-bottom:8px}
+  .time-big{font-weight:700;font-size:20px;color:var(--accent);text-align:center}
+  .date-sub{color:#6b7280;text-align:center;margin-bottom:16px}
+  .sub-desc{color:#5b6477;text-align:center;margin-bottom:18px;font-size:13px}
+  .form-row{display:flex;gap:10px}
+  .input{
+    width:100%;
+    background:white;
+    border-radius:10px;
+    border:1px solid rgba(58,65,99,0.06);
+    padding:12px 14px;
+    box-sizing:border-box;
+    font-size:14px;
+    color:#222;
+    margin-bottom:10px;
+  }
+  .password-container{position:relative}
+  .password-container button{
+    position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:0;cursor:pointer;padding:4px;color:var(--accent)
+  }
+  .actions{display:flex;gap:12px;justify-content:center;margin-top:6px}
+  .btn{
+    flex:1;padding:12px;border-radius:12px;border:0;color:white;font-weight:700;cursor:pointer;box-shadow:0 6px 18px rgba(58,65,99,0.08)
+  }
+  .btn.in{background:var(--btn-in)}
+  .btn.out{background:var(--btn-out)}
+  .btn:disabled{background:#c7c7c7;cursor:not-allowed;color:#444}
+  .msg{display:none;text-align:center;margin-top:12px;padding:10px;border-radius:8px;font-size:14px}
+  .office-name{font-size:13px;color:#4b5563;text-align:center;margin-bottom:8px}
+
+  /* hide native scrollbar visuals in WebKit/Firefox (keeps ability to scroll if overflow occurs) */
+  ::-webkit-scrollbar { width:0; height:0; }
+  html { -ms-overflow-style: none; scrollbar-width: none; }
+
+  /* responsive: allow scrolling on small screens and reduce card size */
+  @media (max-width:760px){
+    html,body{ overflow:auto; } /* enable scroll on narrow devices */
+    .card{ width:94%; padding:20px; border-radius:14px; }
+    .time-big{font-size:16px}
+  }
 </style>
 </head>
 <body>
-  <div class="card">
-    <h2>PC Time Log</h2>
-    <?php if ($office_name): ?>
-      <div class="sub"><?php echo htmlspecialchars($office_name); ?> — <?php echo date('F j, Y'); ?></div>
-    <?php else: ?>
-      <div class="sub">PC Mode — <?php echo date('F j, Y'); ?></div>
-    <?php endif; ?>
+  <div class="page-bg">
+    <div class="card" role="region" aria-label="PC Time Log">
+      <div class="logo">OJT-MS</div>
+      <div class="time-big" id="now">--:--:--</div>
+      <div class="date-sub" id="date"><?php echo date('F j, Y'); ?></div>
+      <?php if ($office_name): ?>
+        <div class="office-name"><?php echo htmlspecialchars($office_name); ?></div>
+      <?php endif; ?>
 
-    <div class="now" id="now"><?php echo date('F j, Y') . ' — ' . date('h:i:s A'); ?></div>
+      <form id="pcForm" onsubmit="return false;" style="margin-top:6px">
+        <input type="hidden" id="office_id" value="<?php echo (int)$office_id; ?>">
+        <input id="username" class="input" type="text" placeholder="Username" autocomplete="username">
+        <div class="password-container">
+          <input id="password" class="input" type="password" placeholder="Password" autocomplete="current-password">
+          <button type="button" id="togglePassword" aria-label="Show password">
+            <svg id="eyeOpen" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#3a4163" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8S1 12 1 12z"></path>
+              <circle cx="12" cy="12" r="3"></circle>
+            </svg>
+            <svg id="eyeClosed" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#3a4163" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none;">
+              <path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a18.65 18.65 0 0 1 4.11-5.05"></path>
+              <path d="M1 1l22 22"></path>
+              <path d="M9.88 9.88A3 3 0 0 0 14.12 14.12"></path>
+            </svg>
+          </button>
+        </div>
 
-    <form id="pcForm" onsubmit="return false;">
-      <input type="hidden" id="office_id" value="<?php echo (int)$office_id; ?>">
-      <input id="username" type="text" placeholder="OJT username">
-      <input id="password" type="password" placeholder="Password">
-      <div class="row" style="margin-top:6px">
-        <button id="btnIn" class="in" type="button">TIME IN</button>
-        <button id="btnOut" class="out" type="button">TIME OUT</button>
-      </div>
-      <div id="msg" class="msg"></div>
-    </form>
+        <div class="actions">
+          <button id="btnIn" class="btn in" type="button">Time In</button>
+          <button id="btnOut" class="btn out" type="button">Time Out</button>
+        </div>
+
+        <div id="msg" class="msg" role="status" aria-live="polite"></div>
+      </form>
+    </div>
   </div>
 
 <script>
 (function(){
   const nowEl = document.getElementById('now');
+  const dateEl = document.getElementById('date');
   function tick(){
     const d = new Date();
-    // show local date and 12-hour time with seconds
-    nowEl.textContent = d.toLocaleDateString() + ' — ' + d.toLocaleTimeString('en-US',{hour12:true});
+    nowEl.textContent = d.toLocaleTimeString('en-US',{hour12:true});
+    dateEl.textContent = d.toLocaleDateString(undefined,{month:'long',day:'numeric',year:'numeric'});
   }
+  tick();
   setInterval(tick,1000);
 
   const btnIn = document.getElementById('btnIn');
@@ -215,21 +305,40 @@ if ($office_id) {
   const officeId = document.getElementById('office_id').value;
   const msg = document.getElementById('msg');
 
-  function showAlert(text, ok=true){
-    // simple alert popup required by user
-    alert(text);
-    // also show small inline message briefly
+  function showMsg(text, ok=true){
     msg.style.display = 'block';
     msg.style.background = ok ? '#e6f9ee' : '#fff4f4';
     msg.style.color = ok ? '#0b7a3a' : '#a00';
     msg.textContent = text;
-    setTimeout(()=> msg.style.display = 'none', 2500);
+    setTimeout(()=> msg.style.display = 'none', 3000);
   }
+
+  // toggle eye
+  (function(){
+    var btn = document.getElementById('togglePassword');
+    var pwd = document.getElementById('password');
+    var openEye = document.getElementById('eyeOpen');
+    var closedEye = document.getElementById('eyeClosed');
+    btn.addEventListener('click', function(e){
+        e.preventDefault();
+        if (pwd.type === 'password') {
+            pwd.type = 'text';
+            openEye.style.display = 'none';
+            closedEye.style.display = 'inline';
+            btn.setAttribute('aria-label', 'Hide password');
+        } else {
+            pwd.type = 'password';
+            openEye.style.display = 'inline';
+            closedEye.style.display = 'none';
+            btn.setAttribute('aria-label', 'Show password');
+        }
+    }, true);
+  })();
 
   async function send(action){
     const u = username.value.trim();
     const p = password.value;
-    if (!u || !p) { showAlert('Enter username and password', false); return; }
+    if (!u || !p) { showMsg('Enter username and password', false); return; }
     btnIn.disabled = true; btnOut.disabled = true;
     try {
       const form = new FormData();
@@ -240,15 +349,16 @@ if ($office_id) {
       const res = await fetch(window.location.href, { method:'POST', body: form });
       const j = await res.json();
       if (j.success) {
-        showAlert(j.message || (action==='time_in'?'Time in recorded':'Time out recorded'), true);
+        showMsg(j.message || (action==='time_in'?'Time in recorded':'Time out recorded'), true);
         password.value = '';
       } else {
-        showAlert(j.message || 'Action failed', false);
+        showMsg(j.message || 'Action failed', false);
       }
     } catch (e) {
-      showAlert('Request failed', false);
+      showMsg('Request failed', false);
     } finally {
-      setTimeout(()=>{ btnIn.disabled = false; btnOut.disabled = false; }, 700);
+      // re-enable after short delay to avoid accidental double clicks
+      setTimeout(()=>{ btnIn.disabled = false; btnOut.disabled = false; }, 600);
     }
   }
 

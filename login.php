@@ -1,6 +1,7 @@
 <?php
 session_start();
-$conn = new mysqli("localhost", "root", "", "capstone");
+//$conn = new mysqli("localhost", "root", "", "capstone");
+$conn = new mysqli("localhost", "u389936701_user", "CapstoneDefended1", "u389936701_capstone");
 
 if ($conn->connect_error) {
     die("Connection failed: " . $conn->connect_error);
