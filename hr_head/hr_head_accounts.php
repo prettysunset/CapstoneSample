@@ -2,10 +2,118 @@
 session_start();
 date_default_timezone_set('Asia/Manila');
 require_once __DIR__ . '/../conn.php';
-if (!isset($_SESSION['user_id'])) {
-    header('Location: ../login.php');
-    exit();
+
+// handle AJAX email send from this page (do NOT change hr_actions.php)
+$raw = @file_get_contents('php://input');
+$inputJson = json_decode($raw, true);
+if (is_array($inputJson) && (isset($inputJson['action']) && $inputJson['action'] === 'send_officehead_email')) {
+    // return JSON and exit (AJAX endpoint)
+    header('Content-Type: application/json; charset=utf-8');
+
+    // Basic validation
+    $to = trim($inputJson['email'] ?? '');
+    $username = trim($inputJson['username'] ?? '');
+    $password = trim($inputJson['password'] ?? '');
+    $first = trim($inputJson['first_name'] ?? '');
+    $last = trim($inputJson['last_name'] ?? '');
+    $office = trim($inputJson['office'] ?? '');
+    $initial_limit = (int)($inputJson['initial_limit'] ?? 0);
+    $accept_courses = trim($inputJson['accept_courses'] ?? '');
+
+    if (!filter_var($to, FILTER_VALIDATE_EMAIL) || !$username || !$password) {
+        echo json_encode(['success'=>false,'message'=>'Invalid payload for email.']);
+        exit;
+    }
+
+    // PHPMailer bootstrap (same pattern used in hr_actions.php)
+    $autoload = __DIR__ . '/../vendor/autoload.php';
+    if (file_exists($autoload)) require_once $autoload;
+
+    if (!class_exists(\PHPMailer\PHPMailer\PHPMailer::class)) {
+        $pmPath = __DIR__ . '/../PHPMailer/src/';
+        if (file_exists($pmPath . 'PHPMailer.php')) {
+            require_once $pmPath . 'Exception.php';
+            require_once $pmPath . 'PHPMailer.php';
+            require_once $pmPath . 'SMTP.php';
+        } else {
+            echo json_encode(['success'=>false,'message'=>'PHPMailer not available on server.']);
+            exit;
+        }
+    }
+
+    // SMTP config - use variables (const inside conditional causes parse error)
+    $SMTP_HOST_LOCAL = 'smtp.gmail.com';
+    $SMTP_PORT_LOCAL = 587;
+    $SMTP_USER_LOCAL = 'sample.mail00000000@gmail.com';
+    $SMTP_PASS_LOCAL = 'qitthwgfhtogjczq';
+    $SMTP_FROM_EMAIL_LOCAL = 'sample.mail00000000@gmail.com';
+    $SMTP_FROM_NAME_LOCAL  = 'OJTMS HR';
+
+    $subject = "Your Office Head account for OJT-MS";
+    $siteName = 'OJT-MS';
+
+    $coursesListHtml = $accept_courses ? '<ul><li>' . implode('</li><li>', array_map('htmlspecialchars', array_filter(array_map('trim', explode(',', $accept_courses))))) . '</li></ul>' : '<em>None specified</em>';
+    $officeLine = $office ? htmlspecialchars($office) : '<em>Not assigned</em>';
+    $initialLimitLine = $initial_limit;
+
+    $body = "
+      <html><body>
+      <p>Hello " . htmlspecialchars($first . ' ' . $last) . ",</p>
+      <p>An Office Head account was created for you on <strong>{$siteName}</strong>. Below are your login details and office information. Please keep these credentials secure.</p>
+      <table cellpadding='6' cellspacing='0' border='0'>
+        <tr><td><strong>Username</strong></td><td>" . htmlspecialchars($username) . "</td></tr>
+        <tr><td><strong>Password</strong></td><td>" . htmlspecialchars($password) . "</td></tr>
+        <tr><td><strong>Office</strong></td><td>{$officeLine}</td></tr>
+        <tr><td><strong>Initial OJT slots</strong></td><td>{$initialLimitLine}</td></tr>
+        <tr><td valign='top'><strong>Accepted courses</strong></td><td>{$coursesListHtml}</td></tr>
+      </table>
+      <p>You can login here: <a href=\"" . (isset($_SERVER['HTTP_HOST']) ? 'http://'.$_SERVER['HTTP_HOST'] : '#') . "/\">{$siteName}</a></p>
+      <p>Regards,<br>HR Department</p>
+      </body></html>
+    ";
+
+    $sent = false;
+    $errorInfo = '';
+
+    try {
+        $mail = new \PHPMailer\PHPMailer\PHPMailer(true);
+         $mail->isSMTP();
+         $mail->Host       = $SMTP_HOST_LOCAL;
+         $mail->SMTPAuth   = true;
+         $mail->Username   = $SMTP_USER_LOCAL;
+         $mail->Password   = $SMTP_PASS_LOCAL;
+         // use explicit 'tls' to avoid unqualified constant errors
+         $mail->SMTPSecure = 'tls';
+         $mail->Port       = $SMTP_PORT_LOCAL;
+         $mail->CharSet    = 'UTF-8';
+
+         $mail->setFrom($SMTP_FROM_EMAIL_LOCAL, $SMTP_FROM_NAME_LOCAL);
+         $mail->addAddress($to, $first . ' ' . $last);
+         $mail->isHTML(true);
+         $mail->Subject = $subject;
+         $mail->Body = $body;
+
+         $mail->send();
+         $sent = true;
+    } catch (\PHPMailer\PHPMailer\Exception $e) {
+        $sent = false;
+        $errorInfo = $mail->ErrorInfo ?? $e->getMessage();
+    }
+
+    // fallback to PHP mail() if PHPMailer failed (best-effort)
+    if (!$sent) {
+        $headers  = "MIME-Version: 1.0\r\n";
+        $headers .= "Content-type: text/html; charset=utf-8\r\n";
+        // use variables (not undefined bare names)
+        $headers .= "From: " . $SMTP_FROM_NAME_LOCAL . " <" . $SMTP_FROM_EMAIL_LOCAL . ">\r\n";
+        $sent = mail($to, $subject, $body, $headers);
+        if (!$sent && !$errorInfo) $errorInfo = 'PHP mail() fallback failed';
+    }
+
+    echo json_encode(['success'=> (bool)$sent, 'email_sent' => (bool)$sent, 'error' => $errorInfo]);
+    exit;
 }
+
 
 // fetch HR user info for sidebar
 $user_id = (int)($_SESSION['user_id'] ?? 0);
@@ -388,7 +496,7 @@ document.addEventListener('keydown', function(e){
       <input id="m_office" placeholder="Office" style="padding:10px;border:1px solid #ddd;border-radius:8px;grid-column:span 2" />
       <input id="m_initial_limit" type="number" min="0" placeholder="Initial OJT limit (e.g. 10)" style="padding:10px;border:1px solid #ddd;border-radius:8px" />
       <div style="display:flex;gap:8px;align-items:center">
-        <input id="m_course_input" placeholder="Related course (e.g. BSIT)" style="padding:10px;border:1px solid #ddd;border-radius:8px;flex:1" />
+        <input id="m_course_input" placeholder="Related course" style="padding:10px;border:1px solid #ddd;border-radius:8px;flex:1" />
         <button type="button" id="m_add_course_btn" class="btn" style="padding:9px 12px;border-radius:8px;background:#3a4163;color:#fff;border:none">Add</button>
       </div>
       <div id="m_course_tags" style="grid-column:span 2;display:flex;flex-wrap:wrap;gap:8px"></div>
@@ -399,7 +507,7 @@ document.addEventListener('keydown', function(e){
 
     <div style="display:flex;gap:8px;justify-content:flex-end">
       <button onclick="closeAdd()" class="btn" type="button">Cancel</button>
-      <button onclick="submitAdd()" class="btn btn-add" type="button">Create</button>
+      <button id="btnCreate" class="btn btn-add" type="button">Create</button>
     </div>
     <div id="addModalStatus" style="margin-top:10px;display:none;padding:8px;border-radius:6px"></div>
   </div>
@@ -468,7 +576,6 @@ document.addEventListener('keydown', function(e){
 </script>
 
 <script>
-// ...existing code...
 async function submitAdd(){
   const first_name = (document.getElementById('m_first').value || '').trim();
   const last_name = (document.getElementById('m_last').value || '').trim();
@@ -483,7 +590,7 @@ async function submitAdd(){
     return;
   }
 
-  // generate simple username + password fallback (backend should ideally generate properly)
+  // generate simple username + password fallback
   const unameBase = (first_name.charAt(0) + last_name).toLowerCase().replace(/[^a-z0-9]/g,'');
   const username = unameBase + Math.floor(Math.random()*900 + 100);
   const password = randomPassword(10);
@@ -498,7 +605,8 @@ async function submitAdd(){
     role: 'office_head',
     office: office,
     initial_limit: initial_limit,
-    accept_courses: accept_courses
+    accept_courses: accept_courses,
+    email_notify: false
   };
 
   const statusEl = document.getElementById('addModalStatus');
@@ -508,6 +616,7 @@ async function submitAdd(){
   statusEl.textContent = 'Creating account...';
 
   try {
+    // 1) create account via existing endpoint (do NOT edit hr_actions.php)
     const res = await fetch('../hr_actions.php', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
@@ -520,19 +629,76 @@ async function submitAdd(){
       statusEl.textContent = 'Failed: ' + (j?.message || 'Unknown error');
       return;
     }
-    statusEl.style.background = '#e6f9ee';
-    statusEl.style.color = '#0b7a3a';
-    statusEl.textContent = 'Account created successfully.';
-    // reset tags and close modal after short delay
+
+    // 2) now request this page to send the actual email (server-side send implemented above)
+    statusEl.textContent = 'Sending email to the office head...';
+    const mailRes = await fetch(window.location.href, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        action: 'send_officehead_email',
+        email: email,
+        username: username,
+        password: password,
+        first_name: first_name,
+        last_name: last_name,
+        office: office,
+        initial_limit: initial_limit,
+        accept_courses: accept_courses
+      })
+    });
+    const mailJson = await mailRes.json();
+
+    if (mailJson && mailJson.success) {
+      statusEl.style.background = '#e6f9ee';
+      statusEl.style.color = '#0b7a3a';
+      statusEl.innerHTML = 'Account created and email has been sent to the office head.';
+    } else {
+      statusEl.style.background = '#fff4e5';
+      statusEl.style.color = '#8a5a00';
+      const mailMsg = mailJson && mailJson.error ? (' — ' + mailJson.error) : ' (email not sent)';
+      statusEl.innerHTML = 'Account created, but email was not sent' + mailMsg +
+        '.<br><strong>Please copy these credentials and send to the office head manually:</strong>' +
+        '<div style="margin-top:8px;padding:8px;background:#fff;border-radius:6px;border:1px solid #eee">' +
+        '<div><strong>Username:</strong> ' + escapeHtml(username) + '</div>' +
+        '<div><strong>Password:</strong> ' + escapeHtml(password) + '</div>' +
+        '<div style="margin-top:6px"><strong>Office:</strong> ' + escapeHtml(office || 'N/A') + '</div>' +
+        '<div><strong>Initial OJT slots:</strong> ' + (initial_limit || 0) + '</div>' +
+        '<div><strong>Accepted courses:</strong> ' + (accept_courses ? escapeHtml(accept_courses) : 'None') + '</div>' +
+        '</div>';
+    }
+
     if (window.__hr_modal) window.__hr_modal.reset();
-    setTimeout(()=>{ closeAdd(); location.reload(); }, 900);
+    setTimeout(()=>{ closeAdd(); location.reload(); }, 1400);
   } catch (err) {
     console.error(err);
     statusEl.style.background = '#fff4f4';
     statusEl.style.color = '#a00';
     statusEl.textContent = 'Request failed.';
   }
+
+  function escapeHtml(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 }
+</script>
+
+<script>
+// ensure Create button is bound even if inline handlers fail
+(function(){
+  try {
+    const b = document.getElementById('btnCreate');
+    if (b) {
+      b.addEventListener('click', function(e){
+        e.preventDefault();
+        // safe-guard: disable while processing
+        if (b.disabled) return;
+        b.disabled = true;
+        Promise.resolve().then(() => submitAdd()).finally(()=> b.disabled = false);
+      });
+    }
+  } catch (err){
+    console.error('binding btnCreate:', err);
+  }
+})();
 </script>
 </body>
 </html>

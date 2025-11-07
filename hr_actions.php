@@ -1,4 +1,3 @@
-
 <?php
 session_start();
 // Development helpers: return JSON on any error/exception so frontend won't get "Request failed"
@@ -950,18 +949,130 @@ if ($action === 'create_account') {
     $newId = $conn->insert_id;
     $ins->close();
 
-    // only attempt to create office_heads row if table exists
+    // --- NEW: resolve or create office row and get office_id ---
+    $office_id = null;
+    if (!empty($office)) {
+        // try exact case-insensitive match first
+        $so = $conn->prepare("SELECT office_id FROM offices WHERE LOWER(office_name) = LOWER(?) LIMIT 1");
+        $so->bind_param("s", $office);
+        $so->execute();
+        $or = $so->get_result()->fetch_assoc();
+        $so->close();
+        if ($or && !empty($or['office_id'])) {
+            $office_id = (int)$or['office_id'];
+        } else {
+            // try LIKE fallback (handles small variations)
+            $like = '%' . strtolower($office) . '%';
+            $sl = $conn->prepare("SELECT office_id FROM offices WHERE LOWER(office_name) LIKE ? LIMIT 1");
+            $sl->bind_param("s", $like);
+            $sl->execute();
+            $orl = $sl->get_result()->fetch_assoc();
+            $sl->close();
+            if ($orl && !empty($orl['office_id'])) {
+                $office_id = (int)$orl['office_id'];
+            } else {
+                // create new office record with provided initial limit (if any)
+                $insOff = $conn->prepare("INSERT INTO offices (office_name, current_limit, status) VALUES (?, ?, 'Approved')");
+                $curLimit = (int)($input['initial_limit'] ?? 0);
+                $insOff->bind_param("si", $office, $curLimit);
+                $insOff->execute();
+                $office_id = $insOff->insert_id ?: null;
+                $insOff->close();
+            }
+        }
+    }
+
+    // only attempt office_heads row creation if table exists (existing behavior)
     $tblCheck = $conn->query("SHOW TABLES LIKE 'office_heads'");
     if ($tblCheck && $tblCheck->num_rows > 0) {
         $fullname = trim($first_name . ' ' . $last_name);
-        $oh = $conn->prepare("INSERT INTO office_heads (user_id, full_name, email) VALUES (?, ?, ?)");
-        $oh->bind_param("iss", $newId, $fullname, $email);
-        $oh->execute();
-        $oh->close();
+        $oh = $conn->prepare("INSERT INTO office_heads (user_id, full_name, email, office_id) VALUES (?, ?, ?, ?)");
+        if ($oh) {
+            $officeParam = $office_id === null ? null : $office_id;
+            $oh->bind_param("issi", $newId, $fullname, $email, $officeParam);
+            $oh->execute();
+            $oh->close();
+        }
     }
+
+    // --- NEW: store courses and map to office ---
+    $accept_courses = trim($input['accept_courses'] ?? '');
+    if ($accept_courses !== '') {
+        $courseNames = array_filter(array_map('trim', explode(',', $accept_courses)));
+        foreach ($courseNames as $cname) {
+            if ($cname === '') continue;
+            // try case-insensitive match first
+            $stmt = $conn->prepare("SELECT course_id FROM courses WHERE LOWER(course_name) = LOWER(?) OR (course_code IS NOT NULL AND LOWER(course_code) = LOWER(?)) LIMIT 1");
+            if ($stmt) {
+                $stmt->bind_param('ss', $cname, $cname);
+                $stmt->execute();
+                $row = $stmt->get_result()->fetch_assoc();
+                $stmt->close();
+            } else {
+                $row = null;
+            }
+
+            if ($row && !empty($row['course_id'])) {
+                $course_id = (int)$row['course_id'];
+            } else {
+                $insC = $conn->prepare("INSERT INTO courses (course_name) VALUES (?)");
+                if ($insC) {
+                    $insC->bind_param('s', $cname);
+                    $insC->execute();
+                    $course_id = (int)$insC->insert_id;
+                    $insC->close();
+                } else {
+                    // skip on failure
+                    continue;
+                }
+            }
+
+            // map to office if we resolved/created one
+            if (!empty($office_id) && !empty($course_id)) {
+                $map = $conn->prepare("INSERT IGNORE INTO office_courses (office_id, course_id) VALUES (?, ?)");
+                if ($map) {
+                    $map->bind_param('ii', $office_id, $course_id);
+                    $map->execute();
+                    $map->close();
+                }
+            }
+        }
+    }
+    // --- end new courses handling ---
 
     // return credentials so frontend can display (do NOT expose in logs)
     respond(['success'=>true,'user_id'=>$newId,'username'=>$username,'password'=>$plain]);
+}
+
+/* later where courses are processed (keeps behavior but uses resolved $office_id) */
+if (!empty($courses)) {
+    foreach ($courses as $cname) {
+        if ($cname === '') continue;
+        // find or insert course (existing code)
+        $stmt = $conn->prepare("SELECT course_id FROM courses WHERE course_name = ? OR course_code = ? LIMIT 1");
+        $stmt->bind_param('ss', $cname, $cname);
+        $stmt->execute();
+        $row = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+
+        if ($row && !empty($row['course_id'])) {
+            $course_id = (int)$row['course_id'];
+        } else {
+            $ins = $conn->prepare("INSERT INTO courses (course_name) VALUES (?)");
+            $ins->bind_param('s', $cname);
+            $ins->execute();
+            $course_id = $ins->insert_id;
+            $ins->close();
+        }
+
+        // map to office if we have an office_id
+        if (!empty($office_id)) {
+            $map = $conn->prepare("INSERT IGNORE INTO office_courses (office_id, course_id) VALUES (?, ?)");
+            $map->bind_param('ii', $office_id, $course_id);
+            $map->execute();
+            $map->close();
+        }
+    }
 }
 
 respond(['success' => false, 'message' => 'Unknown action.']);

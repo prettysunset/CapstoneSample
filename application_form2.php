@@ -1,12 +1,42 @@
 <?php
 session_start();
 
+// load DB early so we can read courses
+require_once __DIR__ . '/conn.php';
+
+$courses = [];
+$rc = $conn->query("SELECT course_id, course_code, course_name FROM courses ORDER BY course_name");
+if ($rc) {
+    while ($r = $rc->fetch_assoc()) $courses[] = $r;
+    $rc->free();
+}
+
 // Save AF2 data to session and redirect to AF3
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
+    // resolve course input: may be course_id (from dropdown) or free text (fallback)
+    $rawCourse = $_POST['course'] ?? '';
+    $courseResolved = trim($rawCourse);
+    $courseId = null;
+    if ($courseResolved !== '' && ctype_digit((string)$courseResolved)) {
+        $cid = (int)$courseResolved;
+        $s = $conn->prepare("SELECT course_name FROM courses WHERE course_id = ? LIMIT 1");
+        if ($s) {
+            $s->bind_param('i', $cid);
+            $s->execute();
+            $cr = $s->get_result()->fetch_assoc();
+            $s->close();
+            if ($cr && !empty($cr['course_name'])) {
+                $courseResolved = $cr['course_name'];
+                $courseId = $cid;
+            }
+        }
+    }
+    // store both name and id (id may be null)
     $_SESSION['af2'] = [
         'school'         => $_POST['school'] ?? '',
         'school_address' => $_POST['school_address'] ?? '',
-        'course'         => $_POST['course'] ?? '',
+        'course'         => $courseResolved,
+        'course_id'      => $courseId,
         'year_level'     => $_POST['year_level'] ?? '',
         'school_year'    => $_POST['school_year'] ?? '',
         'semester'       => $_POST['semester'] ?? '',
@@ -133,7 +163,20 @@ $af2 = isset($_SESSION['af2']) ? $_SESSION['af2'] : [];
           <input type="text" name="school_address" placeholder="School Address *" required value="<?= isset($af2['school_address']) ? htmlspecialchars($af2['school_address']) : '' ?>">
 
           <fieldset>
-            <input type="text" name="course" placeholder="Course / Program *" required value="<?= isset($af2['course']) ? htmlspecialchars($af2['course']) : '' ?>">
+            <select name="course" required>
+              <option value="" disabled <?= !isset($af2['course_id']) ? 'selected' : '' ?>>Select Course *</option>
+              <?php foreach ($courses as $c): 
+                $sel = '';
+                if (isset($af2['course_id']) && $af2['course_id'] !== null) {
+                  if ((int)$af2['course_id'] === (int)$c['course_id']) $sel = 'selected';
+                } else {
+                  // fallback: match by name if id not set
+                  if (isset($af2['course']) && $af2['course'] !== '' && $af2['course'] === $c['course_name']) $sel = 'selected';
+                }
+              ?>
+                <option value="<?= (int)$c['course_id'] ?>" <?= $sel ?>><?= htmlspecialchars($c['course_name'] . ($c['course_code'] ? " ({$c['course_code']})" : '')) ?></option>
+              <?php endforeach; ?>
+            </select>
             <select name="year_level" required>
               <option value="" disabled <?= !isset($af2['year_level']) ? 'selected' : '' ?>>Year Level *</option>
               <option value="3" <?= (isset($af2['year_level']) && $af2['year_level'] == '3') ? 'selected' : '' ?>>3rd Year</option>

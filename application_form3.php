@@ -2,12 +2,31 @@
 session_start();
 require 'conn.php';
 
-// fetch offices for the select (add this)
+// fetch offices for the select filtered by course from AF2 (fallback to approved offices)
 $offices = [];
-$roff = $conn->query("SELECT office_id, office_name FROM offices ORDER BY office_name");
-if ($roff) {
-    while ($r = $roff->fetch_assoc()) $offices[] = $r;
-    $roff->free();
+$course_id = $_SESSION['af2']['course_id'] ?? null;
+if (!empty($course_id) && ctype_digit((string)$course_id)) {
+    $stmt = $conn->prepare("
+      SELECT o.office_id, o.office_name
+      FROM offices o
+      JOIN office_courses oc ON o.office_id = oc.office_id
+      WHERE oc.course_id = ? AND o.status = 'Approved' AND COALESCE(o.current_limit,0) > 0
+      ORDER BY o.office_name
+    ");
+    if ($stmt) {
+        $stmt->bind_param('i', $course_id);
+        $stmt->execute();
+        $res = $stmt->get_result();
+        while ($r = $res->fetch_assoc()) $offices[] = $r;
+        $stmt->close();
+    }
+} else {
+    // fallback: all approved offices with available slots
+    $roff = $conn->query("SELECT office_id, office_name FROM offices WHERE status='Approved' AND COALESCE(current_limit,0) > 0 ORDER BY office_name");
+    if ($roff) {
+        while ($r = $roff->fetch_assoc()) $offices[] = $r;
+        $roff->free();
+    }
 }
 
 // detect existing valid MOA for the school entered in AF2 (if any)
@@ -325,14 +344,14 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
           <h3>OFFICE</h3>
 
           <fieldset>
-            <select name="first_choice" required>
+            <select id="first_choice" name="first_choice" required>
               <option value="" disabled selected>1st choice*</option>
               <?php foreach ($offices as $o): ?>
                 <option value="<?= (int)$o['office_id'] ?>"><?= htmlspecialchars($o['office_name']) ?></option>
               <?php endforeach; ?>
             </select>
 
-            <select name="second_choice">
+            <select id="second_choice" name="second_choice">
               <option value="">2nd choice (optional)</option>
               <?php foreach ($offices as $o): ?>
                 <option value="<?= (int)$o['office_id'] ?>"><?= htmlspecialchars($o['office_name']) ?></option>
@@ -418,6 +437,49 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
   </div>
 
 <script>window.addEventListener('load', () => { document.body.style.opacity = 1; });</script>
+<script>
+(function(){
+  const first = document.getElementById('first_choice');
+  const second = document.getElementById('second_choice');
+  if (!first || !second) return;
+
+  // capture original options
+  const original = Array.from(second.options).map(o=>({v:o.value,t:o.text}));
+  const placeholder = original.find(o=>o.v === '') || null;
+
+  function refreshSecond(){
+    const sel = String(first.value || '');
+    // rebuild second: always keep placeholder first, then options excluding selected first
+    second.innerHTML = '';
+    if (placeholder) {
+      const ph = document.createElement('option');
+      ph.value = placeholder.v;
+      ph.text = placeholder.t;
+      second.appendChild(ph);
+    }
+    original.forEach(o=>{
+      if (o.v === '') return; // skip placeholder (already added)
+      if (o.v === sel) return; // skip office chosen as first choice
+      const opt = document.createElement('option');
+      opt.value = o.v;
+      opt.text = o.t;
+      second.appendChild(opt);
+    });
+
+    // ensure no automatic selection when first choice is empty
+    if (sel === '') {
+      second.value = ''; // show placeholder
+    } else {
+      // if second currently equals the first selection, reset to placeholder
+      if (second.value === sel) second.value = '';
+    }
+  }
+
+  first.addEventListener('change', refreshSecond);
+  window.addEventListener('load', refreshSecond);
+})();
+</script>
+
 <script>
 // client-side validation: required fields + file types
 +(function(){
