@@ -305,7 +305,7 @@ $current_date = date("l, F j, Y");
        <a id="btnSettings" href="settings.php" title="Settings" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;">
            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06A2 2 0 1 1 2.28 16.8l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09c.7 0 1.3-.4 1.51-1A1.65 1.65 0 0 0 4.27 6.3L4.2 6.23A2 2 0 1 1 6 3.4l.06.06c.5.5 1.2.7 1.82.33.7-.4 1.51-.4 2.21 0 .62.37 1.32.17 1.82-.33L12.6 3.4a2 2 0 1 1 1.72 3.82l-.06.06c-.5.5-.7 1.2-.33 1.82.4.7.4 1.51 0 2.21-.37.62-.17 1.32.33 1.82l.06.06A2 2 0 1 1 19.4 15z"></path></svg>
        </a>
-       <a id="btnLogout" href="../logout.php" title="Logout" onclick="return confirm('Are you sure you want to logout?');" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;">
+       <a id="btnLogout" href="../logout.php" title="Logout" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
         </a>
    </div>
@@ -370,11 +370,18 @@ if ($resOff = $conn->query($sql)) {
     $resOff->free();
 }
 
-// prepare stmt to count approved/assigned OJTs per office
-$stmtCount = $conn->prepare("
-    SELECT COUNT(DISTINCT student_id) AS filled
+// prepare stmts to count approved and active OJTs per office
+// approved => status = 'approved'
+// active => common labels for ongoing/active assignments (best-effort; adjust list to your schema)
+$stmtApproved = $conn->prepare("
+    SELECT COUNT(DISTINCT student_id) AS cnt
     FROM ojt_applications
     WHERE (office_preference1 = ? OR office_preference2 = ?) AND status = 'approved'
+");
+$stmtActive = $conn->prepare("
+    SELECT COUNT(DISTINCT student_id) AS cnt
+    FROM ojt_applications
+    WHERE (office_preference1 = ? OR office_preference2 = ?) AND status IN ('active','ongoing','in_progress','assigned','started','on_ojt')
 ");
 ?>
 
@@ -386,7 +393,7 @@ $stmtCount = $conn->prepare("
           <div style="display:flex;gap:8px;align-items:center">
             <input id="officeSearch" type="text" placeholder="Search office..." style="padding:8px 10px;border:1px solid #ddd;border-radius:8px;width:220px" />
             <select id="officeStatusFilter" style="padding:8px;border:1px solid #ddd;border-radius:8px;background:#fff">
-              <option value="active" selected>Active</option>
+              <option value="active" selected>Open</option>
               <option value="full">Full</option>
               <option value="all">All</option>
             </select>
@@ -443,27 +450,36 @@ $stmtCount = $conn->prepare("
                 </colgroup>
                 <tbody id="officesBody">
                 <?php foreach ($offices as $o):
-                    // get filled count per office (prepared stmtCount exists)
-                    $filled = 0;
-                    if ($stmtCount) {
-                        $stmtCount->bind_param('ii', $o['office_id'], $o['office_id']);
-                        $stmtCount->execute();
-                        $stmtCount->bind_result($filledTemp);
-                        $stmtCount->fetch();
-                        $filled = (int)($filledTemp ?? 0);
-                        $stmtCount->free_result(); // free result so next bind works
+                    // approved count per office
+                    $approved = 0;
+                    $active = 0;
+                    if ($stmtApproved) {
+                        $stmtApproved->bind_param('ii', $o['office_id'], $o['office_id']);
+                        $stmtApproved->execute();
+                        $stmtApproved->bind_result($approvedTemp);
+                        $stmtApproved->fetch();
+                        $approved = (int)($approvedTemp ?? 0);
+                        $stmtApproved->free_result();
                     }
+                    // active (currently ongoing) count per office (may be zero if your app doesn't use these statuses)
+                    if ($stmtActive) {
+                        $stmtActive->bind_param('ii', $o['office_id'], $o['office_id']);
+                        $stmtActive->execute();
+                        $stmtActive->bind_result($activeTemp);
+                        $stmtActive->fetch();
+                        $active = (int)($activeTemp ?? 0);
+                        $stmtActive->free_result();
+                    }
+
                     $cap = isset($o['capacity']) ? (int)$o['capacity'] : null;
 
-                    // Approved count (using same approved applications count as 'filled')
-                    $approved = $filled;
-
+                    // compute available slots: capacity - (active + approved)
                     if ($cap === null) {
                         $availableDisplay = '—';
                         $statusLabel = 'Open';
                         $statusClass = 'status-open';
                     } else {
-                        $availableNum = max(0, $cap - $filled);
+                        $availableNum = max(0, $cap - ($active + $approved));
                         $availableDisplay = $availableNum;
                         if ($availableNum === 0) {
                             $statusLabel = 'Full';
@@ -477,7 +493,7 @@ $stmtCount = $conn->prepare("
                   <tr data-office="<?= htmlspecialchars(strtolower($o['office_name'] ?? '')) ?>">
                     <td style="padding:6px;border:1px solid #eee;"><?= htmlspecialchars($o['office_name'] ?? '—') ?></td>
                     <td style="text-align:center;padding:6px;border:1px solid #eee"><?= $cap === null ? '—' : $cap ?></td>
-                    <td style="text-align:center;padding:6px;border:1px solid #eee"><?= $filled ?></td>
+                    <td style="text-align:center;padding:6px;border:1px solid #eee"><?= $active ?></td>
                     <td style="text-align:center;padding:6px;border:1px solid #eee"><?= $approved ?></td>
                     <td style="text-align:center;padding:6px;border:1px solid #eee"><?= $availableDisplay ?></td>
                     <td style="text-align:center;padding:6px;border:1px solid #eee"><span class="<?= $statusClass ?>"><?= htmlspecialchars($statusLabel) ?></span></td>
@@ -491,7 +507,8 @@ $stmtCount = $conn->prepare("
      </div>
    </div> <!-- end second row -->
 <?php
-$stmtCount->close();
+$stmtApproved->close();
+$stmtActive->close();
 ?>
 <style>
 /* keep table stable and limit visible rows to 5 (scroll if more)
@@ -671,9 +688,24 @@ $stmtCount->close();
 <!-- Next row: the list of pending / rejected (keeps the existing table-container after placeholder) -->
 
     <div class="table-container">
-        <div class="table-tabs">
-            <a class="<?php echo $tab === 'pending' ? 'active' : ''; ?>" href="?tab=pending" <?php if ($tab === 'pending') echo 'style="background:#3a4163;color:#fff"'; ?>>Pending Approvals (<?php echo (int)$pending_count; ?>)</a>
-            <a class="<?php echo $tab === 'rejected' ? 'active' : ''; ?>" href="?tab=rejected" <?php if ($tab === 'rejected') echo 'style="background:#3a4163;color:#fff"'; ?>>Rejected Students (<?php echo (int)$rejected_count; ?>)</a></div>
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:8px">
+            <div class="table-tabs" style="display:flex;gap:12px">
+                <a class="<?php echo $tab === 'pending' ? 'active' : ''; ?>" href="?tab=pending" <?php if ($tab === 'pending') echo 'style="background:#3a4163;color:#fff"'; ?>>Pending Approvals (<?php echo (int)$pending_count; ?>)</a>
+                <a class="<?php echo $tab === 'rejected' ? 'active' : ''; ?>" href="?tab=rejected" <?php if ($tab === 'rejected') echo 'style="background:#3a4163;color:#fff"'; ?>>Rejected Students (<?php echo (int)$rejected_count; ?>)</a>
+            </div>
+
+            <!-- keep search + office dropdown inside the white .table-container -->
+            <div style="display:flex;gap:8px;align-items:center;">
+                <input id="tabSearch" type="text" placeholder="Search name / address / office..." style="padding:6px 10px;border:1px solid #ddd;border-radius:8px;min-width:220px" />
+                <select id="tabOfficeFilter" style="padding:6px;border:1px solid #ddd;border-radius:8px;">
+                    <option value="all">All offices</option>
+                    <?php foreach($offices as $o): ?>
+                        <?php $on = is_array($o) ? ($o['office_name'] ?? '') : (string)$o; ?>
+                        <option value="<?php echo htmlspecialchars(strtolower($on)); ?>"><?php echo htmlspecialchars($on); ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+        </div>
 
         <?php if (count($apps) === 0): ?>
             <div class="empty">No <?php echo $tab === 'rejected' ? 'rejected' : 'pending'; ?> applications found.</div>
@@ -1141,83 +1173,100 @@ async function openViewModal(appId) {
    'view_college','view_course','view_year','view_school_address','view_adviser',
    'view_emg_name','view_emg_relation','view_emg_contact','view_attachments'].forEach(id=> {
      const el = document.getElementById(id);
-     if el) el.textContent = '';
+     if (el) el.textContent = '';
    });
-   document.getElementById('view_avatar').innerHTML = '👤';
+  const avatarEl0 = document.getElementById('view_avatar');
+  if (avatarEl0) avatarEl0.innerHTML = '👤';
 
-  // fetch and display application data
-  const payload = { action: 'fetch_application', application_id: appId };
-  const res = await fetch('../hr_actions.php', {
-    method: 'POST',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify(payload)
-  });
-  const json = await res.json();
+  try {
+    const payload = { action: 'get_application', application_id: parseInt(appId,10) };
+    const res = await fetch('../hr_actions.php', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(payload)
+    });
+    const json = await res.json();
 
-  if (json && json.success) {
+    if (!json || !json.success) {
+      alert('Application not found or server error.');
+      return;
+    }
+
     const d = json.data || {};
-    // fill modal fields
-    document.getElementById('view_name').textContent = (d.student_name || '').trim() || 'N/A';
-    document.getElementById('view_status').textContent = (d.status_label || '').trim() + (d.total_hours ? ' | ' + d.total_hours + ' hours' : '');
-    document.getElementById('view_age').textContent = d.age ? d.age + ' years old' : 'N/A';
-    document.getElementById('view_birthday').textContent = d.birthday ? new Date(d.birthday).toLocaleDateString('en-PH') : 'N/A';
-    document.getElementById('view_address').textContent = d.address || 'N/A';
-    document.getElementById('view_phone').textContent = d.phone || 'N/A';
-    document.getElementById('view_email').textContent = d.email || 'N/A';
-    document.getElementById('view_college').textContent = d.college || 'N/A';
-    document.getElementById('view_course').textContent = d.course || 'N/A';
-    document.getElementById('view_year').textContent = d.year_level || 'N/A';
-    document.getElementById('view_school_address').textContent = d.school_address || 'N/A';
-    document.getElementById('view_adviser').textContent = d.ojt_adviser || 'N/A';
-    document.getElementById('view_emg_name').textContent = d.emergency_contact_name || 'N/A';
-    document.getElementById('view_emg_relation').textContent = d.emergency_contact_relation || 'N/A';
-    document.getElementById('view_emg_contact').textContent = d.emergency_contact_number || 'N/A';
+    const st = d.student || {};
 
-    // set avatar (initials or default)
+    const studentName = ((st.first_name||'') + ' ' + (st.last_name||'')).trim() || 'N/A';
+    const setText = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val || 'N/A'; };
+
+    setText('view_name', studentName);
+    setText('view_status', (d.status || '').toUpperCase() + (d.remarks ? ' | ' + d.remarks : ''));
+    setText('view_age', st.age ? (st.age + ' years old') : 'N/A');
+    setText('view_birthday', st.birthday ? new Date(st.birthday).toLocaleDateString('en-PH') : 'N/A');
+    setText('view_address', st.address);
+    setText('view_phone', st.contact_number);
+    setText('view_email', st.email);
+    setText('view_college', st.college);
+    setText('view_course', st.course);
+    setText('view_year', st.year_level);
+    setText('view_school_address', st.school_address);
+    setText('view_adviser', st.ojt_adviser);
+    setText('view_emg_name', st.emergency_name);
+    setText('view_emg_relation', st.emergency_relation);
+    setText('view_emg_contact', st.emergency_contact);
+
+    // avatar
     const avatarEl = document.getElementById('view_avatar');
-    avatarEl.style.background = '#e9e9e9';
-    avatarEl.style.color = '#777';
-    avatarEl.style.fontSize = '44px';
-    avatarEl.textContent = (d.student_name && d.student_name.trim().length > 0) ? d.student_name.trim().charAt(0).toUpperCase() : '👤';
+    if (avatarEl) {
+      avatarEl.style.background = '#e9e9e9';
+      avatarEl.style.color = '#777';
+      avatarEl.style.fontSize = '44px';
+      avatarEl.textContent = (studentName && studentName !== 'N/A') ? studentName.trim().charAt(0).toUpperCase() : '👤';
+    }
 
-    // clear existing attachments
+    // attachments: use any file fields returned by the endpoint
     const attachmentsEl = document.getElementById('view_attachments');
-    attachmentsEl.innerHTML = '';
-
-    // --- ADDED: show attachments if available ---
-    if (d.attachments && Array.isArray(d.attachments) && d.attachments.length > 0) {
-      d.attachments.forEach(file => {
-        if (file && file.filepath) {
+    if (attachmentsEl) {
+      attachmentsEl.innerHTML = '';
+      const fileKeys = ['letter_of_intent','endorsement_letter','resume','moa_file','picture'];
+      const files = [];
+      fileKeys.forEach(k => { if (d[k]) files.push({ filepath: d[k], original_name: k.replace(/_/g,' ') }); });
+      if (files.length) {
+        files.forEach(file => {
           const a = document.createElement('a');
           a.href = file.filepath;
           a.target = '_blank';
           a.textContent = file.original_name || 'Attachment';
-          a.className = 'attachment-link';
           a.style.color = '#0b74de';
           a.style.textDecoration = 'underline';
           a.style.marginTop = '4px';
           attachmentsEl.appendChild(a);
-        }
-      });
-    } else {
-      const noAttach = document.createElement('div');
-      noAttach.textContent = 'No attachments found.';
-      noAttach.style.color = '#666';
-      noAttach.style.fontSize = '13px';
-      noAttach.style.marginTop = '4px';
-      attachmentsEl.appendChild(noAttach);
+        });
+      } else {
+        const noAttach = document.createElement('div');
+        noAttach.textContent = 'No attachments found.';
+        noAttach.style.color = '#666';
+        noAttach.style.fontSize = '13px';
+        noAttach.style.marginTop = '4px';
+        attachmentsEl.appendChild(noAttach);
+      }
     }
-    // --- END ADDED ---
 
-    // show action buttons based on status
     const isOpen = (d.status === 'approved' || d.status === 'pending');
-    document.getElementById('view_approve_btn').style.display = isOpen ? 'inline-flex' : 'none';
-    document.getElementById('view_reject_btn').style.display = isOpen ? 'inline-flex' : 'none';
+    const approveBtn = document.getElementById('view_approve_btn');
+    const rejectBtn = document.getElementById('view_reject_btn');
+    if (approveBtn) approveBtn.style.display = isOpen ? 'inline-flex' : 'none';
+    if (rejectBtn)  rejectBtn.style.display = isOpen ? 'inline-flex' : 'none';
 
     // show modal
-    overlay.style.display = 'flex';
-    overlay.setAttribute('aria-hidden', 'false');
-    overlay.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (overlay) {
+      overlay.style.display = 'flex';
+      overlay.setAttribute('aria-hidden', 'false');
+      overlay.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  } catch (err) {
+    console.error(err);
+    alert('Request failed.');
+  }
 }
 
 // close view modal

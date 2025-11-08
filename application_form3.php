@@ -2,32 +2,115 @@
 session_start();
 require 'conn.php';
 
-// fetch offices for the select filtered by course from AF2 (fallback to approved offices)
+// fetch offices for the select filtered by course from AF2
+// only include offices that have available slots (capacity - approved - active > 0),
+// treat NULL capacity as unlimited (show). When a course is selected, DO NOT
+// fallback to showing all offices — show only offices related to that course.
 $offices = [];
 $course_id = $_SESSION['af2']['course_id'] ?? null;
+
+// prepared counters
+$stmtApprovedCount = $conn->prepare(
+    "SELECT COUNT(DISTINCT oa.student_id) AS cnt
+     FROM ojt_applications oa
+     WHERE (oa.office_preference1 = ? OR oa.office_preference2 = ?) AND oa.status = 'approved'"
+);
+$stmtActiveCount = $conn->prepare(
+    "SELECT COUNT(DISTINCT oa.student_id) AS cnt
+     FROM ojt_applications oa
+     WHERE (oa.office_preference1 = ? OR oa.office_preference2 = ?) AND oa.status IN ('active','ongoing','in_progress','assigned','started')"
+);
+
 if (!empty($course_id) && ctype_digit((string)$course_id)) {
-    $stmt = $conn->prepare("
-      SELECT o.office_id, o.office_name
+    // Only offices related to the selected course
+    $sql = "
+      SELECT o.office_id, o.office_name, COALESCE(o.current_limit, NULL) AS capacity
       FROM offices o
       JOIN office_courses oc ON o.office_id = oc.office_id
-      WHERE oc.course_id = ? AND o.status = 'Approved' AND COALESCE(o.current_limit,0) > 0
+      WHERE oc.course_id = ? AND o.status = 'Approved'
       ORDER BY o.office_name
-    ");
+    ";
+    $stmt = $conn->prepare($sql);
     if ($stmt) {
         $stmt->bind_param('i', $course_id);
         $stmt->execute();
         $res = $stmt->get_result();
-        while ($r = $res->fetch_assoc()) $offices[] = $r;
+        while ($r = $res->fetch_assoc()) {
+            $office_id = (int)$r['office_id'];
+            $capacity = $r['capacity'] === null ? null : (int)$r['capacity'];
+
+            // count approved & active for this office
+            $approved = 0; $active = 0;
+            if ($stmtApprovedCount) {
+                $stmtApprovedCount->bind_param('ii', $office_id, $office_id);
+                $stmtApprovedCount->execute();
+                $stmtApprovedCount->bind_result($approvedTmp);
+                $stmtApprovedCount->fetch();
+                $approved = (int)($approvedTmp ?? 0);
+                $stmtApprovedCount->reset();
+            }
+            if ($stmtActiveCount) {
+                $stmtActiveCount->bind_param('ii', $office_id, $office_id);
+                $stmtActiveCount->execute();
+                $stmtActiveCount->bind_result($activeTmp);
+                $stmtActiveCount->fetch();
+                $active = (int)($activeTmp ?? 0);
+                $stmtActiveCount->reset();
+            }
+
+            // determine availability: if capacity is NULL -> unlimited -> show
+            $show = true;
+            if ($capacity !== null) {
+                $available = $capacity - ($approved + $active);
+                if ($available <= 0) $show = false;
+            }
+
+            if ($show) $offices[] = $r;
+        }
         $stmt->close();
     }
 } else {
-    // fallback: all approved offices with available slots
-    $roff = $conn->query("SELECT office_id, office_name FROM offices WHERE status='Approved' AND COALESCE(current_limit,0) > 0 ORDER BY office_name");
-    if ($roff) {
-        while ($r = $roff->fetch_assoc()) $offices[] = $r;
-        $roff->free();
+    // No course selected -> show all approved offices with available slots
+    $sql = "SELECT office_id, office_name, COALESCE(current_limit, NULL) AS capacity FROM offices WHERE status='Approved' ORDER BY office_name";
+    $resOff = $conn->query($sql);
+    if ($resOff) {
+        while ($r = $resOff->fetch_assoc()) {
+            $office_id = (int)$r['office_id'];
+            $capacity = $r['capacity'] === null ? null : (int)$r['capacity'];
+
+            $approved = 0; $active = 0;
+            if ($stmtApprovedCount) {
+                $stmtApprovedCount->bind_param('ii', $office_id, $office_id);
+                $stmtApprovedCount->execute();
+                $stmtApprovedCount->bind_result($approvedTmp);
+                $stmtApprovedCount->fetch();
+                $approved = (int)($approvedTmp ?? 0);
+                $stmtApprovedCount->reset();
+            }
+            if ($stmtActiveCount) {
+                $stmtActiveCount->bind_param('ii', $office_id, $office_id);
+                $stmtActiveCount->execute();
+                $stmtActiveCount->bind_result($activeTmp);
+                $stmtActiveCount->fetch();
+                $active = (int)($activeTmp ?? 0);
+                $stmtActiveCount->reset();
+            }
+
+            $show = true;
+            if ($capacity !== null) {
+                $available = $capacity - ($approved + $active);
+                if ($available <= 0) $show = false;
+            }
+
+            if ($show) $offices[] = $r;
+        }
+        $resOff->free();
     }
 }
+
+// cleanup prepared count stmts
+if ($stmtApprovedCount) $stmtApprovedCount->close();
+if ($stmtActiveCount) $stmtActiveCount->close();
 
 // detect existing valid MOA for the school entered in AF2 (if any)
 $existing_moa = null;
