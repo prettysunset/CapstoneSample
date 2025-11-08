@@ -114,6 +114,60 @@ if (is_array($inputJson) && (isset($inputJson['action']) && $inputJson['action']
     exit;
 }
 
+// AJAX: course suggestions for modal (POST JSON { action: 'course_suggest', q: '...' })
+if (is_array($inputJson) && isset($inputJson['action']) && $inputJson['action'] === 'course_suggest') {
+    header('Content-Type: application/json; charset=utf-8');
+    $q = trim($inputJson['q'] ?? '');
+    if ($q === '') { echo json_encode([]); exit; }
+    $out = [];
+    $like = '%' . $conn->real_escape_string($q) . '%';
+    $sql = "SELECT DISTINCT course_name FROM courses WHERE course_name LIKE ? OR course_code LIKE ? ORDER BY course_name LIMIT 12";
+    if ($stmt = $conn->prepare($sql)) {
+        $p = $like;
+        $stmt->bind_param('ss', $p, $p);
+        $stmt->execute();
+        $res = $stmt->get_result();
+        while ($r = $res->fetch_assoc()) $out[] = $r['course_name'];
+        $stmt->close();
+    }
+    echo json_encode($out);
+    exit;
+}
+
+// AJAX: check if office already exists (POST JSON { action: 'check_office', office: '...' })
+if (is_array($inputJson) && isset($inputJson['action']) && $inputJson['action'] === 'check_office') {
+    header('Content-Type: application/json; charset=utf-8');
+    $office = trim($inputJson['office'] ?? '');
+    if ($office === '') { echo json_encode(['exists' => false]); exit; }
+    $exists = false;
+
+    // Check offices table
+    $sql = "SELECT COUNT(*) FROM offices WHERE office_name = ?";
+    if ($stmt = $conn->prepare($sql)) {
+        $stmt->bind_param('s', $office);
+        $stmt->execute();
+        $stmt->bind_result($cnt);
+        $stmt->fetch();
+        $stmt->close();
+        if ((int)$cnt > 0) $exists = true;
+    }
+
+    // Additionally check if any user already has that office_name (defensive)
+    if (!$exists) {
+        $sql2 = "SELECT COUNT(*) FROM users WHERE office_name = ?";
+        if ($stmt2 = $conn->prepare($sql2)) {
+            $stmt2->bind_param('s', $office);
+            $stmt2->execute();
+            $stmt2->bind_result($cnt2);
+            $stmt2->fetch();
+            $stmt2->close();
+            if ((int)$cnt2 > 0) $exists = true;
+        }
+    }
+
+    echo json_encode(['exists' => (bool)$exists]);
+    exit;
+}
 
 // fetch HR user info for sidebar
 $user_id = (int)($_SESSION['user_id'] ?? 0);
@@ -139,9 +193,9 @@ $res1 = $q1->get_result();
 while ($r = $res1->fetch_assoc()) $officeHeads[] = $r;
 $q1->close();
 
-// fetch hr staff accounts
+// fetch hr staff accounts (include email for display)
 $hrStaff = [];
-$q2 = $conn->prepare("SELECT user_id, username, first_name, last_name, office_name, status FROM users WHERE role = 'hr_staff' ORDER BY first_name, last_name");
+$q2 = $conn->prepare("SELECT user_id, username, email, first_name, last_name, office_name, status FROM users WHERE role = 'hr_staff' ORDER BY first_name, last_name");
 $q2->execute();
 $res2 = $q2->get_result();
 while ($r = $res2->fetch_assoc()) $hrStaff[] = $r;
@@ -356,23 +410,20 @@ $q2->close();
             <thead>
               <tr>
                 <th>Name</th>
-                <th>Username</th>
-                <th>Office</th>
+                <th>Email</th>
                 <th style="text-align:center">Actions</th>
               </tr>
             </thead>
             <tbody>
               <?php if (empty($hrStaff)): ?>
-                <tr><td colspan="4" class="empty">No HR staff accounts found.</td></tr>
+                <tr><td colspan="3" class="empty">No HR staff accounts found.</td></tr>
               <?php else: foreach ($hrStaff as $h):
                 $name = trim(($h['first_name'] ?? '') . ' ' . ($h['last_name'] ?? ''));
-                $username = $h['username'] ?: '';
-                $office = $h['office_name'] ?: '';
+                $email = $h['email'] ?? ($h['username'] ?? '');
               ?>
-                <tr data-search="<?= htmlspecialchars(strtolower($name . ' ' . $username . ' ' . $office)) ?>">
-                  <td><?= htmlspecialchars($name ?: $username) ?></td>
-                  <td><?= htmlspecialchars($username) ?></td>
-                  <td><?= htmlspecialchars($office ?: '—') ?></td>
+                <tr data-search="<?= htmlspecialchars(strtolower($name . ' ' . $email)) ?>">
+                  <td><?= htmlspecialchars($name ?: $email) ?></td>
+                  <td><?= htmlspecialchars($email ?: '—') ?></td>
                   <td style="text-align:center" class="actions">
                     <button class="icon-btn" title="Edit" onclick="editAccount(<?= (int)$h['user_id'] ?>)">✏️</button>
                     <button class="icon-btn" title="<?= ($h['status']==='active' ? 'Deactivate' : 'Activate') ?>" onclick="toggleStatus(<?= (int)$h['user_id'] ?>, this)"><?= ($h['status']==='active' ? '🔓' : '🔒') ?></button>
@@ -496,13 +547,16 @@ document.addEventListener('keydown', function(e){
       <input id="m_office" placeholder="Office" style="padding:10px;border:1px solid #ddd;border-radius:8px;grid-column:span 2" />
       <input id="m_initial_limit" type="number" min="0" placeholder="Initial OJT limit (e.g. 10)" style="padding:10px;border:1px solid #ddd;border-radius:8px" />
       <div style="display:flex;gap:8px;align-items:center">
-        <input id="m_course_input" placeholder="Related course" style="padding:10px;border:1px solid #ddd;border-radius:8px;flex:1" />
-        <button type="button" id="m_add_course_btn" class="btn" style="padding:9px 12px;border-radius:8px;background:#3a4163;color:#fff;border:none">Add</button>
+        <div style="position:relative;flex:1;display:flex;gap:8px;align-items:center">
+          <input id="m_course_input" placeholder="Related course" autocomplete="off" style="padding:10px;border:1px solid #ddd;border-radius:8px;flex:1" />
+          <button type="button" id="m_add_course_btn" class="btn" style="padding:9px 12px;border-radius:8px;background:#3a4163;color:#fff;border:none">Add</button>
+          <ul id="m_course_suggestions" style="position:absolute;left:0;top:calc(100% + 8px);z-index:9999;background:#fff;border:1px solid #ddd;border-radius:8px;list-style:none;padding:6px 0;margin:0;display:none;max-height:220px;overflow:auto;box-shadow:0 8px 20px rgba(0,0,0,0.08);min-width:320px;max-width:520px;width:420px;"></ul>
+        </div>
       </div>
       <div id="m_course_tags" style="grid-column:span 2;display:flex;flex-wrap:wrap;gap:8px"></div>
-
-      <!-- hidden field to store CSV courses -->
-      <input type="hidden" id="m_accept_courses" />
+ 
+       <!-- hidden field to store CSV courses -->
+       <input type="hidden" id="m_accept_courses" />
     </div>
 
     <div style="display:flex;gap:8px;justify-content:flex-end">
@@ -514,13 +568,19 @@ document.addEventListener('keydown', function(e){
 </div>
 
 <script>
-// course tag helpers (scoped for the modal)
+// course tag helpers with DB-backed suggestions (scoped for the modal)
 (function(){
   const input = document.getElementById('m_course_input');
   const addBtn = document.getElementById('m_add_course_btn');
+  const suggestions = document.getElementById('m_course_suggestions');
   const tagsWrap = document.getElementById('m_course_tags');
   const hidden = document.getElementById('m_accept_courses');
   let tags = [];
+  let suggItems = [];
+  let sel = -1;
+  let debounce = null;
+
+  function escapeHtml(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
   function renderTags(){
     tagsWrap.innerHTML = '';
@@ -549,29 +609,116 @@ document.addEventListener('keydown', function(e){
     hidden.value = tags.join(',');
   }
 
-  function addTagFromInput(){
-    const v = (input.value || '').trim();
+  function addTagFromInput(val){
+    const v = (val !== undefined ? val : (input.value || '')).trim();
     if (!v) return;
-    // avoid duplicates (case-insensitive)
     const lc = v.toLowerCase();
     if (tags.some(t => t.toLowerCase() === lc)) {
       input.value = '';
+      hideSuggestions();
       return;
     }
     tags.push(v);
     input.value = '';
     renderTags();
     input.focus();
+    hideSuggestions();
   }
 
-  addBtn.addEventListener('click', addTagFromInput);
-  input.addEventListener('keydown', function(e){
-    if (e.key === 'Enter') { e.preventDefault(); addTagFromInput(); }
+  function showSuggestions(items){
+    suggItems = items || [];
+    sel = -1;
+    suggestions.innerHTML = '';
+    if (!suggItems || suggItems.length === 0) { hideSuggestions(); return; }
+    suggItems.forEach((s, i) => {
+      const li = document.createElement('li');
+      li.textContent = s;
+      li.style.padding = '8px 10px';
+      li.style.cursor = 'pointer';
+      li.style.whiteSpace = 'nowrap';
+      li.addEventListener('mousedown', function(e){
+        e.preventDefault();
+        addTagFromInput(s);
+      });
+      li.addEventListener('mouseover', () => highlight(i));
+      suggestions.appendChild(li);
+    });
+    suggestions.style.display = 'block';
+  }
+
+  function hideSuggestions(){
+    suggestions.style.display = 'none';
+    suggestions.innerHTML = '';
+    suggItems = [];
+    sel = -1;
+  }
+
+  function highlight(i){
+    const nodes = suggestions.querySelectorAll('li');
+    nodes.forEach((n, idx) => n.style.background = idx === i ? '#eef6ff' : '');
+    sel = i;
+    if (nodes[sel]) nodes[sel].scrollIntoView({block:'nearest'});
+  }
+
+  function fetchSuggestions(q){
+    if (!q || !q.trim()) { hideSuggestions(); return; }
+    // debounce
+    clearTimeout(debounce);
+    debounce = setTimeout(async () => {
+      try {
+        const res = await fetch(window.location.href, {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ action: 'course_suggest', q: q.trim() })
+        });
+        const j = await res.json();
+        if (Array.isArray(j) && j.length) showSuggestions(j);
+        else hideSuggestions();
+      } catch (e) {
+        hideSuggestions();
+      }
+    }, 180);
+  }
+
+  // bind events
+  addBtn.addEventListener('click', function(e){ addTagFromInput(); });
+
+  input.addEventListener('input', function(){
+    fetchSuggestions(this.value);
   });
+
+  input.addEventListener('keydown', function(e){
+    const nodes = suggestions.querySelectorAll('li');
+    if (e.key === 'ArrowDown') {
+      if (nodes.length === 0) return;
+      e.preventDefault();
+      sel = Math.min(sel + 1, nodes.length - 1);
+      highlight(sel);
+    } else if (e.key === 'ArrowUp') {
+      if (nodes.length === 0) return;
+      e.preventDefault();
+      sel = Math.max(sel - 1, 0);
+      highlight(sel);
+    } else if (e.key === 'Enter') {
+      if (sel >= 0 && nodes[sel]) {
+        e.preventDefault();
+        addTagFromInput(nodes[sel].textContent);
+      } else {
+        e.preventDefault();
+        addTagFromInput();
+      }
+    } else if (e.key === 'Escape') {
+      hideSuggestions();
+    }
+  });
+
+  // hide suggestions on blur (allow click selection via mousedown above)
+  input.addEventListener('blur', function(){ setTimeout(hideSuggestions, 120); });
 
   // expose for submitAdd to read
   window.__hr_modal = { getCourses: ()=>tags, reset: ()=>{ tags = []; renderTags(); } };
-  function escapeHtml(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+  // initial render (if any)
+  renderTags();
 })();
 </script>
 
@@ -585,37 +732,66 @@ async function submitAdd(){
   const courses = (window.__hr_modal && window.__hr_modal.getCourses()) ? window.__hr_modal.getCourses() : [];
   const accept_courses = courses.join(',');
 
-  if (!first_name || !last_name || !email) {
-    alert('Please fill first name, last name and email.');
+  // client-side validation: all required
+  if (!first_name || !last_name || !email || !office) {
+    alert('Please fill First name, Last name, Email and Office.');
     return;
   }
 
-  // generate simple username + password fallback
-  const unameBase = (first_name.charAt(0) + last_name).toLowerCase().replace(/[^a-z0-9]/g,'');
-  const username = unameBase + Math.floor(Math.random()*900 + 100);
-  const password = randomPassword(10);
+  // at least one course required
+  if (!Array.isArray(courses) || courses.length < 1) {
+    alert('Please add at least one related course.');
+    return;
+  }
 
-  const payload = {
-    action: 'create_account',
-    username: username,
-    password: password,
-    first_name: first_name,
-    last_name: last_name,
-    email: email,
-    role: 'office_head',
-    office: office,
-    initial_limit: initial_limit,
-    accept_courses: accept_courses,
-    email_notify: false
-  };
+  // basic email format check
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    alert('Please enter a valid email address.');
+    return;
+  }
 
   const statusEl = document.getElementById('addModalStatus');
   statusEl.style.display = 'block';
   statusEl.style.background = '#fffbe6';
   statusEl.style.color = '#333';
-  statusEl.textContent = 'Creating account...';
+  statusEl.textContent = 'Validating...';
 
   try {
+    // server-side check: office existence
+    const chk = await fetch(window.location.href, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ action: 'check_office', office: office })
+    });
+    const chkJson = await chk.json();
+    if (chkJson && chkJson.exists) {
+      statusEl.style.background = '#fff4f4';
+      statusEl.style.color = '#a00';
+      statusEl.textContent = 'Cannot create account: the office "' + office + '" already exists.';
+      return;
+    }
+
+    // generate simple username + password fallback
+    const unameBase = (first_name.charAt(0) + last_name).toLowerCase().replace(/[^a-z0-9]/g,'');
+    const username = unameBase + Math.floor(Math.random()*900 + 100);
+    const password = randomPassword(10);
+
+    const payload = {
+      action: 'create_account',
+      username: username,
+      password: password,
+      first_name: first_name,
+      last_name: last_name,
+      email: email,
+      role: 'office_head',
+      office: office,
+      initial_limit: initial_limit,
+      accept_courses: accept_courses,
+      email_notify: false
+    };
+
+    statusEl.textContent = 'Creating account...';
+
     // 1) create account via existing endpoint (do NOT edit hr_actions.php)
     const res = await fetch('../hr_actions.php', {
       method: 'POST',

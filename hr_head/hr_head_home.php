@@ -298,33 +298,42 @@ $current_date = date("l, F j, Y");
       <a id="btnNotif" href="notifications.php" title="Notifications" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 17h5l-1.405-1.405A2.032 2.032 0 0 1 18 14.158V11a6 6 0 1 0-12 0v3.159c0 .538-.214 1.055-.595 1.436L4 17h5"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
       </a>
-      <a id="btnSettings" href="settings.php" title="Settings" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82L4.3 4.46a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09c0 .64.38 1.2 1 1.51h.09a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.64.3 1.03.87 1.03 1.51V12c0 .64-.39 1.21-1.03 1.51z"></path></svg>
-      </a>
-      <a id="btnLogout" href="../logout.php" title="Logout" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
-      </a>
-  </div>
-
-  <!-- Second row: left = date + counters, right = OJT slot availability (side-by-side) -->
-  <div style="display:flex;gap:18px;align-items:stretch;margin-bottom:12px;">
+      <!-- calendar icon (display only, non-clickable) -->
+      <div title="Calendar (display only)" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;background:transparent;pointer-events:none;">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+      </div>
+       <a id="btnSettings" href="settings.php" title="Settings" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;">
+           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06A2 2 0 1 1 2.28 16.8l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09c.7 0 1.3-.4 1.51-1A1.65 1.65 0 0 0 4.27 6.3L4.2 6.23A2 2 0 1 1 6 3.4l.06.06c.5.5 1.2.7 1.82.33.7-.4 1.51-.4 2.21 0 .62.37 1.32.17 1.82-.33L12.6 3.4a2 2 0 1 1 1.72 3.82l-.06.06c-.5.5-.7 1.2-.33 1.82.4.7.4 1.51 0 2.21-.37.62-.17 1.32.33 1.82l.06.06A2 2 0 1 1 19.4 15z"></path></svg>
+       </a>
+       <a id="btnLogout" href="../logout.php" title="Logout" onclick="return confirm('Are you sure you want to logout?');" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+        </a>
+   </div>
+   <div style="display:flex;gap:18px;align-items:stretch;margin-bottom:12px;">
     <!-- Left column: date on top, counters below (slightly narrower & lower height) -->
     <div style="flex:0 0 240px;min-width:200px;display:flex;flex-direction:column;">
-      <div style="background:#fff;border-radius:8px;padding:10px 12px;box-shadow:0 2px 8px rgba(0,0,0,0.06);flex:1;display:flex;flex-direction:column;justify-content:space-between;">
-        <div class="datetime" style="margin-bottom:4px">
+      <div style="background:#fff;border-radius:8px;padding:12px;box-shadow:0 2px 8px rgba(0,0,0,0.06);flex:1;display:flex;flex-direction:column;justify-content:space-between;min-height:200px;">
+        <div class="datetime" style="margin-bottom:6px">
           <h2 style="margin:0;font-size:28px;line-height:1"><?php echo $current_time; ?></h2>
-          <p style="margin:0;color:#6d6d6d;font-size:16px"><?php echo $current_date; ?></p>
+          <p style="margin:0;color:#6d6d6d;font-size:14px"><?php echo $current_date; ?></p>
         </div>
 
-        <div style="display:flex;gap:10px;align-items:center;margin-top:10px">
-          <div style="background:#eceff3;padding:14px;border-radius:8px;box-shadow:0 2px 6px rgba(0,0,0,0.02);text-align:center;flex:1;min-height:110px;display:flex;flex-direction:column;justify-content:center;">
-            <div style="font-size:30px;font-weight:700;color:#2f3850"><?php echo (int)$active_count; ?></div>
-            <div style="color:#666;font-size:12px;margin-top:6px">Active OJTs</div>
-          </div>
-          <div style="background:#eceff3;padding:14px;border-radius:8px;box-shadow:0 2px 6px rgba(0,0,0,0.02);text-align:center;flex:1;min-height:110px;display:flex;flex-direction:column;justify-content:center;">
-            <div style="font-size:30px;font-weight:700;color:#2f3850"><?php echo (int)$completed_count; ?></div>
-            <div style="color:#666;font-size:12px;margin-top:6px">Completed OJTs</div>
-          </div>
+        <div style="display:flex;gap:8px;align-items:stretch;margin-top:10px;">
+          <!-- Approved (larger, fixed width) -->
+          <div style="background:#fff;border-radius:8px;padding:10px;border:1px solid #eef2f7;box-shadow:0 2px 6px rgba(0,0,0,0.03);flex:0 0 140px;text-align:center;display:flex;flex-direction:column;justify-content:center;min-width:100px;">
+             <div style="font-size:26px;font-weight:700;color:#2f3850;line-height:1"><?php echo (int)$active_count; ?></div>
+             <div style="color:#666;font-size:12px;margin-top:6px">Approved Applicants</div>
+           </div>
+          <!-- Completed (flexible, equal) -->
+          <div style="background:#eceff3;padding:10px;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,0.02);text-align:center;flex:1 1 0;min-width:60px;display:flex;flex-direction:column;justify-content:center;">
+             <div style="font-size:22px;font-weight:700;color:#2f3850"><?php echo (int)$completed_count; ?></div>
+             <div style="color:#666;font-size:11px;margin-top:6px">Completed</div>
+           </div>
+          <!-- Active (flexible, equal) -->
+          <div style="background:#eceff3;padding:10px;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,0.02);text-align:center;flex:1 1 0;min-width:60px;display:flex;flex-direction:column;justify-content:center;">
+             <div style="font-size:22px;font-weight:700;color:#2f3850"><?php echo (int)$pending_count; ?></div>
+             <div style="color:#666;font-size:11px;margin-top:6px">Active</div>
+           </div>
         </div>
       </div>
     </div>
@@ -892,168 +901,110 @@ async function openViewModal(appId) {
    'view_emg_name','view_emg_relation','view_emg_contact','view_attachments'].forEach(id=> {
      const el = document.getElementById(id);
      if (el) el.textContent = '';
+   });
+   document.getElementById('view_avatar').innerHTML = '👤';
+
+  // fetch and display application data
+  const payload = { action: 'fetch_application', application_id: appId };
+  const res = await fetch('../hr_actions.php', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify(payload)
   });
+  const json = await res.json();
 
-  overlay.style.display = 'flex';
-  overlay.setAttribute('aria-hidden','false');
+  if (json && json.success) {
+    const d = json.data || {};
+    // fill modal fields
+    document.getElementById('view_name').textContent = (d.student_name || '').trim() || 'N/A';
+    document.getElementById('view_status').textContent = (d.status_label || '').trim() + (d.total_hours ? ' | ' + d.total_hours + ' hours' : '');
+    document.getElementById('view_age').textContent = d.age ? d.age + ' years old' : 'N/A';
+    document.getElementById('view_birthday').textContent = d.birthday ? new Date(d.birthday).toLocaleDateString('en-PH') : 'N/A';
+    document.getElementById('view_address').textContent = d.address || 'N/A';
+    document.getElementById('view_phone').textContent = d.phone || 'N/A';
+    document.getElementById('view_email').textContent = d.email || 'N/A';
+    document.getElementById('view_college').textContent = d.college || 'N/A';
+    document.getElementById('view_course').textContent = d.course || 'N/A';
+    document.getElementById('view_year').textContent = d.year_level || 'N/A';
+    document.getElementById('view_school_address').textContent = d.school_address || 'N/A';
+    document.getElementById('view_adviser').textContent = d.ojt_adviser || 'N/A';
+    document.getElementById('view_emg_name').textContent = d.emergency_contact_name || 'N/A';
+    document.getElementById('view_emg_relation').textContent = d.emergency_contact_relation || 'N/A';
+    document.getElementById('view_emg_contact').textContent = d.emergency_contact_number || 'N/A';
 
-  try {
-    const res = await fetch('../hr_actions.php', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ action: 'get_application', application_id: appId })
-    });
-    const json = await res.json();
-    if (!json.success) {
-      alert('Error: ' + (json.message || 'Failed to load'));
-      closeViewModal();
-      return;
+    // set avatar (initials or default)
+    const avatarEl = document.getElementById('view_avatar');
+    avatarEl.style.background = '#e9e9e9';
+    avatarEl.style.color = '#777';
+    avatarEl.style.fontSize = '44px';
+    avatarEl.textContent = (d.student_name && d.student_name.trim().length > 0) ? d.student_name.trim().charAt(0).toUpperCase() : '👤';
+
+    // clear existing attachments
+    const attachmentsEl = document.getElementById('view_attachments');
+    attachmentsEl.innerHTML = '';
+
+    // --- ADDED: show attachments if available ---
+    if (d.attachments && Array.isArray(d.attachments) && d.attachments.length > 0) {
+      d.attachments.forEach(file => {
+        if (file && file.filepath) {
+          const a = document.createElement('a');
+          a.href = file.filepath;
+          a.target = '_blank';
+          a.textContent = file.original_name || 'Attachment';
+          a.className = 'attachment-link';
+          a.style.color = '#0b74de';
+          a.style.textDecoration = 'underline';
+          a.style.marginTop = '4px';
+          attachmentsEl.appendChild(a);
+        }
+      });
+    } else {
+      const noAttach = document.createElement('div');
+      noAttach.textContent = 'No attachments found.';
+      noAttach.style.color = '#666';
+      noAttach.style.fontSize = '13px';
+      noAttach.style.marginTop = '4px';
+      attachmentsEl.appendChild(noAttach);
     }
-    const d = json.data;
-    const s = d.student || {};
-    document.getElementById('view_name').textContent = (s.first_name + ' ' + s.last_name).trim();
-    document.getElementById('view_status').textContent = (d.status || '') + (d.office1 ? ' | ' + d.office1 + (d.office2 ? ' | ' + d.office2 : '') : '');
-    document.getElementById('view_age').textContent = s.age !== null && s.age !== undefined ? s.age : (s.age === 0 ? 0 : '—');
-    document.getElementById('view_birthday').textContent = s.birthday || '—';
-    document.getElementById('view_address').textContent = s.address || '—';
-    document.getElementById('view_phone').textContent = s.contact_number || '—';
-    document.getElementById('view_email').textContent = s.email || '—';
-    document.getElementById('view_college').textContent = s.college || '—';
-    document.getElementById('view_course').textContent = s.course || '—';
-    document.getElementById('view_year').textContent = s.year_level || '—';
-    document.getElementById('view_school_address').textContent = s.school_address || '—';
-    document.getElementById('view_adviser').textContent = (s.ojt_adviser || '') + (s.adviser_contact ? ' | ' + s.adviser_contact : '');
-    
-    // render avatar: use application picture if available; fallback to initials or emoji
-    (function(){
-      const avatarEl = document.getElementById('view_avatar');
-      // reset styles/text
-      avatarEl.style.backgroundImage = '';
-      avatarEl.style.backgroundSize = '';
-      avatarEl.style.backgroundPosition = '';
-      avatarEl.style.backgroundRepeat = '';
-      avatarEl.textContent = '';
+    // --- END ADDED ---
 
-      const pic = (d.picture || '').toString().trim();
-      if (pic !== '') {
-        // normalize path: if not absolute URL, prefix with ../ to match attachments behavior
-        const url = (/^https?:\/\//i.test(pic)) ? pic : ('../' + pic.replace(/^\/+/, ''));
-        // show image; let browser handle 404 (attachments also use ../ + path)
-        avatarEl.style.backgroundImage = `url("${url}")`;
-        avatarEl.style.backgroundSize = 'cover';
-        avatarEl.style.backgroundPosition = 'center';
-        avatarEl.setAttribute('aria-label', 'Applicant photo');
-      } else {
-        // fallback: initials or emoji
-        const fn = (s.first_name || '').trim();
-        const ln = (s.last_name || '').trim();
-        const initials = ((fn.charAt(0) || '') + (ln.charAt(0) || '')).toUpperCase();
-        avatarEl.textContent = initials || '👤';
-        avatarEl.style.backgroundImage = '';
-      }
-    })();
-    
-    document.getElementById('view_emg_name').textContent = s.emergency_name || '—';
-    document.getElementById('view_emg_relation').textContent = s.emergency_relation || '—';
-    document.getElementById('view_emg_contact').textContent = s.emergency_contact || '—';
+    // show action buttons based on status
+    const isOpen = (d.status === 'approved' || d.status === 'pending');
+    document.getElementById('view_approve_btn').style.display = isOpen ? 'inline-flex' : 'none';
+    document.getElementById('view_reject_btn').style.display = isOpen ? 'inline-flex' : 'none';
 
-    // attachments
-    const attRoot = document.getElementById('view_attachments');
-    attRoot.innerHTML = '';
-    const attachments = [
-      {key:'letter_of_intent', label:'Letter of Intent', file:d.letter_of_intent},
-      {key:'endorsement_letter', label:'Endorsement Letter', file:d.endorsement_letter},
-      {key:'resume', label:'Resume', file:d.resume},
-      {key:'moa_file', label:'MOA', file:d.moa_file},
-      {key:'picture', label:'Picture', file:d.picture}
-    ];
-    attachments.forEach(a=>{
-      if (a.file) {
-        const wrap = document.createElement('div'); wrap.style.display='flex'; wrap.style.justifyContent='space-between'; wrap.style.alignItems='center';
-        const name = document.createElement('div'); name.textContent = a.label + ' — ' + a.file.split('/').pop();
-        const actions = document.createElement('div');
-        actions.style.display = 'flex';
-        actions.style.gap = '6px';
-        actions.style.alignItems = 'center';
-        const viewBtn = document.createElement('button'); viewBtn.textContent = '👁'; viewBtn.title = 'View';
-        viewBtn.onclick = ()=> window.open('../' + a.file, '_blank');
-        const dlBtn = document.createElement('button'); dlBtn.textContent = '🡻'; dlBtn.title = 'Download';
-        dlBtn.onclick = ()=> {
-          const link = document.createElement('a'); link.href = '../' + a.file; link.download = ''; document.body.appendChild(link); link.click(); link.remove();
-        };
-        actions.appendChild(viewBtn); actions.appendChild(dlBtn);
-        wrap.appendChild(name); wrap.appendChild(actions);
-        attRoot.appendChild(wrap);
-      }
-        });
-
-    // wire approve/reject buttons (open existing modals with this app id)
-    document.getElementById('view_approve_btn').onclick = function(){ closeViewModal(); openApproveModal({ getAttribute: () => appId, getAttribute:function(){}, }); /* fallback: openApproveModal expects element; we instead call openApproveModal with a small shim below */ };
-    // better: call openApproveModal by creating a dummy element with required attributes
-    document.getElementById('view_approve_btn').onclick = function(){
-      closeViewModal();
-      const el = document.createElement('button');
-      el.setAttribute('data-appid', appId);
-      el.setAttribute('data-name', (s.first_name + ' ' + s.last_name).trim());
-      el.setAttribute('data-email', s.email || '');
-      el.setAttribute('data-opt1', d.office1 || '');
-      el.setAttribute('data-opt2', d.office2 || '');
-      el.setAttribute('data-opt1-id', d.office_preference1 || 0);
-      el.setAttribute('data-opt2-id', d.office_preference2 || 0);
-      openApproveModal(el);
-    };
-    document.getElementById('view_reject_btn').onclick = function(){
-      closeViewModal();
-      const el = document.createElement('button');
-      el.setAttribute('data-appid', appId);
-      el.setAttribute('data-name', (s.first_name + ' ' + s.last_name).trim());
-      el.setAttribute('data-email', s.email || '');
-      openRejectModal(el);
-    };
-
-  } catch (err) {
-    console.error(err);
-    alert('Failed to load application.');
-    closeViewModal();
-  }
+    // show modal
+    overlay.style.display = 'flex';
+    overlay.setAttribute('aria-hidden', 'false');
+    overlay.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
-function closeViewModal(){
+// close view modal
+function closeViewModal() {
   const overlay = document.getElementById('viewOverlay');
   overlay.style.display = 'none';
-  overlay.setAttribute('aria-hidden','true');
+  overlay.setAttribute('aria-hidden', 'true');
 }
 
-// Add top-right icons handlers (notifications / settings / logout)
-document.addEventListener('DOMContentLoaded', function(){
-  const notifBtn = document.getElementById('btnNotif');
-  const settingsBtn = document.getElementById('btnSettings');
-  const logoutBtn = document.getElementById('btnLogout');
+// notifications temporarily disabled (no action)
+const notifBtn = document.getElementById('btnNotif');
+if (notifBtn) {
+  notifBtn.addEventListener('click', function(e){
+    e.preventDefault();
+    // intentionally left blank — notifications disabled for now
+  });
+}
 
-  if (notifBtn) {
-    notifBtn.addEventListener('click', function(e){
-      e.preventDefault();
-      alert('Walang bagong notification ngayon.');
-    });
-  }
-
-  if (settingsBtn) {
-    settingsBtn.addEventListener('click', function(e){
-      e.preventDefault();
-      window.location.href = 'hr_head_settings.php';
-    });
-  }
-
-  if (logoutBtn) {
-    logoutBtn.addEventListener('click', function(e){
-      e.preventDefault();
-      if (!confirm('Log out?')) return;
-      // replace history entry so back button won't return to protected page
-      window.location.replace('../logout.php');
-    });
-  }
-});
+// confirm before logout
+const logoutBtn = document.getElementById('btnLogout');
+if (logoutBtn) {
+  logoutBtn.addEventListener('click', function(e){
+    e.preventDefault();
+    if (confirm('Are you sure you want to logout?')) {
+      window.location.href = this.getAttribute('href');
+    }
+  });
+}
 </script>
-
 </body>
 </html>
