@@ -118,6 +118,148 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $dtr = $q->get_result()->fetch_assoc();
         $q->close();
 
+        // ---------- Validation rules ----------
+        // parse click timestamp (flexible: "H:i:s" or "H:i")
+        try {
+            $clickDt = new DateTime($today . ' ' . $now);
+        } catch (Exception $e) {
+            json_resp(['success'=>false,'message'=>'Invalid timestamp format']);
+        }
+        // (future-timestamp check removed per request)
+
+        // 6) No weekends -- validation temporarily disabled
+        // $dow = (int)$clickDt->format('N'); // 1..7
+        // if ($dow >= 6) {
+        //     $conn->rollback();
+        //     json_resp(['success'=>false,'message'=>'Logging on weekends is not allowed']);
+        // }
+
+        // helper to parse time-only strings (returns DateTime or null)
+        $parseTime = function($timeStr) use ($today) {
+            if (!$timeStr) return null;
+            $dt = DateTime::createFromFormat('Y-m-d H:i:s', $today . ' ' . $timeStr) ?: DateTime::createFromFormat('Y-m-d H:i', $today . ' ' . $timeStr);
+            return $dt ?: null;
+        };
+
+        // time range constants
+        $AM_START = DateTime::createFromFormat('Y-m-d H:i:s', $today . ' 06:00:00');
+        $AM_END   = DateTime::createFromFormat('Y-m-d H:i:s', $today . ' 12:30:00');
+        $PM_START = DateTime::createFromFormat('Y-m-d H:i:s', $today . ' 12:30:00');
+        $PM_END   = DateTime::createFromFormat('Y-m-d H:i:s', $today . ' 17:30:00');
+        $LATE_PM_EARLIEST = DateTime::createFromFormat('Y-m-d H:i:s', $today . ' 12:00:00');
+        $LATE_PM_LATEST   = DateTime::createFromFormat('Y-m-d H:i:s', $today . ' 16:00:00'); // allowed late punch window
+
+        // limit logs per day: only one AM and one PM in/out -- enforce via existing columns
+        // (duplicate prevention checks are applied per-action below)
+        // ---------- end validation setup ----------
+
+        // action-specific pre-checks
+        if ($action === 'time_in') {
+            // determine target field (existing logic)
+            if ($dtr) {
+                if (empty($dtr['am_in'])) {
+                    $field = 'am_in';
+                } elseif (empty($dtr['pm_in'])) {
+                    $field = 'pm_in';
+                } else {
+                    $conn->rollback();
+                    json_resp(['success'=>false,'message'=>'Already timed in for today']);
+                }
+            } else {
+                // new row -> decide by hour
+                $dtTmp = DateTime::createFromFormat('H:i:s', $now) ?: DateTime::createFromFormat('H:i', $now);
+                $hour = $dtTmp ? (int)$dtTmp->format('H') : (int)date('H');
+                $field = ($hour < 12) ? 'am_in' : 'pm_in';
+            }
+
+            // validate chosen field ranges & duplicates
+            if ($field === 'am_in') {
+                // duplicate check
+                if ($dtr && !empty($dtr['am_in'])) {
+                    $conn->rollback();
+                    json_resp(['success'=>false,'message'=>'AM already timed in']);
+                }
+                // allowed AM window
+                if ($clickDt < $AM_START || $clickDt > $AM_END) {
+                    $conn->rollback();
+                    json_resp(['success'=>false,'message'=>'AM Time In allowed between 06:00 and 12:30']);
+                }
+            } else { // pm_in
+                if ($dtr && !empty($dtr['pm_in'])) {
+                    $conn->rollback();
+                    json_resp(['success'=>false,'message'=>'PM already timed in']);
+                }
+                // if AM session exists, require AM to be completed (no overlap) and enforce standard PM window
+                $amExists = $dtr && (!empty($dtr['am_in']) || !empty($dtr['am_out']));
+                $amOutDt = $parseTime($dtr['am_out'] ?? null);
+                if ($amExists && empty($dtr['am_out']) && !empty($dtr['am_in'])) {
+                    // AM started but not finished -> disallow PM in
+                    $conn->rollback();
+                    json_resp(['success'=>false,'message'=>'Complete AM session before PM Time In']);
+                }
+                // normal PM window
+                if ($amExists) {
+                    if ($clickDt < $PM_START || $clickDt > $PM_END) {
+                        $conn->rollback();
+                        json_resp(['success'=>false,'message'=>'PM Time In allowed between 12:30 and 17:30']);
+                    }
+                    // cross-session: if am_out exists, ensure am_out < pm_in
+                    if ($amOutDt && $clickDt <= $amOutDt) {
+                        $conn->rollback();
+                        json_resp(['success'=>false,'message'=>'PM Time In must be after AM Time Out']);
+                    }
+                } else {
+                    // late arrival rule (no AM session): allow 12:00 - 16:00
+                    if ($clickDt < $LATE_PM_EARLIEST || $clickDt > $LATE_PM_LATEST) {
+                        $conn->rollback();
+                        json_resp(['success'=>false,'message'=>'Late PM Time In allowed between 12:00 and 16:00']);
+                    }
+                }
+            }
+        } elseif ($action === 'time_out') {
+            // must have an existing dtr row with an unmatched IN
+            if (!$dtr) {
+                $conn->rollback();
+                json_resp(['success'=>false,'message'=>'No time-in found for today']);
+            }
+            // determine which out field will be set
+            $field = null;
+            if (!empty($dtr['pm_in']) && empty($dtr['pm_out'])) $field = 'pm_out';
+            elseif (!empty($dtr['am_in']) && empty($dtr['am_out'])) $field = 'am_out';
+            if (!$field) {
+                $conn->rollback();
+                json_resp(['success'=>false,'message'=>'Nothing to time out or already timed out']);
+            }
+
+            // validate sequence & ranges
+            if ($field === 'am_out') {
+                $inDt = $parseTime($dtr['am_in']);
+                if (!$inDt) { $conn->rollback(); json_resp(['success'=>false,'message'=>'Missing AM time-in']); }
+                if ($clickDt <= $inDt) { $conn->rollback(); json_resp(['success'=>false,'message'=>'AM Time Out must be after AM Time In']); }
+                if ($clickDt < $AM_START || $clickDt > $AM_END) {
+                    $conn->rollback();
+                    json_resp(['success'=>false,'message'=>'AM Time Out must be between 06:00 and 12:30']);
+                }
+                // if PM already has in, ensure AM out < PM in
+                if (!empty($dtr['pm_in'])) {
+                    $pmInDt = $parseTime($dtr['pm_in']);
+                    if ($pmInDt && $clickDt >= $pmInDt) {
+                        $conn->rollback();
+                        json_resp(['success'=>false,'message'=>'AM Time Out must be before PM Time In']);
+                    }
+                }
+            } else { // pm_out
+                $inDt = $parseTime($dtr['pm_in']);
+                if (!$inDt) { $conn->rollback(); json_resp(['success'=>false,'message'=>'Missing PM time-in']); }
+                if ($clickDt <= $inDt) { $conn->rollback(); json_resp(['success'=>false,'message'=>'PM Time Out must be after PM Time In']); }
+                if ($clickDt < $PM_START || $clickDt > $PM_END) {
+                    $conn->rollback();
+                    json_resp(['success'=>false,'message'=>'PM Time Out must be between 12:30 and 17:30']);
+                }
+            }
+        }
+        // ---------- end validation checks ----------
+
         if ($action === 'time_in') {
             if ($dtr) {
                 if (empty($dtr['am_in'])) {
@@ -197,6 +339,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     }
                 }
             }
+            // 8) Full day cap: do not exceed 480 minutes (8 hours)
+            if ($totalMin > 480) $totalMin = 480;
             $hours = intdiv($totalMin, 60);
             $minutes = $totalMin % 60;
 

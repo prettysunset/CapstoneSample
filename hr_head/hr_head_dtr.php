@@ -156,24 +156,9 @@ $role_label = !empty($user['role']) ? ucwords(str_replace('_',' ', $user['role']
     <div style="display:flex;flex-direction:column;gap:12px;">
       <div class="tabs" role="tablist" aria-label="DTR Tabs"
          style="display:flex;justify-content:center;align-items:flex-end;gap:24px;font-size:18px;border-bottom:2px solid #eee;padding-bottom:12px;position:relative;">
-      <button class="tab active" data-tab="daily" role="tab" aria-selected="true" aria-controls="panel-daily"
-          style="background:transparent;border:none;padding:10px 14px;border-radius:6px;cursor:pointer;color:#2f3850;font-weight:600;outline:none;font-size:18px;">
-        Daily Logs
-      </button>
-      <button class="tab" data-tab="late" role="tab" aria-selected="false" aria-controls="panel-late"
-          style="background:transparent;border:none;padding:10px 14px;border-radius:6px;cursor:pointer;color:#2f3850;font-weight:600;outline:none;font-size:18px;">
-        Late DTR Submissions
-      </button>
-      <!-- Attendance Reports hidden (opacity:0 to avoid breaking existing JS) -->
-      <button class="tab" data-tab="reports" role="tab" aria-selected="false" aria-controls="panel-reports"
-          style="background:transparent;border:none;padding:10px 14px;border-radius:6px;cursor:pointer;color:#2f3850;font-weight:600;outline:none;font-size:18px;opacity:0;pointer-events:none;">
-        Attendance Reports
-      </button>
-
-      <!-- underline indicating the selected tab -->
-      <div class="tab-underline" aria-hidden="true"
-         style="position:absolute;bottom:0;height:3px;background:#2f3850;border-radius:3px;transition:left .18s ease,width .18s ease;left:0;width:0;"></div>
-      </div>
+      <!-- Only Daily Logs retained -->
+      <div style="font-size:18px;font-weight:700;color:#2f3850">Daily Logs</div>
+       </div>
     </div>
 
   <script>
@@ -239,30 +224,7 @@ $role_label = !empty($user['role']) ? ucwords(str_replace('_',' ', $user['role']
         </div>
       </div>
 
-      <div id="panel-late" class="panel" style="display:none">
-        <div class="controls" style="margin-bottom:16px">
-          <label for="lateDate">Date</label>
-          <input type="date" id="lateDate">
-          <button id="lateLoad" style="opacity:0;pointer-events:none">Load</button>
-          <div style="flex:1"></div>
-          <input type="text" id="lateSearch" placeholder="Search" style="width:220px">
-        </div>
-        <div id="lateWrap">
-          <div class="empty">Loading...</div>
-        </div>
-      </div>
-
-      <div id="panel-reports" class="panel" style="display:none;opacity:0;pointer-events:none">
-        <div class="controls" style="margin-bottom:16px">
-          <label for="repDate">Filter</label>
-          <input type="date" id="repDate">
-          <div style="flex:1"></div>
-          <input type="text" id="repSearch" placeholder="Search name / office" style="width:220px">
-        </div>
-        <div id="reportsWrap">
-          <div class="empty">Loading...</div>
-        </div>
-      </div>
+      <!-- (Late / Reports UI removed — single Daily Logs view) -->
     </div>
   </main>
 
@@ -284,19 +246,8 @@ $role_label = !empty($user['role']) ? ucwords(str_replace('_',' ', $user['role']
   const tableWrap = document.getElementById('tableWrap');
   const search = document.getElementById('search');
 
-  const lateDate = document.getElementById('lateDate');
-  const lateLoad = document.getElementById('lateLoad');
-  const lateWrap = document.getElementById('lateWrap');
-  const lateSearch = document.getElementById('lateSearch');
-
-  const repDate = document.getElementById('repDate');
-  const reportsWrap = document.getElementById('reportsWrap');
-  const repSearch = document.getElementById('repSearch');
-
   const today = new Date().toISOString().slice(0,10);
   dateInput.value = today;
-  lateDate.value = today;
-  repDate.value = today;
 
   // automatically load when the date is changed via the calendar
   dateInput.addEventListener('change', loadForDate);
@@ -305,21 +256,6 @@ $role_label = !empty($user['role']) ? ucwords(str_replace('_',' ', $user['role']
   // keep reload button as a fallback
   btn.addEventListener('click', loadForDate);
   search.addEventListener('input', filterRows);
-
-  lateLoad.addEventListener('click', ()=>fetchLate(lateDate.value));
-  lateDate.addEventListener('keydown', (e)=>{ if(e.key==='Enter') fetchLate(lateDate.value); });
-  lateSearch.addEventListener('input', function(e){
-    const q = (e.target.value||'').toLowerCase().trim();
-    const rows = lateWrap.querySelectorAll('tr[data-search]');
-    rows.forEach(r=> r.style.display = (r.getAttribute('data-search')||'').indexOf(q)===-1 ? 'none' : '');
-  });
-
-  repDate.addEventListener('change', renderReports);
-  repSearch.addEventListener('input', function(){
-    const q = (repSearch.value||'').toLowerCase().trim();
-    const rows = reportsWrap.querySelectorAll('tr[data-search]');
-    rows.forEach(r=> r.style.display = (r.getAttribute('data-search')||'').indexOf(q)===-1 ? 'none' : '');
-  });
 
   // DAILY: always render headers; fill rows if backend returns data
   async function loadForDate(){
@@ -344,160 +280,53 @@ $role_label = !empty($user['role']) ? ucwords(str_replace('_',' ', $user['role']
   function renderDailyHeader(){
     // Title case headers and center-align TH cells
     return '<table class="tbl"><thead>'
-       + '<tr>'
-       + '<th class="center" rowspan="2" style="background:#eceff3">Date</th>'
-       + '<th class="center" rowspan="2" style="background:#eceff3">Name</th>'
-       + '<th class="center" rowspan="2" style="background:#eceff3">School</th>'
-       + '<th class="center" rowspan="2" style="background:#eceff3">Course</th>'
-       + '<th class="center" colspan="2" style="background:#eceff3">A.M.</th>'
-       + '<th class="center" colspan="2" style="background:#eceff3">P.M.</th>'
-       + '<th class="center" rowspan="2" style="background:#eceff3">Hours</th>'
-       + '<th class="center" rowspan="2" style="background:#eceff3">Office</th>'
-       + '</tr>'
-       + '<tr>'
-       + '<th class="center" style="background:#eceff3">Arrival</th><th class="center" style="background:#eceff3">Departure</th><th class="center" style="background:#eceff3">Arrival</th><th class="center" style="background:#eceff3">Departure</th>'
-       + '</tr>'
-       + '</thead>';
-    }
-
-  function renderDailyRows(rows, dt){
-    // build tbody based on rows; keep header rendered separately
-    let tbody = '';
-    if (!rows || rows.length === 0) {
-      tbody = '<tbody id="dtrRows"><tr><td colspan="10" style="text-align:center;padding:20px;color:#777">No logs for ' + escapeHtml(dt) + '.</td></tr></tbody></table>';
-      tableWrap.innerHTML = renderDailyHeader() + tbody;
-      return;
-    }
-    tbody = '<tbody id="dtrRows">';
-    for (const r of rows) {
-      const name = ((r.first_name||'') + ' ' + (r.last_name||'')).trim() || 'N/A';
-      tbody += '<tr data-search="'+escapeHtml((name+' '+(r.school||'')+' '+(r.course||'')+' '+(r.office||'')).toLowerCase())+'">'
-           + '<td>' + escapeHtml(r.log_date || '') + '</td>'
-           + '<td>' + escapeHtml(name) + '</td>'
-           + '<td>' + escapeHtml(r.school||'') + '</td>'
-           + '<td>' + escapeHtml(r.course||'') + '</td>'
-           + '<td class="center">' + escapeHtml(r.am_in||'') + '</td>'
-           + '<td class="center">' + escapeHtml(r.am_out||'') + '</td>'
-           + '<td class="center">' + escapeHtml(r.pm_in||'') + '</td>'
-           + '<td class="center">' + escapeHtml(r.pm_out||'') + '</td>'
-           + '<td class="center">' + (parseInt(r.hours||0) + (parseInt(r.minutes||0) ? 'h '+(r.minutes||0)+'m' : '')) + '</td>'
-           + '<td>' + escapeHtml(r.office||'') + '</td>'
-           + '</tr>';
-    }
-    tbody += '</tbody></table>';
-    tableWrap.innerHTML = renderDailyHeader() + tbody;
-   }
- 
-   // LATE: always render headers
-   function renderLateHeader(){
-     return '<table class="tbl"><thead>'
-          + '<tr>'
-          + '<th class="center" rowspan="2">Date Filed</th>'
-          + '<th class="center" rowspan="2">Name</th>'
-          + '<th class="center" rowspan="2">School</th>'
-          + '<th class="center" rowspan="2">Course</th>'
-          + '<th class="center" colspan="2">A.M.</th>'
-          + '<th class="center" colspan="2">P.M.</th>'
-          + '<th class="center" rowspan="2">Hours</th>'
-          + '<th class="center" rowspan="2">Date</th>'
-          + '<th class="center" rowspan="2">Office</th>'
-          + '<th class="center" rowspan="2">Status</th>'
-          + '</tr>'
-          + '<tr>'
-          + '<th class="center">Arrival</th><th class="center">Departure</th><th class="center">Arrival</th><th class="center">Departure</th>'
-          + '</tr>'
-          + '</thead>';
-   }
- 
-   function fetchLate(d){
-     const dt = d || today;
-    // render header immediately with empty body
-    lateWrap.innerHTML = renderLateHeader() + '<tbody id="lateRows"></tbody></table>';
-     fetch('../office_head/office_head_action.php', {
-       method:'POST',
-       headers:{'Content-Type':'application/json'},
-       body: JSON.stringify({ action:'get_late_dtr', office_id:0, date:dt })
-     }).then(r=>r.json()).then(j=>{
-       let html = '';
-       if (!j || !j.success || !j.data || j.data.length === 0) {
-        html = '<tbody><tr><td colspan="12" style="text-align:center;padding:20px;color:#777">No records for selected date.</td></tr></tbody></table>';
-        lateWrap.innerHTML = renderLateHeader() + html;
-         return;
-       }
-       html = '<tbody>';
-       j.data.forEach(r=>{
-         const name = ((r.first_name||'')+' '+(r.last_name||'')).trim() || 'N/A';
-         html += '<tr data-search="'+escapeHtml((name+' '+(r.school||'')+' '+(r.course||'')+' '+(r.office||'')).toLowerCase())+'">'
-              + '<td>' + escapeHtml(r.date_filed || r.date || '') + '</td>'
-              + '<td>' + escapeHtml(name) + '</td>'
-              + '<td>' + escapeHtml(r.school || '') + '</td>'
-              + '<td>' + escapeHtml(r.course || '') + '</td>'
-              + '<td class="center">' + escapeHtml(r.am_in || '') + '</td>'
-              + '<td class="center">' + escapeHtml(r.am_out || '') + '</td>'
-              + '<td class="center">' + escapeHtml(r.pm_in || '') + '</td>'
-              + '<td class="center">' + escapeHtml(r.pm_out || '') + '</td>'
-+            + '<td class="center">' + (r.hours!==null && r.hours!==undefined ? String(r.hours) : '') + '</td>'
-+            + '<td>' + escapeHtml(r.late_date || r.log_date || '') + '</td>'
-              + '<td>' + escapeHtml(r.office || '') + '</td>'
-              + '<td>' + escapeHtml(r.status || '') + '</td>'
-              + '</tr>';
-       });
-       html += '</tbody></table>';
-       lateWrap.innerHTML = renderLateHeader() + html;
-     }).catch(err=>{
-      lateWrap.innerHTML = renderLateHeader() + '<tbody><tr><td colspan="12" style="text-align:center;padding:20px;color:#777">No records for selected date.</td></tr></tbody></table>';
-     });
-   }
- 
-   // REPORTS: always show headers; attempt fetch, else show "No records"
-   function renderReportsHeader(){
-     return '<table class="tbl"><thead><tr>'
-          + '<th class="left">NAME</th>'
-          + '<th class="left">School</th>'
-          + '<th class="left">Course</th>'
-          + '<th class="left">OFFICE</th>'
-          + '<th class="center">HOURS RENDERED</th>'
-          + '<th class="center">TOTAL DAYS</th>'
-          + '<th class="left">EXPECTED END DATE</th>'
-          + '</tr></thead>';
-   }
-
-   async function renderReports(){
-     const dt = repDate.value || today;
-     reportsWrap.innerHTML = renderReportsHeader() + '<tbody><tr><td colspan="7" style="text-align:center;padding:18px;color:#777">Loading…</td></tr></tbody></table>';
-     // try backend; if not available show empty header + message
-     try {
-       const res = await fetch('../hr_actions.php', {
-         method:'POST',
-         headers:{'Content-Type':'application/json'},
-         body: JSON.stringify({ action: 'get_attendance_report', date: dt })
-       });
-       const j = await res.json();
-       if (!j || !j.success || !j.rows || j.rows.length === 0) {
-         reportsWrap.innerHTML = renderReportsHeader() + '<tbody><tr><td colspan="7" style="text-align:center;padding:18px;color:#777">No records.</td></tr></tbody></table>';
-         return;
-       }
-       let html = '<tbody>';
-       j.rows.forEach(r=>{
-         const name = ((r.first_name||'')+' '+(r.last_name||'')).trim() || 'N/A';
-         html += '<tr data-search="'+escapeHtml((name+' '+(r.office||'')+' '+(r.course||'')).toLowerCase())+'">'
-              + '<td>' + escapeHtml(name) + '</td>'
-              + '<td>' + escapeHtml(r.school||'') + '</td>'
-              + '<td>' + escapeHtml(r.course||'') + '</td>'
-              + '<td>' + escapeHtml(r.office||'') + '</td>'
-              + '<td class="center">' + (r.hours_rendered !== undefined ? String(r.hours_rendered) : '') + '</td>'
-              + '<td class="center">' + (r.total_days !== undefined ? String(r.total_days) : '') + '</td>'
-              + '<td>' + escapeHtml(r.expected_end_date || '') + '</td>'
-              + '</tr>';
-       });
-       html += '</tbody></table>';
-       reportsWrap.innerHTML = renderReportsHeader() + html;
-     } catch (err) {
-       reportsWrap.innerHTML = renderReportsHeader() + '<tbody><tr><td colspan="7" style="text-align:center;padding:18px;color:#777">No records.</td></tr></tbody></table>';
+        + '<tr>'
+        + '<th class="center" rowspan="2" style="background:#eceff3">Date</th>'
+        + '<th class="center" rowspan="2" style="background:#eceff3">Name</th>'
+        + '<th class="center" rowspan="2" style="background:#eceff3">School</th>'
+        + '<th class="center" rowspan="2" style="background:#eceff3">Course</th>'
+        + '<th class="center" colspan="2" style="background:#eceff3">A.M.</th>'
+        + '<th class="center" colspan="2" style="background:#eceff3">P.M.</th>'
+        + '<th class="center" rowspan="2" style="background:#eceff3">Hours</th>'
+        + '<th class="center" rowspan="2" style="background:#eceff3">Minutes</th>'
+        + '<th class="center" rowspan="2" style="background:#eceff3">Office</th>'
+        + '</tr>'
+        + '<tr>'
+        + '<th class="center" style="background:#eceff3">Arrival</th><th class="center" style="background:#eceff3">Departure</th><th class="center" style="background:#eceff3">Arrival</th><th class="center" style="background:#eceff3">Departure</th>'
+        + '</tr>'
+        + '</thead>';
      }
-   }
-
-  function filterRows(){
+ 
+   function renderDailyRows(rows, dt){
+     // build tbody based on rows; keep header rendered separately
+     let tbody = '';
+     if (!rows || rows.length === 0) {
+       tbody = '<tbody id="dtrRows"><tr><td colspan="11" style="text-align:center;padding:20px;color:#777">No logs for ' + escapeHtml(dt) + '.</td></tr></tbody></table>';
+       tableWrap.innerHTML = renderDailyHeader() + tbody;
+       return;
+     }
+     tbody = '<tbody id="dtrRows">';
+     for (const r of rows) {
+       const name = ((r.first_name||'') + ' ' + (r.last_name||'')).trim() || 'N/A';
+       tbody += '<tr data-search="'+escapeHtml((name+' '+(r.school||'')+' '+(r.course||'')+' '+(r.office||'')).toLowerCase())+'">'
+            + '<td>' + escapeHtml(r.log_date || '') + '</td>'
+            + '<td>' + escapeHtml(name) + '</td>'
+            + '<td>' + escapeHtml(r.school||'') + '</td>'
+            + '<td>' + escapeHtml(r.course||'') + '</td>'
+            + '<td class="center">' + escapeHtml(r.am_in||'') + '</td>'
+            + '<td class="center">' + escapeHtml(r.am_out||'') + '</td>'
+            + '<td class="center">' + escapeHtml(r.pm_in||'') + '</td>'
+            + '<td class="center">' + escapeHtml(r.pm_out||'') + '</td>'
+            + '<td class="center">' + (parseInt(r.hours||0) ? String(parseInt(r.hours||0)) + 'h' : '') + '</td>'
+            + '<td class="center">' + (r.minutes !== undefined && r.minutes !== null ? String(parseInt(r.minutes)) : '') + '</td>'
+            + '<td>' + escapeHtml(r.office||'') + '</td>'
+            + '</tr>';
+     }
+     tbody += '</tbody></table>';
+     tableWrap.innerHTML = renderDailyHeader() + tbody;
+    }
+ 
+   function filterRows(){
     const q = (search.value || '').toLowerCase().trim();
     const tbody = document.getElementById('dtrRows');
     if (!tbody) return;
@@ -508,10 +337,8 @@ $role_label = !empty($user['role']) ? ucwords(str_replace('_',' ', $user['role']
 
   function escapeHtml(s){ return (s===null||s===undefined)?'': String(s).replace(/[&<>"']/g, function(m){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]; }); }
 
-  // initial load: render headers and attempt to fetch live data; fall back to empty rows if endpoint missing
+  // initial load: render headers and load daily data only
   loadForDate();
-  fetchLate(today);
-  renderReports();
 })();
 </script>
 </body>

@@ -1,8 +1,26 @@
 <?php
 session_start();
-//$conn = new mysqli("localhost", "root", "", "capstone");
-$conn = new mysqli("localhost", "u389936701_user", "CapstoneDefended1", "u389936701_capstone");
 
+// replace the direct mysqli(...) call with environment-aware selection
+if (
+    (PHP_SAPI === 'cli')
+    || (isset($_SERVER['HTTP_HOST']) && (stripos($_SERVER['HTTP_HOST'], 'localhost') !== false || $_SERVER['HTTP_HOST'] === '127.0.0.1'))
+    || (isset($_SERVER['SERVER_NAME']) && (stripos($_SERVER['SERVER_NAME'], 'localhost') !== false || $_SERVER['SERVER_NAME'] === '127.0.0.1'))
+) {
+    // Local XAMPP
+    $dbHost = '127.0.0.1';
+    $dbUser = 'root';
+    $dbPass = '';
+    $dbName = 'capstone';
+} else {
+    // Production / hosting
+    $dbHost = 'localhost';
+    $dbUser = 'u389936701_user';
+    $dbPass = 'CapstoneDefended1';
+    $dbName = 'u389936701_capstone';
+}
+// suppress initial mysqli warning; fail cleanly if connection fails
+$conn = @new mysqli($dbHost, $dbUser, $dbPass, $dbName);
 if ($conn->connect_error) {
     die("Connection failed: " . $conn->connect_error);
 }
