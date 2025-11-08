@@ -313,28 +313,39 @@ $current_date = date("l, F j, Y");
     <!-- Left column: date on top, counters below (slightly narrower & lower height) -->
     <div style="flex:0 0 240px;min-width:200px;display:flex;flex-direction:column;">
       <div style="background:#fff;border-radius:8px;padding:12px;box-shadow:0 2px 8px rgba(0,0,0,0.06);flex:1;display:flex;flex-direction:column;justify-content:space-between;min-height:200px;">
-        <div class="datetime" style="margin-bottom:6px">
-          <h2 style="margin:0;font-size:28px;line-height:1"><?php echo $current_time; ?></h2>
-          <p style="margin:0;color:#6d6d6d;font-size:14px"><?php echo $current_date; ?></p>
+      <div class="datetime" style="margin-bottom:10px">
+        <h2 style="margin:0;font-size:20px;line-height:1"><?php echo $current_time; ?></h2>
+        <p style="margin:0;color:#6d6d6d;font-size:12px"><?php echo $current_date; ?></p>
+      </div>
+
+      <!-- Counters: two rows
+         Row 1: Completed (full width, prominent)
+         Row 2: Approved Applicants + Active (side-by-side) -->
+      <div style="display:flex;flex-direction:column;gap:10px;margin-top:10px;">
+
+        <!-- Row 1: Completed (full width) -->
+        <div style="background:#f5f7ff;border-radius:8px;padding:12px;border:1px solid #e6e9fb;box-shadow:0 2px 6px rgba(0,0,0,0.02);display:flex;align-items:center;justify-content:space-between;min-height:64px;">
+        <div style="display:flex;flex-direction:column;gap:2px;">
+          <div style="font-size:13px;color:#6d6d6d;font-weight:600">Completed</div>
+        </div>
+        <div style="font-size:28px;font-weight:700;color:#2f3850"><?php echo (int)$completed_count; ?></div>
         </div>
 
-        <div style="display:flex;gap:8px;align-items:stretch;margin-top:10px;">
-          <!-- Approved (larger, fixed width) -->
-          <div style="background:#fff;border-radius:8px;padding:10px;border:1px solid #eef2f7;box-shadow:0 2px 6px rgba(0,0,0,0.03);flex:0 0 140px;text-align:center;display:flex;flex-direction:column;justify-content:center;min-width:100px;">
-             <div style="font-size:26px;font-weight:700;color:#2f3850;line-height:1"><?php echo (int)$active_count; ?></div>
-             <div style="color:#666;font-size:12px;margin-top:6px">Approved Applicants</div>
-           </div>
-          <!-- Completed (flexible, equal) -->
-          <div style="background:#eceff3;padding:10px;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,0.02);text-align:center;flex:1 1 0;min-width:60px;display:flex;flex-direction:column;justify-content:center;">
-             <div style="font-size:22px;font-weight:700;color:#2f3850"><?php echo (int)$completed_count; ?></div>
-             <div style="color:#666;font-size:11px;margin-top:6px">Completed</div>
-           </div>
-          <!-- Active (flexible, equal) -->
-          <div style="background:#eceff3;padding:10px;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,0.02);text-align:center;flex:1 1 0;min-width:60px;display:flex;flex-direction:column;justify-content:center;">
-             <div style="font-size:22px;font-weight:700;color:#2f3850"><?php echo (int)$pending_count; ?></div>
-             <div style="color:#666;font-size:11px;margin-top:6px">Active</div>
-           </div>
+        <!-- Row 2: Approved Applicants and Active -->
+        <div style="display:flex;gap:8px;">
+        <!-- Approved Applicants -->
+        <div style="background:#fff;border-radius:8px;padding:10px;border:1px solid #eef2f7;box-shadow:0 2px 6px rgba(0,0,0,0.03);flex:1;display:flex;flex-direction:column;justify-content:center;min-width:0;text-align:center;">
+           <div style="font-size:18px;font-weight:700;color:#2f3850;line-height:1"><?php echo (int)$active_count; ?></div>
+           <div style="color:#666;font-size:12px;margin-top:6px">Approved Applicants</div>
+         </div>
+
+        <!-- Active -->
+        <div style="background:#fff;border-radius:8px;padding:10px;border:1px solid #eef2f7;box-shadow:0 2px 6px rgba(0,0,0,0.03);flex:1;display:flex;flex-direction:column;justify-content:center;min-width:0;text-align:center;">
+           <div style="font-size:18px;font-weight:700;color:#2f3850"><?php echo (int)$pending_count; ?></div>
+           <div style="color:#666;font-size:12px;margin-top:6px">Active</div>
         </div>
+        </div>
+      </div>
       </div>
     </div>
 
