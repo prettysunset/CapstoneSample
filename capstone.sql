@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: 127.0.0.1
--- Generation Time: Nov 04, 2025 at 08:12 AM
+-- Generation Time: Nov 08, 2025 at 05:00 AM
 -- Server version: 10.4.32-MariaDB
 -- PHP Version: 8.0.30
 
@@ -20,6 +20,18 @@ SET time_zone = "+00:00";
 --
 -- Database: `capstone`
 --
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `courses`
+--
+
+CREATE TABLE `courses` (
+  `course_id` int(11) NOT NULL,
+  `course_code` varchar(50) DEFAULT NULL,
+  `course_name` varchar(150) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- --------------------------------------------------------
 
@@ -178,6 +190,18 @@ INSERT INTO `offices` (`office_id`, `office_name`, `current_limit`, `updated_lim
 -- --------------------------------------------------------
 
 --
+-- Table structure for table `office_courses`
+--
+
+CREATE TABLE `office_courses` (
+  `id` int(11) NOT NULL,
+  `office_id` int(11) NOT NULL,
+  `course_id` int(11) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
 -- Table structure for table `office_heads_backup`
 --
 
@@ -243,7 +267,7 @@ CREATE TABLE `ojt_applications` (
 INSERT INTO `ojt_applications` (`application_id`, `student_id`, `office_preference1`, `office_preference2`, `letter_of_intent`, `endorsement_letter`, `resume`, `moa_file`, `picture`, `status`, `remarks`, `date_submitted`, `date_updated`) VALUES
 (9, 9, 2, 4, 'uploads/1761223567_id.jpg', 'uploads/1761223567_id.jpg', 'uploads/1761223567_id.jpg', '', 'uploads/1761223567_id.jpg', 'approved', 'Orientation/Start: 2025-10-28 | Assigned Office: IT Office', '2025-10-23', '2025-10-25'),
 (27, 28, 2, NULL, 'uploads/1762223192_60_percent_checklist.pdf', 'uploads/1762223192_60_percent_checklist.pdf', 'uploads/1762223192_60_percent_checklist.pdf', 'uploads/moa/img029_1761923740.jpg', 'uploads/1762223192_566604494_4276808525876147_3434795590404980034_n.jpg', 'approved', 'Orientation/Start: November 11, 2025 | Assigned Office: IT Office', '2025-11-04', '2025-11-04'),
-(28, 29, 2, NULL, 'uploads/1762224372_60_percent_checklist.pdf', 'uploads/1762224372_60_percent_checklist.pdf', 'uploads/1762224372_60_percent_checklist.pdf', '', 'uploads/1762224372_566604494_4276808525876147_3434795590404980034_n.jpg', 'pending', NULL, '2025-11-04', NULL);
+(28, 29, 2, NULL, 'uploads/1762224372_60_percent_checklist.pdf', 'uploads/1762224372_60_percent_checklist.pdf', 'uploads/1762224372_60_percent_checklist.pdf', '', 'uploads/1762224372_566604494_4276808525876147_3434795590404980034_n.jpg', 'approved', 'Orientation/Start: November 13, 2025 08:30 | Location: CHRMO/3rd Floor | Assigned Office: IT Office', '2025-11-04', '2025-11-06');
 
 -- --------------------------------------------------------
 
@@ -258,6 +282,13 @@ CREATE TABLE `orientation_assignments` (
   `assigned_at` timestamp NOT NULL DEFAULT current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+--
+-- Dumping data for table `orientation_assignments`
+--
+
+INSERT INTO `orientation_assignments` (`id`, `session_id`, `application_id`, `assigned_at`) VALUES
+(1, 1, 28, '2025-11-06 06:20:22');
+
 -- --------------------------------------------------------
 
 --
@@ -270,6 +301,13 @@ CREATE TABLE `orientation_sessions` (
   `session_time` time NOT NULL,
   `location` varchar(255) NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
+-- Dumping data for table `orientation_sessions`
+--
+
+INSERT INTO `orientation_sessions` (`session_id`, `session_date`, `session_time`, `location`) VALUES
+(1, '2025-11-13', '08:30:00', 'CHRMO/3rd Floor');
 
 -- --------------------------------------------------------
 
@@ -311,7 +349,7 @@ CREATE TABLE `students` (
 INSERT INTO `students` (`student_id`, `user_id`, `first_name`, `middle_name`, `last_name`, `address`, `contact_number`, `email`, `birthday`, `emergency_name`, `emergency_relation`, `emergency_contact`, `college`, `course`, `year_level`, `school_year`, `semester`, `school_address`, `ojt_adviser`, `adviser_contact`, `total_hours_required`, `hours_rendered`, `status`) VALUES
 (9, 13, 'Jim Well', NULL, 'Diamante', 'Bagna', '09454659878', 'jimwell@gmail.com', '2004-11-06', 'Jampol', 'Father', '09345646546', 'Bulacan Polytechnic College', 'BSIS-4B', '4', NULL, NULL, 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '08089989898', 500, 0, 'ongoing'),
 (28, 19, 'Jasmine', NULL, 'Santiago', '#0546 Peter Street, Phase 2, Caingin, Malolos, Bulacan', '09454659878', 'santiagojasminem@gmail.com', '2004-11-06', 'Rosaly Santiago', 'mother', '09345646546', 'La Consolacion University Philippines', 'Bachelor of Science in Information Technology', '4', '2025 - 2026', '1st Semester', 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '09234342354', 500, 0, 'ongoing'),
-(29, NULL, 'Blair', NULL, 'Waldorf', 'Sumapang Matanda, Malolos, Bulacan', '09457842558', 'santiagojasminem@gmail.com', '2004-11-06', 'Myrna Waldorf', 'Mother', '09134664654', 'La Consolacion University Philippines', 'Bachelor of Science in Information Technology', '4', NULL, NULL, 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '09234342354', 500, 0, 'pending');
+(29, 20, 'Blair', NULL, 'Waldorf', 'Sumapang Matanda, Malolos, Bulacan', '09457842558', 'santiagojasminem@gmail.com', '2004-11-06', 'Myrna Waldorf', 'Mother', '09134664654', 'La Consolacion University Philippines', 'Bachelor of Science in Information Technology', '4', NULL, NULL, 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '09234342354', 500, 0, 'ongoing');
 
 -- --------------------------------------------------------
 
@@ -344,7 +382,9 @@ INSERT INTO `users` (`user_id`, `username`, `email`, `first_name`, `middle_name`
 (9, 'head_it', 'carloreyes@gmail.com', 'Carlo', NULL, 'Reyes', '123456', 'office_head', 'IT', 'active', '2025-10-12 13:34:28'),
 (10, 'head_cityplanning', NULL, 'Angela', NULL, 'Bautista', '123456', 'office_head', 'City Planning', 'active', '2025-10-12 13:34:28'),
 (13, 'jimwell', NULL, NULL, NULL, NULL, '60a69c38c2', 'ojt', 'IT Office', 'active', '2025-10-25 12:09:07'),
-(19, 'santiagojasminem3', NULL, NULL, NULL, NULL, '378d162747', 'ojt', 'IT Office', 'active', '2025-11-04 03:01:25');
+(19, 'santiagojasminem3', NULL, NULL, NULL, NULL, '378d162747', 'ojt', 'IT Office', 'active', '2025-11-04 03:01:25'),
+(20, 'santiagojasminem', NULL, NULL, NULL, NULL, '59d0650e0f', 'ojt', 'IT Office', 'active', '2025-11-06 06:20:22'),
+(21, 'narchibald439', 'santiagojasminem@gmail.com', 'Nate', NULL, 'Archibald', 'd9q0VQae2i', 'office_head', 'City General Services Office', 'active', '2025-11-07 06:28:21');
 
 -- --------------------------------------------------------
 
@@ -465,156 +505,6 @@ ALTER TABLE `users`
 ALTER TABLE `weekly_journal`
   ADD PRIMARY KEY (`journal_id`),
   ADD KEY `student_id` (`student_id`);
-
---
--- AUTO_INCREMENT for dumped tables
---
-
---
--- AUTO_INCREMENT for table `dtr`
---
-ALTER TABLE `dtr`
-  MODIFY `dtr_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=29;
-
---
--- AUTO_INCREMENT for table `evaluations`
---
-ALTER TABLE `evaluations`
-  MODIFY `eval_id` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT for table `intern_stories`
---
-ALTER TABLE `intern_stories`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=2;
-
---
--- AUTO_INCREMENT for table `late_dtr`
---
-ALTER TABLE `late_dtr`
-  MODIFY `late_id` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT for table `moa`
---
-ALTER TABLE `moa`
-  MODIFY `moa_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=9;
-
---
--- AUTO_INCREMENT for table `notifications`
---
-ALTER TABLE `notifications`
-  MODIFY `notif_id` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT for table `offices`
---
-ALTER TABLE `offices`
-  MODIFY `office_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=6;
-
---
--- AUTO_INCREMENT for table `office_requests`
---
-ALTER TABLE `office_requests`
-  MODIFY `request_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=3;
-
---
--- AUTO_INCREMENT for table `ojt_applications`
---
-ALTER TABLE `ojt_applications`
-  MODIFY `application_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=29;
-
---
--- AUTO_INCREMENT for table `orientation_assignments`
---
-ALTER TABLE `orientation_assignments`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT for table `orientation_sessions`
---
-ALTER TABLE `orientation_sessions`
-  MODIFY `session_id` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT for table `students`
---
-ALTER TABLE `students`
-  MODIFY `student_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=30;
-
---
--- AUTO_INCREMENT for table `users`
---
-ALTER TABLE `users`
-  MODIFY `user_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=20;
-
---
--- AUTO_INCREMENT for table `weekly_journal`
---
-ALTER TABLE `weekly_journal`
-  MODIFY `journal_id` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- Constraints for dumped tables
---
-
---
--- Constraints for table `dtr`
---
-ALTER TABLE `dtr`
-  ADD CONSTRAINT `dtr_ibfk_1` FOREIGN KEY (`student_id`) REFERENCES `users` (`user_id`);
-
---
--- Constraints for table `evaluations`
---
-ALTER TABLE `evaluations`
-  ADD CONSTRAINT `evaluations_ibfk_1` FOREIGN KEY (`student_id`) REFERENCES `students` (`student_id`),
-  ADD CONSTRAINT `fk_evaluations_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`user_id`) ON DELETE SET NULL ON UPDATE CASCADE;
-
---
--- Constraints for table `late_dtr`
---
-ALTER TABLE `late_dtr`
-  ADD CONSTRAINT `late_dtr_ibfk_1` FOREIGN KEY (`student_id`) REFERENCES `students` (`student_id`);
-
---
--- Constraints for table `notifications`
---
-ALTER TABLE `notifications`
-  ADD CONSTRAINT `notifications_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`user_id`);
-
---
--- Constraints for table `office_requests`
---
-ALTER TABLE `office_requests`
-  ADD CONSTRAINT `office_requests_ibfk_1` FOREIGN KEY (`office_id`) REFERENCES `offices` (`office_id`);
-
---
--- Constraints for table `ojt_applications`
---
-ALTER TABLE `ojt_applications`
-  ADD CONSTRAINT `ojt_applications_ibfk_1` FOREIGN KEY (`student_id`) REFERENCES `students` (`student_id`),
-  ADD CONSTRAINT `ojt_applications_ibfk_2` FOREIGN KEY (`office_preference1`) REFERENCES `offices` (`office_id`),
-  ADD CONSTRAINT `ojt_applications_ibfk_3` FOREIGN KEY (`office_preference2`) REFERENCES `offices` (`office_id`);
-
---
--- Constraints for table `orientation_assignments`
---
-ALTER TABLE `orientation_assignments`
-  ADD CONSTRAINT `fk_orientation_application` FOREIGN KEY (`application_id`) REFERENCES `ojt_applications` (`application_id`) ON DELETE CASCADE,
-  ADD CONSTRAINT `fk_orientation_session` FOREIGN KEY (`session_id`) REFERENCES `orientation_sessions` (`session_id`) ON DELETE CASCADE;
-
---
--- Constraints for table `students`
---
-ALTER TABLE `students`
-  ADD CONSTRAINT `students_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`user_id`);
-
---
--- Constraints for table `weekly_journal`
---
-ALTER TABLE `weekly_journal`
-  ADD CONSTRAINT `weekly_journal_ibfk_1` FOREIGN KEY (`student_id`) REFERENCES `students` (`student_id`);
 COMMIT;
 
 /*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;

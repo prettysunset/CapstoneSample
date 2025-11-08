@@ -309,18 +309,19 @@ $role_label = !empty($user['role']) ? ucwords(str_replace('_',' ', $user['role']
      for (const r of rows) {
        const name = ((r.first_name||'') + ' ' + (r.last_name||'')).trim() || 'N/A';
        tbody += '<tr data-search="'+escapeHtml((name+' '+(r.school||'')+' '+(r.course||'')+' '+(r.office||'')).toLowerCase())+'">'
-            + '<td>' + escapeHtml(r.log_date || '') + '</td>'
-            + '<td>' + escapeHtml(name) + '</td>'
-            + '<td>' + escapeHtml(r.school||'') + '</td>'
-            + '<td>' + escapeHtml(r.course||'') + '</td>'
-            + '<td class="center">' + escapeHtml(r.am_in||'') + '</td>'
-            + '<td class="center">' + escapeHtml(r.am_out||'') + '</td>'
-            + '<td class="center">' + escapeHtml(r.pm_in||'') + '</td>'
-            + '<td class="center">' + escapeHtml(r.pm_out||'') + '</td>'
-            + '<td class="center">' + (parseInt(r.hours||0) ? String(parseInt(r.hours||0)) + 'h' : '') + '</td>'
-            + '<td class="center">' + (r.minutes !== undefined && r.minutes !== null ? String(parseInt(r.minutes)) : '') + '</td>'
-            + '<td>' + escapeHtml(r.office||'') + '</td>'
-            + '</tr>';
+           // date column now formatted as MM-DD-YYYY
+           + '<td>' + escapeHtml(formatDateToMMDDYYYY(r.log_date || '')) + '</td>'
+           + '<td>' + escapeHtml(name) + '</td>'
+           + '<td>' + escapeHtml(r.school||'') + '</td>'
+           + '<td>' + escapeHtml(r.course||'') + '</td>'
+           + '<td class="center">' + escapeHtml(r.am_in||'') + '</td>'
+           + '<td class="center">' + escapeHtml(r.am_out||'') + '</td>'
+           + '<td class="center">' + escapeHtml(r.pm_in||'') + '</td>'
+           + '<td class="center">' + escapeHtml(r.pm_out||'') + '</td>'
+           + '<td class="center">' + ((r.hours !== undefined && r.hours !== null) ? String(parseInt(r.hours)) : ((r.minutes !== undefined && r.minutes !== null) ? '0' : '')) + '</td>'
+           + '<td class="center">' + (r.minutes !== undefined && r.minutes !== null ? String(parseInt(r.minutes)) : '') + '</td>'
+           + '<td>' + escapeHtml(r.office||'') + '</td>'
+           + '</tr>';
      }
      tbody += '</tbody></table>';
      tableWrap.innerHTML = renderDailyHeader() + tbody;
@@ -336,6 +337,21 @@ $role_label = !empty($user['role']) ? ucwords(str_replace('_',' ', $user['role']
   }
 
   function escapeHtml(s){ return (s===null||s===undefined)?'': String(s).replace(/[&<>"']/g, function(m){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]; }); }
+
+  // format 'YYYY-MM-DD' or similar into 'MM-DD-YYYY'
+  function formatDateToMMDDYYYY(v){
+    if (!v) return '';
+    // if already in YYYY-MM-DD
+    const m = String(v).trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (m) return m[2] + '-' + m[3] + '-' + m[1];
+    // fallback: try Date parse and format
+    const d = new Date(v);
+    if (isNaN(d.getTime())) return String(v);
+    const mm = String(d.getMonth()+1).padStart(2,'0');
+    const dd = String(d.getDate()).padStart(2,'0');
+    const yyyy = d.getFullYear();
+    return mm + '-' + dd + '-' + yyyy;
+  }
 
   // initial load: render headers and load daily data only
   loadForDate();
