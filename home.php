@@ -5,9 +5,12 @@
     <link rel="stylesheet" href="stylenibilog.css" />
     <title>OJT-MS HOME</title>
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700;900&display=swap" rel="stylesheet">
-</head>
 
-<body>    
+
+
+  </head>
+
+<body style="background-color:#e6f2ff;">
 <nav class="navbar" role="navigation">
   <div class="nav-container">
     <a class="logo" href="about.php">OJT-MS</a>
@@ -169,23 +172,12 @@
             </div>
 
             <!-- Requirements + Date -->
-            <div style="display:flex; align-items:center; width:100%; margin-top:-2px;">
-                <div style="flex:1;"></div>
-
-                <div style="flex:0;">
-                    <button class="secondbtn">
-                        <a style="color:#3a4163; text-decoration:none;" href="requirements.html">
-                            Requirements
-                        </a>
-                    </button>
-                </div>
-
-                <div style="flex:1; display:flex; justify-content:flex-end;">
-                    <p class="date" 
-                       style="margin:0 4px 0 0; font-weight:bolder; color:#3a4163; font-size:15px; padding:6px 10px; background-color:#e6f2ff; display:inline-block;">
-                       October 12, 2025
-                    </p>
-                </div>
+            <div style="display:flex; justify-content:center; width:100%; margin-top:-2px;">
+              <button class="secondbtn">
+                <a style="color:#3a4163; text-decoration:none;" href="requirements.html">
+                  Requirements
+                </a>
+              </button>
             </div>
         </div>
     </div>

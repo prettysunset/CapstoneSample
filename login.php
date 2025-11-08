@@ -73,61 +73,107 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 body {
     font-family: 'Poppins', sans-serif;
     margin: 0;
-    padding: 0;
+    padding: 0;  /* removed padding-top */
     background-color: #e6f2ff;
     color: #333;
-    padding-top: 90px;
 }
 
-/* Navbar */
+/* Navbar stays the same */
 .navbar {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    background-color: rgba(230,242,255,0.98);
-    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-    z-index: 9999;
-}
-.navbar .container {
-    max-width: 1100px;
-    margin: 0 auto;
     width: 100%;
     display: flex;
-    justify-content: space-between;
+    justify-content: center;
+    background: rgba(255, 255, 255, 0.85);
+    backdrop-filter: blur(10px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+    border-radius: 20px;
+    padding: 10px 25px;
+    margin: 20px auto;  /* this sets the same spacing as other pages */
+    transition: all 0.3s ease;
+}
+
+
+.nav-container {
+    width: 100%;
+    max-width: 1100px;
+    display: flex;
     align-items: center;
-    padding: 18px 20px;
+    justify-content: space-between;
 }
+
 .logo {
-    font-weight: bold;
+    font-weight: 900;
+    font-size: 1.6rem;
+    letter-spacing: 1px;
     text-decoration: none;
-    color: #3a4163;
+    color: #344265;
+    transition: color 0.3s ease;
 }
+
 .logo:hover {
-    background: none;
-    color: #3a4163;
+    color: #4a6ff3;
 }
+
 .nav-links {
     display: flex;
     list-style: none;
-    gap: 15px;
+    gap: 25px;
     margin: 0;
     padding: 0;
     align-items: center;
 }
+
 .nav-links li {
-    cursor: pointer;
-    padding: 5px 15px;
+    position: relative;
 }
+
 .nav-links a {
     text-decoration: none;
     color: #3a4163;
+    font-weight: 500;
+    font-size: 0.95rem;
+    padding: 8px 15px;
+    border-radius: 10px;
+    transition: all 0.3s ease;
 }
+
+/* Hover underline animation */
+.nav-links a::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    bottom: 0;
+    transform: translateX(-50%) scaleX(0);
+    transform-origin: center;
+    width: 60%;
+    height: 2px;
+    background-color: #4a6ff3;
+    transition: transform 0.3s ease;
+}
+
+.nav-links a:hover::after {
+    transform: translateX(-50%) scaleX(1);
+}
+
 .nav-links a:hover {
-    background-color: #3a4163;
+    color: #4a6ff3;
+    background-color: rgba(74, 111, 243, 0.1);
+}
+
+/* Login button in navbar */
+.nav-links .login a {
+    background-color: #344265;
     color: white;
-    border-radius: 15px;
-    padding: 5px 15px;
+    border-radius: 25px;
+    font-weight: 600;
+    box-shadow: 0 2px 6px rgba(74, 111, 243, 0.3);
+    transition: all 0.3s ease;
+    padding: 8px 20px;
+}
+
+.nav-links .login a:hover {
+    background-color: #344265;
+    box-shadow: 0 2px 8px rgba(52, 66, 101, 0.4);
 }
 
 /* Login section */
@@ -218,8 +264,26 @@ button[type="submit"]:hover {
 }
 
 /* Responsive */
+@media (max-width: 700px) {
+    .nav-container {
+        flex-direction: column;
+        gap: 10px;
+    }
+    .nav-links {
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 15px;
+    }
+    .navbar {
+        margin: 10px auto;
+        padding: 15px;
+        border-radius: 15px;
+    }
+}
+
+/* Additional responsive tweaks for login layout */
 @media (max-width: 720px) {
-    .navbar .container {
+    .nav-container {
         padding: 12px;
     }
     .nav-links {
@@ -233,17 +297,19 @@ button[type="submit"]:hover {
 </head>
 <body>
 
-<div class="navbar">
-    <div class="container">
-        <h1><a class="logo" href="about.php">OJT-MS</a></h1>
-        <div class="nav-links">
-            <li><a href="home.php">Home</a></li>
-            <li><a href="about.php">About</a></li>
-            <li><a href="contacts.php">Contacts</a></li>
-            <li><a href="offices.php">Offices</a></li>
-        </div>
-    </div>
-</div>
+<nav class="navbar" role="navigation">
+  <div class="nav-container">
+    <a class="logo" href="about.php">OJT-MS</a>
+
+    <ul class="nav-links">
+      <li><a href="home.php">Home</a></li>
+      <li><a href="about.php">About</a></li>
+      <li><a href="contacts.php">Contacts</a></li>
+      <li><a href="offices.php">Offices</a></li>
+      <li class="login"><a href="login.php">Login</a></li>
+    </ul>
+  </div>
+</nav>
 
 <div class="header-container" style="background-image: url('123456.png'); background-size: cover; background-position: center; background-repeat: no-repeat; min-height: calc(100vh - 90px);">
     <div class="login-box">

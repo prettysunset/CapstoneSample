@@ -1,134 +1,190 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  
-  <title>Internship Requirements - Malolos City Hall</title>
-  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700;900&display=swap" rel="stylesheet" />
-  <style>
-    body {
-      font-family: 'Poppins', sans-serif;
-      margin: 0;
-      padding: 0;
-      background-color: #e6f2ff;
-      color: #333;
-    }
-    .navbar {
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Internship Requirements - Malolos City Hall</title>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700;900&display=swap" rel="stylesheet" />
+<style>
+body {
+    font-family: 'Poppins', sans-serif;
+    margin: 0;
+    padding: 0;
+    background-color: #e6f2ff;
+    color: #333;
+}
+
+/* ✅ Modern Centered Navbar (match why.html) */
+.navbar {
+    width: 100%;
     display: flex;
-    justify-content: space-between; /* logo left, links right */
-    align-items: center;           /* vertical alignment */
-    margin: 22px 33px;             /* top-bottom: 22px, left-right: 33px */
+    justify-content: center;
+    background: rgba(255, 255, 255, 0.85);
+    backdrop-filter: blur(10px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+    border-radius: 20px;
+    padding: 10px 25px;
+    margin: 20px auto;
+    transition: all 0.3s ease;
+}
+
+.nav-container {
+    width: 100%;
+    max-width: 1100px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
 }
 
 .logo {
-    font-weight: bold;
+    font-weight: 900;
+    font-size: 1.6rem;
+    letter-spacing: 1px;
     text-decoration: none;
-    color: #3a4163;
+    color: #344265;
+    transition: color 0.3s ease;
 }
 
 .logo:hover {
-    background: none;
-    color: #3a4163; /* no hover effect */
-    padding: 0;
+    color: #4a6ff3;
 }
 
 .nav-links {
     display: flex;
     list-style: none;
-    gap: 15px;
-    margin: 0;  /* reset default */
+    gap: 25px;
+    margin: 0;
     padding: 0;
     align-items: center;
 }
 
 .nav-links li {
-    cursor: pointer;
-    padding: 5px 15px;
+    position: relative;
 }
 
 .nav-links a {
     text-decoration: none;
     color: #3a4163;
+    font-weight: 500;
+    font-size: 0.95rem;
+    padding: 8px 15px;
+    border-radius: 10px;
+    transition: all 0.3s ease;
 }
 
-/* Hover for normal links (exclude logo & login) */
+/* Hover underline animation */
+.nav-links a::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    bottom: 0;
+    transform: translateX(-50%) scaleX(0);
+    transform-origin: center;
+    width: 60%;
+    height: 2px;
+    background-color: #4a6ff3;
+    transition: transform 0.3s ease;
+}
+
+.nav-links a:hover::after {
+    transform: translateX(-50%) scaleX(1);
+}
+
 .nav-links a:hover {
-    background-color: #3a4163;
+    color: #4a6ff3;
+    background-color: rgba(74, 111, 243, 0.1);
+}
+
+/* Login button - exact why.html style */
+.nav-links .login a {
+    background-color: #344265;
     color: white;
-    border-radius: 15px;
-    padding: 5px 15px;
+    border-radius: 25px;
+    font-weight: 600;
+    box-shadow: 0 2px 6px rgba(74, 111, 243, 0.3);
+    transition: all 0.3s ease;
+    padding: 8px 20px;
 }
 
-/* Login button */
-.navbar li.login a {
-    color: white;
-    text-decoration: none;
-    display: inline-block;
-    padding: 5px 15px;
-    background-color: #3a4163;
-    border-radius: 15px;
-        font-weight: bold;
-    transition: background-color 0.3s;
+.nav-links .login a:hover {
+    background-color: #344265;
+    box-shadow: 0 2px 8px rgba(52, 66, 101, 0.4);
 }
 
-.navbar li.login a:hover {
-    background-color: #2a2f4f;
+/* Responsive Navbar */
+@media (max-width: 700px) {
+    .nav-container {
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .nav-links {
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 15px;
+    }
+
+    .navbar {
+        margin: 10px auto;
+        padding: 15px;
+        border-radius: 15px;
+    }
 }
 
-/* Active Home link */
-
-.header-container{
-    margin-bottom: 0%;
-
+/* Page Heading */
+h1 {
+    text-align: center;
+    padding: 25px 20px;
+    color: #2e3560;
+    font-weight: 700;
 }
-    h1 {
-      text-align: center;
-      padding: 25px 20px;
-      color: #2e3560;
-      font-weight: 700;
-    }
 
-    .requirements-container {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 20px;
-      max-width: 500px;
-      margin: 0 auto 60px auto;
-    }
+h1 span {
+    color: #3a4163;
+}
 
-    .requirement {
-      display: flex;
-      align-items: center;
-      justify-content: flex-start;
-      gap: 15px;
-      background: #f5f9ff;
-      padding: 15px 20px;
-      width:75%;
-      border-radius: 10px;
-      box-shadow: 0 3px 6px rgba(0, 0, 0, 0.05);
-      transition: transform 0.2s ease, box-shadow 0.2s ease;
-    }
+/* Requirements Section */
+.requirements-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 20px;
+    max-width: 500px;
+    margin: 0 auto 60px auto;
+}
 
-    .requirement:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
-    }
+.requirement {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 15px;
+    background: #f5f9ff;
+    padding: 15px 20px;
+    width:75%;
+    border-radius: 10px;
+    box-shadow: 0 3px 6px rgba(0, 0, 0, 0.05);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
 
-    .requirement img {
-      width: 24px;
-      height: 24px;
-    }
+.requirement:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+}
 
-    .requirement h4 {
-      margin: 0;
-      font-size: 16px;
-      font-weight: 600;
-      color: #000;
-    }
-    .mainbtn{
+.requirement img {
+    width: 24px;
+    height: 24px;
+}
+
+.requirement h4 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+    color: #000;
+}
+
+/* Apply Button */
+.mainbtn {
     background-color: #4a6ff3;
     color: white;
     border: none;
@@ -139,25 +195,33 @@
     font-weight: bold;
     margin-bottom: 10px;
 }
-  </style>
-</head>
 
+.mainbtn a {
+    color: white;
+    text-decoration: none;
+}
+</style>
+</head>
 <body>
 
-    <div class="navbar">
-        <h1><a class="logo" href="about.php">OJT-MS</a></h1>
+<!-- Navbar -->
+<nav class="navbar" role="navigation">
+  <div class="nav-container">
+    <a class="logo" href="about.php">OJT-MS</a>
 
-        <div class="nav-links">
-        <li><a href="home.php">Home</a></li>
-        <li><a href="about.php">About</a></li>
-        <li><a href="contacts.php">Contacts</a></li>
-        <li><a href="offices.php">Offices</a></li>
-        <li class="login"><a href="login.php">Login</a></li>
-        </div>
-    </div>
-  <h1 style="padding-top: 0%; color: #4a6ff3;">OJT <span style="color: #3a4163;">Requirements</span></h1>
+    <ul class="nav-links">
+      <li><a href="home.php">Home</a></li>
+      <li><a href="about.php">About</a></li>
+      <li><a href="contacts.php">Contacts</a></li>
+      <li><a href="offices.php">Offices</a></li>
+      <li class="login"><a href="login.php">Login</a></li>
+    </ul>
+  </div>
+</nav>
 
-  <div class="requirements-container">
+<h1>OJT <span>Requirements</span></h1>
+
+<div class="requirements-container">
     <div class="requirement">
       <img src="check.png" alt="checkbox" />
       <h4>Letter of Endorsement from School</h4>
@@ -177,9 +241,13 @@
       <img src="check.png" alt="checkbox" />
       <h4>Resume</h4>
     </div>
-  </div>
-            <center><button class="mainbtn"> <a style="color:white; text-decoration:none; padding-top: 5px;"href="application_form1.php ">Apply Now</a></style></button><br></center>
+</div>
+
+<center>
+    <button class="mainbtn">
+        <a href="application_form1.php">Apply Now</a>
+    </button>
+</center>
 
 </body>
-
 </html>

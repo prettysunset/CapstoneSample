@@ -1,8 +1,13 @@
+html {
+  scrollbar-gutter: stable;
+}
 body {
     font-family: 'Poppins';
     margin: 0;
     padding: 0;
     box-sizing: border-box;
+        background-color: #e6f2ff;
+
 }
 /* navbar.css */
 .navbar {
