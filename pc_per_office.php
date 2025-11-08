@@ -557,6 +557,12 @@ if ($office_id) {
       const p = password.value;
       if (!u || !p) { showMsg('Enter username and password', false); return; }
       btnIn.disabled = true; btnOut.disabled = true;
+
+      // clear fields immediately for the next user (keep u/p in local variables for the request)
+      username.value = '';
+      password.value = '';
+      username.focus();
+
       try {
         const form = new FormData();
         form.append('action', action);
@@ -577,7 +583,6 @@ if ($office_id) {
         console.log('pc_per_office response:', j); // DEBUG: open browser console
         if (j.success) {
           showMsg(j.message || (action==='time_in'?'Time in recorded':'Time out recorded'), true);
-          password.value = '';
         } else {
           // show debug tag if present for quick troubleshooting
           const extra = j.debug ? (' — ' + j.debug + (j.stored_preview ? ' ('+j.stored_preview+')' : '')) : '';
