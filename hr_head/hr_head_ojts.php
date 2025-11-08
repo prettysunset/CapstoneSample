@@ -360,7 +360,7 @@ if ($moa_q) {
                 <path d="M21 21l-4.35-4.35" stroke="#666" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                 <circle cx="11" cy="11" r="6" stroke="#666" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
               </svg>
-              <input type="text" id="searchInput" placeholder="Search name / office / school / course" aria-label="Search" style="border:0;background:transparent;outline:none;padding:6px 4px;font-size:15px;flex:1;min-width:0;">
+              <input type="text" id="searchInput" placeholder="Search name /  school / course" aria-label="Search" style="border:0;background:transparent;outline:none;padding:6px 4px;font-size:15px;flex:1;min-width:0;">
             </div>
             <select id="officeFilter" aria-label="Filter by office" style="padding:8px 10px;border-radius:8px;border:1px solid #ccc;background:#f7f8fc;font-size:15px;flex:0 0 220px;">
               <option value="">Office</option>

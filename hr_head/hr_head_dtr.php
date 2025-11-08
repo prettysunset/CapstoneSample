@@ -18,6 +18,18 @@ $user = $stmtUser->get_result()->fetch_assoc() ?: [];
 $stmtUser->close();
 $full_name = trim(($user['first_name'] ?? '') . ' ' . ($user['middle_name'] ?? '') . ' ' . ($user['last_name'] ?? ''));
 $role_label = !empty($user['role']) ? ucwords(str_replace('_',' ', $user['role'])) : 'User';
+
+// add same datetime variables as OJTs
+$current_time = date("g:i A");
+$current_date = date("l, F j, Y");
+
+// fetch distinct offices for dropdown
+$stmtOff = $conn->prepare("SELECT DISTINCT office_name FROM users WHERE office_name IS NOT NULL AND office_name <> '' ORDER BY office_name");
+$stmtOff->execute();
+$resOff = $stmtOff->get_result();
+$offices = [];
+while ($r = $resOff->fetch_assoc()) $offices[] = $r['office_name'];
+$stmtOff->close();
 ?>
 <!doctype html>
 <html lang="en">
@@ -127,85 +139,81 @@ $role_label = !empty($user['role']) ? ucwords(str_replace('_',' ', $user['role']
         Reports
       </a>
     </div>
-    <div style="margin-top:auto;font-weight:700">OJT-MS</div>
+    <div style="margin-top:auto;padding:18px 0;width:100%;text-align:center;">
+      <p style="margin:0;font-weight:600">OJT-MS</p>
+    </div>
   </div>
  
   <main class="main" role="main">
-    <!-- top-right outline icons: notifications, settings, logout
-         NOTE: removed position:fixed to prevent overlapping; icons now flow with page
-         and stay visible. -->
+    <!-- top-right outline icons: notifications, calendar (display only), settings, logout -->
     <div id="top-icons" style="display:flex;justify-content:flex-end;gap:14px;align-items:center;margin:8px 0 12px 0;z-index:50;">
         <a href="notifications.php" title="Notifications" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 17h5l-1.405-1.405A2.032 2.032 0 0 1 18 14.158V11a6 6 0 1 0-12 0v3.159c0 .538-.214 1.055-.595 1.436L4 17h5"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
         </a>
+
+        <!-- calendar icon (display only, non-clickable) - placed to match OJTs -->
+        <div title="Calendar (display only)" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;background:transparent;pointer-events:none;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+        </div>
+
         <a href="settings.php" title="Settings" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82L4.3 4.46a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09c0 .64.38 1.2 1 1.51h.09a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.64.3 1.03.87 1.03 1.51V12c0 .64-.39 1.21-1.03 1.51z"></path></svg>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06A2 2 0 1 1 2.28 16.8l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09c.7 0 1.3-.4 1.51-1A1.65 1.65 0 0 0 4.27 6.3L4.2 6.23A2 2 0 1 1 6 3.4l.06.06c.5.5 1.2.7 1.82.33.7-.4 1.51-.4 2.21 0 .62.37 1.32.17 1.82-.33L12.6 3.4a2 2 0 1 1 1.72 3.82l-.06.06c-.5.5-.7 1.2-.33 1.82.4.7.4 1.51 0 2.21-.37.62-.17 1.32.33 1.82l.06.06A2 2 0 1 1 19.4 15z"></path></svg>
         </a>
-        <a id="top-logout" href="/logout.php" title="Logout" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;">
+        <a id="top-logout" href="../logout.php" title="Logout" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
         </a>
     </div>
-    <div class="top-bar">
-      <div style="display:flex;flex-direction:column;justify-content:center">
-      <div style="font-size:22px;color:#2f3850;font-weight:700;line-height:1"><?= date('g:i A') ?></div>
-      <div style="color:#6d6d6d;margin-top:4px"><?= date('F j, Y') ?></div>
-      </div>
+
+    <!-- place datetime in same location/markup as OJTs -->
+    <div class="top-section">
+        <div>
+            <div class="datetime">
+                <h2><?= htmlspecialchars($current_time) ?></h2>
+                <p><?= htmlspecialchars($current_date) ?></p>
             </div>
+        </div>
     </div>
 
-    <div style="display:flex;flex-direction:column;gap:12px;">
-      <div class="tabs" role="tablist" aria-label="DTR Tabs"
-         style="display:flex;justify-content:center;align-items:flex-end;gap:24px;font-size:18px;border-bottom:2px solid #eee;padding-bottom:12px;position:relative;">
-      <!-- Only Daily Logs retained -->
-      <div style="font-size:18px;font-weight:700;color:#2f3850">Daily Logs</div>
-       </div>
-    </div>
-
-  <script>
-  (function(){
-    const tabsEl = document.querySelector('.tabs');
-    if (!tabsEl) return;
-    const underline = tabsEl.querySelector('.tab-underline');
-    const tabs = Array.from(tabsEl.querySelectorAll('.tab'));
-
-    function updateUnderline(){
-    const active = tabsEl.querySelector('.tab.active') || tabs[0];
-    if(!active || !underline) return;
-    const parentRect = tabsEl.getBoundingClientRect();
-    const rect = active.getBoundingClientRect();
-    underline.style.left = (rect.left - parentRect.left) + 'px';
-    underline.style.width = rect.width + 'px';
-    }
-
-    // ensure underline positions correctly on init, resize and load
-    updateUnderline();
-    window.addEventListener('resize', updateUnderline);
-    window.addEventListener('load', updateUnderline);
-
-    // keep aria-selected and active class in sync and update underline when tabs clicked
-    tabs.forEach(t=>{
-    t.addEventListener('click', () => {
-      tabs.forEach(x => { x.classList.remove('active'); x.setAttribute('aria-selected','false'); });
-      t.classList.add('active');
-      t.setAttribute('aria-selected','true');
-      updateUnderline();
-    });
-    });
-  })();
-  </script>
+    <div class="table-container">
+      <div style="display:flex;flex-direction:column;gap:12px;">
+        <div class="tabs" role="tablist" aria-label="DTR Tabs"
+           style="display:flex;justify-content:center;align-items:flex-end;gap:24px;font-size:18px;border-bottom:2px solid #eee;padding-bottom:12px;position:relative;">
+          <!-- Only Daily Logs retained -->
+          <div style="font-size:18px;font-weight:700;color:#2f3850">Daily Logs</div>
+        </div>
+      </div>
 
       <div id="panel-daily" class="panel" style="display:block">
         <div class="controls" style="margin-bottom:16px">
           <label for="dtrDate" style="font-weight:600">Date</label>
           <input type="date" id="dtrDate">
-          <button id="btnReload" type="button" title="Load" aria-label="Load" style="border:none;background:#e6f2ff;color:#black;padding:8px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;opacity:0;pointer-events:none">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="color:inherit">
-              <polyline points="23 4 23 10 17 10"></polyline>
-              <polyline points="1 20 1 14 7 14"></polyline>
-              <path d="M3.51 9a9 9 0 0 1 14.13-3.36L23 10"></path>
-              <path d="M20.49 15a9 9 0 0 1-14.13 3.36L1 14"></path>
-            </svg>
-          </button>
+
+          <!-- office filter dropdown -->
+          <label for="officeFilter" style="font-weight:600;margin-left:12px">Office</label>
+          <select id="officeFilter" style="padding:10px;border:1px solid #ddd;border-radius:8px">
+            <option value="all">All offices</option>
+            <?php foreach($offices as $o): ?>
+              <option value="<?php echo htmlspecialchars($o); ?>"><?php echo htmlspecialchars($o); ?></option>
+            <?php endforeach; ?>
+          </select>
+
+          <!-- sort controls -->
+          <label for="sortBy" style="font-weight:600;margin-left:12px">Sort by</label>
+          <select id="sortBy" style="padding:10px;border:1px solid #ddd;border-radius:8px">
+            <option value="none">None</option>
+            <option value="am_in">A.M. Arrival</option>
+            <option value="am_out">A.M. Departure</option>
+            <option value="pm_in">P.M. Arrival</option>
+            <option value="pm_out">P.M. Departure</option>
+          </select>
+
+          <select id="sortDir" style="padding:10px;border:1px solid #ddd;border-radius:8px;margin-left:6px">
+            <option value="asc">Asc</option>
+            <option value="desc">Desc</option>
+          </select>
+
+          <!-- reload button removed: table updates automatically when controls change -->
+ 
           <div style="flex:1"></div>
           <div style="position:relative;display:inline-block">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"
@@ -213,7 +221,7 @@ $role_label = !empty($user['role']) ? ucwords(str_replace('_',' ', $user['role']
               <circle cx="11" cy="11" r="6"></circle>
               <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
             </svg>
-            <input type="text" id="search" placeholder="Search name / office / course"
+            <input type="text" id="search" placeholder="Search name / course"
                    style="width:280px;padding:10px 10px 10px 36px;border:1px solid #ddd;border-radius:8px">
           </div>
         </div>
@@ -225,7 +233,7 @@ $role_label = !empty($user['role']) ? ucwords(str_replace('_',' ', $user['role']
       </div>
 
       <!-- (Late / Reports UI removed — single Daily Logs view) -->
-    </div>
+    </div> <!-- /.table-container -->
   </main>
 
 <script>
@@ -242,9 +250,11 @@ $role_label = !empty($user['role']) ? ucwords(str_replace('_',' ', $user['role']
 
   // controls + elements
   const dateInput = document.getElementById('dtrDate');
-  const btn = document.getElementById('btnReload');
   const tableWrap = document.getElementById('tableWrap');
   const search = document.getElementById('search');
+  const officeFilter = document.getElementById('officeFilter');
+  const sortBy = document.getElementById('sortBy');
+  const sortDir = document.getElementById('sortDir');
 
   const today = new Date().toISOString().slice(0,10);
   dateInput.value = today;
@@ -253,28 +263,67 @@ $role_label = !empty($user['role']) ? ucwords(str_replace('_',' ', $user['role']
   dateInput.addEventListener('change', loadForDate);
   // support Enter key as well
   dateInput.addEventListener('keydown', (e)=>{ if(e.key==='Enter') loadForDate(); });
-  // keep reload button as a fallback
-  btn.addEventListener('click', loadForDate);
   search.addEventListener('input', filterRows);
+  officeFilter.addEventListener('change', loadForDate);
+  sortBy.addEventListener('change', loadForDate);
+  sortDir.addEventListener('change', loadForDate);
 
   // DAILY: always render headers; fill rows if backend returns data
   async function loadForDate(){
     const dt = dateInput.value || today;
-    // render header immediately with empty tbody (no "Loading…" row)
+    const office = (officeFilter && officeFilter.value) ? officeFilter.value : 'all';
+    const sortKey = (sortBy && sortBy.value) ? sortBy.value : 'none';
+    const dir = (sortDir && sortDir.value === 'desc') ? -1 : 1;
+
+    // render header immediately with empty tbody
     tableWrap.innerHTML = renderDailyHeader() + '<tbody id="dtrRows"></tbody></table>';
+
     try {
+      // request only by date; apply office filter & sort on client
       const res = await fetch('../hr_actions.php', {
         method:'POST',
         headers:{'Content-Type':'application/json'},
         body: JSON.stringify({ action: 'get_dtr_by_date', date: dt })
       });
       const json = await res.json();
-      const rows = (json && json.success) ? (json.rows || []) : [];
+      let rows = (json && json.success) ? (json.rows || []) : [];
+
+      // client-side office filter (exact match, case-insensitive)
+      if (office && office !== 'all') {
+        const offLower = String(office).toLowerCase();
+        rows = rows.filter(r => String(r.office || '').toLowerCase() === offLower);
+      }
+
+      // client-side sort by selected time column (am_in, am_out, pm_in, pm_out)
+      if (sortKey && sortKey !== 'none') {
+        rows.sort((a,b)=>{
+          const va = timeToMinutes(a[sortKey] || '');
+          const vb = timeToMinutes(b[sortKey] || '');
+          return (va - vb) * dir;
+        });
+      }
+
       renderDailyRows(rows, dt);
+      // re-apply current search filter after new rows are rendered
+      filterRows();
     } catch (err) {
-      // backend not available or failed — show empty table with message
+      // backend failed — show empty table (renderDailyRows handles empty)
       renderDailyRows([], dt);
+      filterRows();
     }
+  }
+
+  // parse "hh:mm AM/PM" (or "HH:MM") into minutes since midnight; empty/invalid -> large value
+  function timeToMinutes(t){
+    if (!t) return 24*60 + 1;
+    const s = String(t).trim();
+    const m = s.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i);
+    if (!m) return 24*60 + 1;
+    let hh = parseInt(m[1],10), mm = parseInt(m[2],10);
+    const ap = (m[3]||'').toUpperCase();
+    if (ap === 'PM' && hh < 12) hh += 12;
+    if (ap === 'AM' && hh === 12) hh = 0;
+    return hh*60 + mm;
   }
 
   function renderDailyHeader(){
@@ -356,6 +405,20 @@ $role_label = !empty($user['role']) ? ucwords(str_replace('_',' ', $user['role']
   // initial load: render headers and load daily data only
   loadForDate();
 })();
+</script>
+
+<script>
+  // attach confirm to top logout like hr_head_ojts.php
+  (function(){
+    const logoutBtn = document.getElementById('top-logout');
+    if (!logoutBtn) return;
+    logoutBtn.addEventListener('click', function(e){
+      e.preventDefault();
+      if (confirm('Are you sure you want to logout?')) {
+        window.location.href = this.getAttribute('href');
+      }
+    });
+  })();
 </script>
 </body>
 </html>
