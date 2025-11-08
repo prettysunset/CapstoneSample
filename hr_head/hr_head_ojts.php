@@ -308,8 +308,14 @@ if ($moa_q) {
       <a href="notifications.php" title="Notifications" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 17h5l-1.405-1.405A2.032 2.032 0 0 1 18 14.158V11a6 6 0 1 0-12 0v3.159c0 .538-.214 1.055-.595 1.436L4 17h5"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
       </a>
+
+      <!-- calendar icon (display only, non-clickable) -->
+      <div title="Calendar (display only)" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;background:transparent;pointer-events:none;">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+      </div>
+
       <a href="settings.php" title="Settings" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82L4.3 4.46a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09c0 .64.38 1.2 1 1.51h.09a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.64.3 1.03.87 1.03 1.51V12c0 .64-.39 1.21-1.03 1.51z"></path></svg>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06A2 2 0 1 1 2.28 16.8l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09c.7 0 1.3-.4 1.51-1A1.65 1.65 0 0 0 4.27 6.3L4.2 6.23A2 2 0 1 1 6 3.4l.06.06c.5.5 1.2.7 1.82.33.7-.4 1.51-.4 2.21 0 .62.37 1.32.17 1.82-.33L12.6 3.4a2 2 0 1 1 1.72 3.82l-.06.06c-.5.5-.7 1.2-.33 1.82.4.7.4 1.51 0 2.21-.37.62-.17 1.32.33 1.82l.06.06A2 2 0 1 1 19.4 15z"></path></svg>
       </a>
       <a id="top-logout" href="/logout.php" title="Logout" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
@@ -348,44 +354,31 @@ if ($moa_q) {
           <path d="M21 21l-4.35-4.35" stroke="#666" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
           <circle cx="11" cy="11" r="6" stroke="#666" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
-        <input type="text" id="searchInput" placeholder="Search" aria-label="Search" style="border:0;background:transparent;outline:none;padding:6px 4px;font-size:15px;flex:0 0 50%;width:50%;min-width:0;max-width:50%;"
+        <input type="text" id="searchInput" placeholder="Search name / office / school / course" aria-label="Search" style="border:0;background:transparent;outline:none;padding:6px 4px;font-size:15px;flex:1;min-width:0;"
                onfocus="this.style.outline='3px solid #2f3850';this.style.outlineOffset='2px';this.parentElement.style.boxShadow='0 0 0 3px rgba(47,56,80,0.08)';"
                onblur="this.style.outline='';this.style.outlineOffset='';this.parentElement.style.boxShadow='';">
           </div>
 
-          <!-- Year filter -->
-          <select id="yearFilter" aria-label="Filter by year" style="padding:8px 10px;border-radius:8px;border:1px solid #ccc;background:#f7f8fc;font-size:15px;flex:0 0 110px;"
+          <!-- Office filter (replaced Year) -->
+          <select id="officeFilter" aria-label="Filter by office" style="padding:8px 10px;border-radius:8px;border:1px solid #ccc;background:#f7f8fc;font-size:15px;flex:0 0 220px;"
             onfocus="this.style.outline='3px solid #2f3850';this.style.outlineOffset='2px';this.style.boxShadow='0 0 0 3px rgba(47,56,80,0.08)';"
             onblur="this.style.outline='';this.style.outlineOffset='';this.style.boxShadow='';">
-        <option value="">Year</option>
-        <option value="1">1</option>
-        <option value="2">2</option>
-        <option value="3">3</option>
-        <option value="4">4</option>
+            <option value="">Office</option>
+            <?php foreach ($offices_for_requests as $of): ?>
+              <option value="<?php echo htmlspecialchars($of['office_name']); ?>"><?php echo htmlspecialchars($of['office_name']); ?></option>
+            <?php endforeach; ?>
             </select>
 
-            <!-- Sort by with icon inside the select (icon absolutely positioned) -->
-            <div style="flex:0 0 220px;position:relative;display:inline-block;">
-            <select id="sortBy" aria-label="Sort by" style="padding:8px 40px 8px 12px;border-radius:8px;border:1px solid #ccc;background:#f7f8fc;font-size:15px;width:100%;box-sizing:border-box;appearance:none;-webkit-appearance:none;-moz-appearance:none;cursor:pointer;"
+            <!-- Status filter (replaced Sort) -->
+            <div style="flex:0 0 180px;position:relative;display:inline-block;">
+            <select id="statusFilter" aria-label="Filter by status" style="padding:8px 12px;border-radius:8px;border:1px solid #ccc;background:#f7f8fc;font-size:15px;width:100%;box-sizing:border-box;cursor:pointer;"
               onfocus="this.style.outline='3px solid #2f3850';this.style.outlineOffset='2px';this.style.boxShadow='0 0 0 3px rgba(47,56,80,0.08)';"
               onblur="this.style.outline='';this.style.outlineOffset='';this.style.boxShadow='';">
-              <option value="">Sort by</option>
-              <option value="name">Name</option>
-              <option value="office">Office</option>
-              <option value="school">School</option>
-              <option value="course">Course</option>
-              <option value="year">Year Level</option>
-              <option value="hours">Hours</option>
-              <option value="status">Status</option>
+              <option value="">Status</option>
+              <option value="approved">Approved</option>
+              <option value="ongoing">Ongoing</option>
+              <option value="completed">Completed</option>
             </select>
-            <div aria-hidden="true" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);pointer-events:none;display:flex;align-items:center;justify-content:center;width:24px;height:24px;">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" focusable="false">
-              <path d="M6 9h12" stroke="#666" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-              <path d="M6 15h8" stroke="#666" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-              <path d="M10 5l-4 4" stroke="#666" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-              <path d="M14 19l4-4" stroke="#666" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
-            </div>
             </div>
           </div>
           </div>
@@ -901,6 +894,69 @@ if ($moa_q) {
       circle.style.strokeDashoffset = offset;
       document.getElementById('view_percent').textContent = Math.round(percent) + '%';
     }
+
+  // filter/search for #ojtTable: name, office, school, course + office dropdown + status dropdown
+  const searchInput = document.getElementById('searchInput');
+  const officeFilter = document.getElementById('officeFilter');
+  const statusFilter = document.getElementById('statusFilter');
+  const tbody = document.querySelector('#ojtTable tbody');
+  if (!tbody) return;
+
+  const norm = s => (s||'').toString().toLowerCase().trim();
+
+  // derive status from row: use explicit Status cell AND Hours cell to decide ongoing/completed
+  function deriveStatus(tr){
+    const statusCell = norm(tr.children[6]?.textContent || '');
+    const hoursText = (tr.children[5]?.textContent || '');
+    const m = hoursText.match(/(\d+)\s*\/\s*(\d+)/);
+    let rendered = 0, required = 0;
+    if (m) { rendered = parseInt(m[1],10) || 0; required = parseInt(m[2],10) || 0; }
+    if (required > 0 && rendered >= required) return 'completed';
+    if (statusCell === 'approved') {
+      if (rendered > 0 && rendered < required) return 'ongoing';
+      return 'approved';
+    }
+    return statusCell; // e.g. 'rejected' or other labels
+  }
+
+  function filterRows(){
+    const q = norm(searchInput?.value || '');
+    const office = norm(officeFilter?.value || '');
+    const status = norm(statusFilter?.value || '');
+
+    const rows = Array.from(tbody.querySelectorAll('tr'));
+    let anyVisible = false;
+    rows.forEach(tr => {
+      // placeholder empty row handling (hide until no matches)
+      if (tr.classList.contains('empty')) { tr.style.display = 'none'; return; }
+
+      const cells = tr.children;
+      const name = norm(cells[0]?.textContent || '');
+      const officeCell = norm(cells[1]?.textContent || '');
+      const school = norm(cells[2]?.textContent || '');
+      const course = norm(cells[3]?.textContent || '');
+      const derived = deriveStatus(tr);
+
+      const matchesQuery = !q || name.includes(q) || officeCell.includes(q) || school.includes(q) || course.includes(q);
+      const matchesOffice = !office || office === officeCell || officeCell.includes(office);
+      const matchesStatus = !status || status === derived || status === norm(cells[6]?.textContent || '');
+
+      const show = matchesQuery && matchesOffice && matchesStatus;
+      tr.style.display = show ? '' : 'none';
+      if (show) anyVisible = true;
+    });
+
+    // show placeholder row if no matches
+    const placeholder = tbody.querySelector('tr.empty');
+    if (placeholder) placeholder.style.display = anyVisible ? 'none' : '';
+  }
+
+  if (searchInput) searchInput.addEventListener('input', filterRows);
+  if (officeFilter) officeFilter.addEventListener('change', filterRows);
+  if (statusFilter) statusFilter.addEventListener('change', filterRows);
+
+  // initial run
+  filterRows();
 })();
 </script>
 </body>
