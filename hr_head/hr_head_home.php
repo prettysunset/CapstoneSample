@@ -369,27 +369,66 @@ $stmtCount = $conn->prepare("
 
     <!-- Right column: slot availability (wider, slightly reduced vertical spacing) -->
     <div style="flex:1 1 0%;min-width:420px;">
-      <div class="table-container" style="padding:8px;">
-        <h3 style="margin:0 0 8px 0; background:#3a4163;padding:8px;border-radius:8px; color:#fff">OJT Slot Availability by Office</h3>
+      <div class="table-container office-availability" style="padding:8px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px">
+          <h3 style="margin:0; background:#3a4163;padding:8px;border-radius:8px; color:#fff">OJT Slot Availability by Office</h3>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input id="officeSearch" type="text" placeholder="Search office..." style="padding:8px 10px;border:1px solid #ddd;border-radius:8px;width:220px" />
+            <select id="officeStatusFilter" style="padding:8px;border:1px solid #ddd;border-radius:8px;background:#fff">
+              <option value="active" selected>Active</option>
+              <option value="full">Full</option>
+              <option value="all">All</option>
+            </select>
+          </div>
+        </div>
 
         <?php if (empty($offices)): ?>
             <div class="empty">No offices found.</div>
         <?php else: ?>
-            <table style="width:100%;border-collapse:collapse;font-size:13px">
-                 <thead>
-                     <tr>
-                        <th style="text-align:left;padding:6px">Office</th>
-                        <th style="padding:6px">Capacity</th>
-                        <th style="padding:6px">Active OJTs</th>
-                        <th style="padding:6px">Available Slot</th>
-                        <th style="padding:6px">Status</th>
-                     </tr>
-                 </thead>
-                 <tbody>
+            <!-- Header table (keeps header fixed/aligned) -->
+            <table id="officeHeadTable" style="width:100%;border-collapse:collapse;font-size:13px;table-layout:fixed;margin:0 0 0 0;">
+              <colgroup>
+                <col style="width:45%">
+                <col style="width:12%">
+                <col style="width:12%">
+                <col style="width:12%">
+                <col style="width:19%">
+              </colgroup>
+              <thead>
+                <tr>
+                  <th style="text-align:left;padding:6px;border:1px solid #eee;background:#fff5f8">Office</th>
+                  <th style="padding:6px;border:1px solid #eee;background:#fff5f8;text-align:center">Capacity</th>
+                  <th style="padding:6px;border:1px solid #eee;background:#fff5f8;text-align:center">Active OJTs</th>
+                  <th style="padding:6px;border:1px solid #eee;background:#fff5f8;text-align:center">Available Slot</th>
+                  <th style="padding:6px;border:1px solid #eee;background:#fff5f8;text-align:center">Status</th>
+                </tr>
+              </thead>
+            </table>
+
+            <!-- Scrollable tbody container with a matching table -->
+            <!-- body height = exactly 5 rows (th NOT counted) -->
+            <div id="officeBodyWrap" style="height:calc(48px * 5);min-height:calc(48px * 5);overflow:auto;">
+              <table id="officeBodyTable" style="width:100%;border-collapse:collapse;font-size:13px;table-layout:fixed;margin:0;">
+                <colgroup>
+                  <col style="width:45%">
+                  <col style="width:12%">
+                  <col style="width:12%">
+                  <col style="width:12%">
+                  <col style="width:19%">
+                </colgroup>
+                <tbody id="officesBody">
                 <?php foreach ($offices as $o):
-                    // support either 'capacity' or 'current_limit' depending on how $offices was built
-                    $cap = isset($o['capacity']) ? (int)$o['capacity'] : (isset($o['current_limit']) ? (int)$o['current_limit'] : null);
-                    $filled = isset($o['filled']) ? (int)$o['filled'] : 0;
+                    // get filled count per office (prepared stmtCount exists)
+                    $filled = 0;
+                    if ($stmtCount) {
+                        $stmtCount->bind_param('ii', $o['office_id'], $o['office_id']);
+                        $stmtCount->execute();
+                        $stmtCount->bind_result($filledTemp);
+                        $stmtCount->fetch();
+                        $filled = (int)($filledTemp ?? 0);
+                        $stmtCount->free_result(); // free result so next bind works
+                    }
+                    $cap = isset($o['capacity']) ? (int)$o['capacity'] : null;
 
                     if ($cap === null) {
                         $availableDisplay = '—';
@@ -398,7 +437,6 @@ $stmtCount = $conn->prepare("
                     } else {
                         $availableNum = max(0, $cap - $filled);
                         $availableDisplay = $availableNum;
-                        // EXACT condition: if available is zero => Full; otherwise Open
                         if ($availableNum === 0) {
                             $statusLabel = 'Full';
                             $statusClass = 'status-full';
@@ -408,26 +446,115 @@ $stmtCount = $conn->prepare("
                         }
                     }
                 ?>
-                  <tr data-search="<?= htmlspecialchars(strtolower($o['office_name'] ?? '')) ?>">
-                    <td style="padding:6px"><?= htmlspecialchars($o['office_name'] ?? '—') ?></td>
-                    <td style="text-align:center;padding:6px"><?= $cap === null ? '—' : $cap ?></td>
-                    <td style="text-align:center;padding:6px"><?= $filled ?></td>
-                    <td style="text-align:center;padding:6px"><?= htmlspecialchars((string)$availableDisplay) ?></td>
-                    <td style="text-align:center;padding:6px"><span class="<?= $statusClass ?>"><?= htmlspecialchars($statusLabel) ?></span></td>
+                  <tr data-office="<?= htmlspecialchars(strtolower($o['office_name'] ?? '')) ?>">
+                    <td style="padding:6px;border:1px solid #eee;"><?= htmlspecialchars($o['office_name'] ?? '—') ?></td>
+                    <td style="text-align:center;padding:6px;border:1px solid #eee"><?= $cap === null ? '—' : $cap ?></td>
+                    <td style="text-align:center;padding:6px;border:1px solid #eee"><?= $filled ?></td>
+                    <td style="text-align:center;padding:6px;border:1px solid #eee"><?= $availableDisplay ?></td>
+                    <td style="text-align:center;padding:6px;border:1px solid #eee"><span class="<?= $statusClass ?>"><?= htmlspecialchars($statusLabel) ?></span></td>
                   </tr>
-                 <?php endforeach; ?>
-                 </tbody>
-             </table>
+                <?php endforeach; ?>
+                </tbody>
+              </table>
+            </div>
          <?php endif; ?>
        </div>
      </div>
    </div> <!-- end second row -->
-
 <?php
 $stmtCount->close();
 ?>
+<style>
+/* keep table stable and limit visible rows to 5 (scroll if more)
+   header (th) is NOT counted in the 5-row height */
+.table-container.office-availability { /* fixed overall card height to keep white box stable */
+  /* header row (~48px) + 5 rows of 48px + padding (approx 16px top/bottom) */
+  height: calc(48px + (48px * 5) + 24px);
+  max-height: calc(48px + (48px * 5) + 24px);
+  overflow: visible;
+}
+#officeHeadTable, #officeBodyTable { box-sizing:border-box; }
+#officeBodyWrap { height: calc(48px * 5); min-height: calc(48px * 5); overflow-y: auto; overflow-x: hidden; }
+#officeBodyWrap::-webkit-scrollbar { width:8px; }
+#officeBodyWrap::-webkit-scrollbar-thumb { background:#e0e0e0; border-radius:8px; }
 
-  <!-- Next row: the list of pending / rejected (keeps the existing table-container after placeholder) -->
+/* keep status badges */
+.status-open{ color:#0b7a3a; font-weight:700; background:#e6f9ee; padding:6px 10px; border-radius:12px; display:inline-block; }
+.status-full{ color:#b22222; font-weight:700; background:#fff4f4; padding:6px 10px; border-radius:12px; display:inline-block; }
+/* ensure header stays visible and body scrolls independently while keeping alignment via colgroup */
+#officeHeadTable thead th { background:#f5f6fa; }
+</style>
+
+<script>
+// Office availability filtering (search + status) - updated to work with two-table approach
+(function(){
+  const searchInput = document.getElementById('officeSearch');
+  const statusSel = document.getElementById('officeStatusFilter');
+  const tbody = document.getElementById('officesBody');
+
+  function filterOffices(){
+    const q = (searchInput.value || '').toLowerCase().trim();
+    const status = (statusSel.value || 'active');
+    const rows = Array.from(tbody.querySelectorAll('tr'));
+    rows.forEach(r => {
+      const name = (r.getAttribute('data-office') || '').toLowerCase();
+      const statusText = (r.querySelector('td:last-child').textContent || '').toLowerCase();
+      const matchesQuery = q === '' || name.indexOf(q) !== -1;
+      let matchesStatus = true;
+      if (status === 'active') {
+        matchesStatus = statusText !== 'full';
+      } else if (status === 'full') {
+        matchesStatus = statusText === 'full';
+      } else {
+        matchesStatus = true;
+      }
+      r.style.display = (matchesQuery && matchesStatus) ? '' : 'none';
+    });
+  }
+
+  searchInput.addEventListener('input', filterOffices);
+  statusSel.addEventListener('change', filterOffices);
+  // initial filter (default active)
+  filterOffices();
+})();
+</script>
+
+<!-- place search next to pending/rejected tabs -->
+<style>
+.table-tabs-wrap { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px; }
+.table-tabs-inline { display:flex; gap:8px; align-items:center; }
+</style>
+<div style="display:none"></div>
+<script>
+  // move existing tabs into a wrapper and inject search (runs once)
+  (function(){
+    const tabs = document.querySelector('.table-tabs');
+    if (!tabs) return;
+    const parent = tabs.parentElement;
+    const wrapper = document.createElement('div');
+    wrapper.className = 'table-tabs-wrap';
+    const left = document.createElement('div');
+    left.className = 'table-tabs-inline';
+    left.appendChild(tabs);
+    const right = document.createElement('div');
+    right.innerHTML = '<input id=\"tabSearch\" type=\"text\" placeholder=\"Search pending/rejected...\" style=\"padding:6px 10px;border:1px solid #ddd;border-radius:8px;min-width:220px\" />';
+    wrapper.appendChild(left);
+    wrapper.appendChild(right);
+    parent.insertBefore(wrapper, parent.firstChild);
+    // wire simple client-side filter for the applications table
+    const tabSearch = document.getElementById('tabSearch');
+    tabSearch.addEventListener('input', function(){
+      const q = (this.value||'').toLowerCase().trim();
+      document.querySelectorAll('.table-container table tbody tr').forEach(tr=>{
+        if (!q) { tr.style.display=''; return; }
+        const txt = (tr.textContent||'').toLowerCase();
+        tr.style.display = txt.indexOf(q) === -1 ? 'none' : '';
+      });
+    });
+  })();
+</script>
+
+<!-- Next row: the list of pending / rejected (keeps the existing table-container after placeholder) -->
 
     <div class="table-container">
         <div class="table-tabs">
