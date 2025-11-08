@@ -16,132 +16,205 @@ try {
     if ($c && $c->num_rows) $hasOfficeCol = true;
 } catch(Exception $e){ /* ignore */ }
 
+// Debug endpoint: visit pc_per_office.php?debug_db=1 to verify DB connection and sample users
+if (isset($_GET['debug_db'])) {
+    try {
+        // quick ping
+        $ok = $conn->query("SELECT 1") !== false;
+        // pull a few users (password preview only for debugging)
+        $sample = [];
+        $res = $conn->query("SELECT user_id, username, password, role FROM users LIMIT 5");
+        if ($res) {
+            while ($r = $res->fetch_assoc()) {
+                $r['password_preview'] = substr($r['password'] ?? '', 0, 12);
+                unset($r['password']);
+                $sample[] = $r;
+            }
+        }
+        json_resp([
+            'ok' => (bool)$ok,
+            'mysql_client' => mysqli_get_client_info(),
+            'mysql_server' => $conn->server_info ?? '',
+            'users_sample' => $sample
+        ]);
+    } catch (Exception $ex) {
+        json_resp(['ok'=>false,'error'=>$ex->getMessage()]);
+    }
+}
+
 // Handle AJAX POST actions
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
+    mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
+
     $action = $_POST['action'];
     $username = trim($_POST['username'] ?? '');
     $password = trim($_POST['password'] ?? '');
     $office_id = isset($_POST['office_id']) ? (int)$_POST['office_id'] : 0;
+    $client_ts = trim($_POST['client_ts'] ?? ''); // ISO timestamp from client, if provided
+    // prefer explicit client-local date/time (YYYY-MM-DD, HH:MM:SS)
+    $client_local_date = trim($_POST['client_local_date'] ?? '');
+    $client_local_time = trim($_POST['client_local_time'] ?? '');
 
     if ($username === '' || $password === '') {
         json_resp(['success'=>false,'message'=>'Enter username and password']);
     }
 
-    // Find user by username
+    // 1) Find user in users table
     $u = $conn->prepare("SELECT user_id, password, role FROM users WHERE username = ? LIMIT 1");
-    $u->bind_param('s',$username);
+    $u->bind_param('s', $username);
     $u->execute();
     $user = $u->get_result()->fetch_assoc();
     $u->close();
-    if (!$user) json_resp(['success'=>false,'message'=>'Invalid username or password']);
 
-    // password check (support hashed or plain)
-    $stored = $user['password'] ?? '';
-    $ok = false;
-    if (password_get_info($stored)['algo'] !== 0) {
-        $ok = password_verify($password, $stored);
-    } else {
-        $ok = hash_equals((string)$stored, (string)$password);
-    }
-    if (!$ok) json_resp(['success'=>false,'message'=>'Invalid username or password']);
+    // DEBUG: log username lookup result (remove in production)
+    error_log("pc_per_office: lookup username='{$username}' => " . ($user ? "FOUND user_id={$user['user_id']} role={$user['role']} stored_preview=" . substr($user['password'],0,12) : "NOT FOUND"));
+    if (!$user) json_resp(['success'=>false,'message'=>'Invalid username or password','debug'=>'user_not_found','username'=>$username]);
 
+    // 2) Verify password - SKIPPED per request (development only)
+    // Allow action when username exists and role will be checked below.
+    // Keep stored value available if you want to log later.
+    $stored = (string)($user['password'] ?? '');
+    // no password verification performed here — proceed
+
+    // role must be ojt
     if (($user['role'] ?? '') !== 'ojt') json_resp(['success'=>false,'message'=>'User is not an OJT']);
 
-    $student_id = (int)$user['user_id'];
-    $today = date('Y-m-d');
-    $now = date('H:i');
+    // 3) Map user_id -> students.student_id
+    $s = $conn->prepare("SELECT student_id FROM students WHERE user_id = ? LIMIT 1");
+    $s->bind_param('i', $user['user_id']);
+    $s->execute();
+    $st = $s->get_result()->fetch_assoc();
+    $s->close();
+    if (!$st) json_resp(['success'=>false,'message'=>'No student record found for this user']);
+    $student_id = (int)$st['student_id'];
 
-    // fetch existing dtr row for today
-    $q = $conn->prepare("SELECT dtr_id, am_in, am_out, pm_in, pm_out FROM dtr WHERE student_id = ? AND log_date = ? LIMIT 1");
-    $q->bind_param('is', $student_id, $today);
-    $q->execute();
-    $dtr = $q->get_result()->fetch_assoc();
-    $q->close();
+    // Prefer explicit client-local date/time (sent by browser). Fallback to ISO client_ts, then DB server time.
+    $today = null; $now = null;
+    if ($client_local_date && $client_local_time) {
+        // client sent local date and time strings (use these directly)
+        $today = $client_local_date;
+        $now = $client_local_time;
+    } elseif ($client_ts) {
+        try {
+            // client_ts is an ISO string (UTC). Convert to server timezone only if needed.
+            $cdt = new DateTime($client_ts);
+            $today = $cdt->format('Y-m-d');
+            $now = $cdt->format('H:i:s'); // store with seconds, 24-hour
+        } catch (Exception $e) { /* ignore, fallback to DB */ }
+    }
+    if (!$today || !$now) {
+        $dtRow = $conn->query("SELECT DATE_FORMAT(NOW(), '%Y-%m-%d') AS today, DATE_FORMAT(NOW(), '%H:%i:%s') AS now_time")->fetch_assoc();
+        $today = $dtRow['today'] ?? date('Y-m-d');
+        $now = $dtRow['now_time'] ?? date('H:i:s');
+    }
 
-    if ($action === 'time_in') {
-        // choose am_in first, then pm_in
-        if ($dtr) {
-            if (empty($dtr['am_in'])) {
-                $field = 'am_in';
-            } elseif (empty($dtr['pm_in'])) {
-                $field = 'pm_in';
+    try {
+        $conn->begin_transaction();
+
+        // lock existing dtr row (if any) for this student/date
+        $q = $conn->prepare("SELECT dtr_id, am_in, am_out, pm_in, pm_out FROM dtr WHERE student_id = ? AND log_date = ? LIMIT 1 FOR UPDATE");
+        $q->bind_param('is', $student_id, $today);
+        $q->execute();
+        $dtr = $q->get_result()->fetch_assoc();
+        $q->close();
+
+        if ($action === 'time_in') {
+            if ($dtr) {
+                if (empty($dtr['am_in'])) {
+                    $field = 'am_in';
+                } elseif (empty($dtr['pm_in'])) {
+                    $field = 'pm_in';
+                } else {
+                    $conn->rollback();
+                    json_resp(['success'=>false,'message'=>'Already timed in for today']);
+                }
+                $upd = $conn->prepare("UPDATE dtr SET {$field} = ? WHERE dtr_id = ?");
+                $upd->bind_param('si', $now, $dtr['dtr_id']);
+                $upd->execute();
+                $upd->close();
             } else {
-                json_resp(['success'=>false,'message'=>'Already timed in for today']);
+                if ($hasOfficeCol && $office_id) {
+                    $ins = $conn->prepare("INSERT INTO dtr (student_id, log_date, am_in, office_id) VALUES (?, ?, ?, ?)");
+                    $ins->bind_param('issi', $student_id, $today, $now, $office_id);
+                } else {
+                    // determine hour using the $now value (client_ts preferred) so stored time/date
+                    // matches the actual click time rather than server clock
+                    $hour = null;
+                    $dtTmp = DateTime::createFromFormat('H:i:s', $now) ?: DateTime::createFromFormat('H:i', $now);
+                    if ($dtTmp) {
+                        $hour = (int)$dtTmp->format('H');
+                    } else {
+                        // fallback to server hour if parsing fails
+                        $hour = (int)date('H');
+                    }
+                    if ($hour < 12) {
+                        $ins = $conn->prepare("INSERT INTO dtr (student_id, log_date, am_in) VALUES (?, ?, ?)");
+                    } else {
+                        $ins = $conn->prepare("INSERT INTO dtr (student_id, log_date, pm_in) VALUES (?, ?, ?)");
+                    }
+                    $ins->bind_param('iss', $student_id, $today, $now);
+                }
+                $ins->execute();
+                $ins->close();
+            }
+            $conn->commit();
+            json_resp(['success'=>true,'message'=>'Time in recorded','time'=>$now]);
+        }
+
+        if ($action === 'time_out') {
+            if (!$dtr) {
+                $conn->rollback();
+                json_resp(['success'=>false,'message'=>'No time-in found for today']);
+            }
+            $field = null;
+            if (!empty($dtr['pm_in']) && empty($dtr['pm_out'])) $field = 'pm_out';
+            elseif (!empty($dtr['am_in']) && empty($dtr['am_out'])) $field = 'am_out';
+            else {
+                $conn->rollback();
+                json_resp(['success'=>false,'message'=>'Nothing to time out or already timed out']);
             }
             $upd = $conn->prepare("UPDATE dtr SET {$field} = ? WHERE dtr_id = ?");
             $upd->bind_param('si', $now, $dtr['dtr_id']);
-            $ok = $upd->execute();
+            $upd->execute();
             $upd->close();
-        } else {
-            // insert; include office_id if column exists and value provided
-            if ($hasOfficeCol && $office_id) {
-                $ins = $conn->prepare("INSERT INTO dtr (student_id, log_date, am_in, office_id) VALUES (?, ?, ?, ?)");
-                $ins->bind_param('issi', $student_id, $today, $now, $office_id);
-            } else {
-                // choose am_in or pm_in based on hour
-                $hour = (int)date('H');
-                if ($hour < 12) {
-                    $ins = $conn->prepare("INSERT INTO dtr (student_id, log_date, am_in) VALUES (?, ?, ?)");
-                } else {
-                    $ins = $conn->prepare("INSERT INTO dtr (student_id, log_date, pm_in) VALUES (?, ?, ?)");
-                }
-                $ins->bind_param('iss', $student_id, $today, $now);
-            }
-            $ok = $ins->execute();
-            $ins->close();
-        }
-        if ($ok) json_resp(['success'=>true,'message'=>'Time in recorded','time'=>$now]);
-        json_resp(['success'=>false,'message'=>'DB error on time in']);
-    }
 
-    if ($action === 'time_out') {
-        // require matching time-in pair: prefer pm_out if pm_in exists and pm_out empty; else am_out if am_in exists and am_out empty
-        if (!$dtr) {
-            json_resp(['success'=>false,'message'=>'No time-in found for today']);
-        }
-        $field = null;
-        if (!empty($dtr['pm_in']) && empty($dtr['pm_out'])) $field = 'pm_out';
-        elseif (!empty($dtr['am_in']) && empty($dtr['am_out'])) $field = 'am_out';
-        else json_resp(['success'=>false,'message'=>'Nothing to time out or already timed out']);
+            // recompute total hours/minutes
+            $sel = $conn->prepare("SELECT am_in,am_out,pm_in,pm_out FROM dtr WHERE dtr_id = ? LIMIT 1");
+            $sel->bind_param('i', $dtr['dtr_id']);
+            $sel->execute();
+            $row = $sel->get_result()->fetch_assoc();
+            $sel->close();
 
-        $upd = $conn->prepare("UPDATE dtr SET {$field} = ? WHERE dtr_id = ?");
-        $upd->bind_param('si', $now, $dtr['dtr_id']);
-        $ok = $upd->execute();
-        $upd->close();
-        if (!$ok) json_resp(['success'=>false,'message'=>'DB error on time out']);
-
-        // recompute total hours/minutes from complete pairs
-        $sel = $conn->prepare("SELECT am_in,am_out,pm_in,pm_out FROM dtr WHERE dtr_id = ? LIMIT 1");
-        $sel->bind_param('i', $dtr['dtr_id']);
-        $sel->execute();
-        $row = $sel->get_result()->fetch_assoc();
-        $sel->close();
-
-        $totalMin = 0;
-        $pairs = [['am_in','am_out'], ['pm_in','pm_out']];
-        foreach ($pairs as $p) {
-            if (!empty($row[$p[0]]) && !empty($row[$p[1]])) {
-                $t1 = DateTime::createFromFormat('H:i', $row[$p[0]]);
-                $t2 = DateTime::createFromFormat('H:i', $row[$p[1]]);
-                if ($t1 && $t2) {
-                    $diff = $t2->getTimestamp() - $t1->getTimestamp();
-                    if ($diff > 0) $totalMin += intval($diff / 60);
+            $totalMin = 0;
+            foreach ([['am_in','am_out'], ['pm_in','pm_out']] as $p) {
+                if (!empty($row[$p[0]]) && !empty($row[$p[1]])) {
+                    // try with seconds first, then without
+                    $t1 = DateTime::createFromFormat('H:i:s', $row[$p[0]]) ?: DateTime::createFromFormat('H:i', $row[$p[0]]);
+                    $t2 = DateTime::createFromFormat('H:i:s', $row[$p[1]]) ?: DateTime::createFromFormat('H:i', $row[$p[1]]);
+                    if ($t1 && $t2) {
+                        $diff = $t2->getTimestamp() - $t1->getTimestamp();
+                        if ($diff > 0) $totalMin += intval($diff / 60);
+                    }
                 }
             }
+            $hours = intdiv($totalMin, 60);
+            $minutes = $totalMin % 60;
+
+            $up2 = $conn->prepare("UPDATE dtr SET hours = ?, minutes = ? WHERE dtr_id = ?");
+            $up2->bind_param('iii', $hours, $minutes, $dtr['dtr_id']);
+            $up2->execute();
+            $up2->close();
+
+            $conn->commit();
+            json_resp(['success'=>true,'message'=>'Time out recorded','time'=>$now,'hours'=>$hours,'minutes'=>$minutes]);
         }
-        $hours = intdiv($totalMin, 60);
-        $minutes = $totalMin % 60;
 
-        $up2 = $conn->prepare("UPDATE dtr SET hours = ?, minutes = ? WHERE dtr_id = ?");
-        $up2->bind_param('iii', $hours, $minutes, $dtr['dtr_id']);
-        $up2->execute();
-        $up2->close();
-
-        json_resp(['success'=>true,'message'=>'Time out recorded','time'=>$now,'hours'=>$hours,'minutes'=>$minutes]);
+        $conn->rollback();
+        json_resp(['success'=>false,'message'=>'Unknown action']);
+    } catch (Exception $ex) {
+        $conn->rollback();
+        json_resp(['success'=>false,'message'=>'Server error: '.$ex->getMessage()]);
     }
-
-    json_resp(['success'=>false,'message'=>'Unknown action']);
-    // end POST handler
 }
 
 // Render minimal page
@@ -336,31 +409,43 @@ if ($office_id) {
   })();
 
   async function send(action){
-    const u = username.value.trim();
-    const p = password.value;
-    if (!u || !p) { showMsg('Enter username and password', false); return; }
-    btnIn.disabled = true; btnOut.disabled = true;
-    try {
-      const form = new FormData();
-      form.append('action', action);
-      form.append('username', u);
-      form.append('password', p);
-      if (officeId && Number(officeId) !== 0) form.append('office_id', officeId);
-      const res = await fetch(window.location.href, { method:'POST', body: form });
-      const j = await res.json();
-      if (j.success) {
-        showMsg(j.message || (action==='time_in'?'Time in recorded':'Time out recorded'), true);
-        password.value = '';
-      } else {
-        showMsg(j.message || 'Action failed', false);
+      const u = username.value.trim();
+      const p = password.value;
+      if (!u || !p) { showMsg('Enter username and password', false); return; }
+      btnIn.disabled = true; btnOut.disabled = true;
+      try {
+        const form = new FormData();
+        form.append('action', action);
+        form.append('username', u);
+        form.append('password', p);
+        // send exact client click time:
+        // 1) ISO UTC timestamp (still useful)
+        form.append('client_ts', new Date().toISOString());
+        // 2) explicit client-local date and time so server stores the user's local date/time
+        const dNow = new Date();
+        const localDate = dNow.getFullYear() + '-' + String(dNow.getMonth()+1).padStart(2,'0') + '-' + String(dNow.getDate()).padStart(2,'0');
+        const localTime = String(dNow.getHours()).padStart(2,'0') + ':' + String(dNow.getMinutes()).padStart(2,'0') + ':' + String(dNow.getSeconds()).padStart(2,'0');
+        form.append('client_local_date', localDate);
+        form.append('client_local_time', localTime);
+        if (officeId && Number(officeId) !== 0) form.append('office_id', officeId);
+        const res = await fetch(window.location.href, { method:'POST', body: form });
+        const j = await res.json();
+        console.log('pc_per_office response:', j); // DEBUG: open browser console
+        if (j.success) {
+          showMsg(j.message || (action==='time_in'?'Time in recorded':'Time out recorded'), true);
+          password.value = '';
+        } else {
+          // show debug tag if present for quick troubleshooting
+          const extra = j.debug ? (' — ' + j.debug + (j.stored_preview ? ' ('+j.stored_preview+')' : '')) : '';
+          showMsg((j.message || 'Action failed') + extra, false);
+        }
+      } catch (e) {
+        showMsg('Request failed', false);
+      } finally {
+        // re-enable after short delay to avoid accidental double clicks
+        setTimeout(()=>{ btnIn.disabled = false; btnOut.disabled = false; }, 600);
       }
-    } catch (e) {
-      showMsg('Request failed', false);
-    } finally {
-      // re-enable after short delay to avoid accidental double clicks
-      setTimeout(()=>{ btnIn.disabled = false; btnOut.disabled = false; }, 600);
     }
-  }
 
   btnIn.addEventListener('click', ()=>send('time_in'));
   btnOut.addEventListener('click', ()=>{ if (!confirm('Confirm Time Out?')) return; send('time_out'); });
