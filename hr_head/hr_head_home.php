@@ -467,22 +467,53 @@ $stmtCount->close();
 <style>
 /* keep table stable and limit visible rows to 5 (scroll if more)
    header (th) is NOT counted in the 5-row height */
-.table-container.office-availability { /* fixed overall card height to keep white box stable */
-  /* header row (~48px) + 5 rows of 48px + padding (approx 16px top/bottom) */
-  height: calc(48px + (48px * 5) + 24px);
-  max-height: calc(48px + (48px * 5) + 24px);
-  overflow: visible;
+:root {
+  --office-row-h: 48px;   /* row height — adjust if you want larger/smaller rows */
+  --office-head-h: 48px;  /* header height */
+  --office-rows-visible: 5;
+  --office-card-vertical-padding: 16px; /* matches .table-container padding:8px (top+bottom) */
 }
-#officeHeadTable, #officeBodyTable { box-sizing:border-box; }
-#officeBodyWrap { height: calc(48px * 5); min-height: calc(48px * 5); overflow-y: auto; overflow-x: hidden; }
+
+/* ensure padding included in sizing */
+.table-container.office-availability { padding:8px; box-sizing: border-box; }
+
+/* force each table body row to a fixed height so calc is exact */
+#officeBodyTable tbody tr { height: var(--office-row-h); }
+
+/* header row fixed height and consistent line-height to avoid extra height */
+#officeHeadTable thead th { height: var(--office-head-h); line-height: var(--office-head-h); padding:0 6px; box-sizing:border-box; }
+
+/* card keeps fixed height: header + visible rows + card padding so card won't shrink
+   use box-sizing so padding doesn't add extra outside height */
+.table-container.office-availability {
+  height: calc(var(--office-head-h) + (var(--office-row-h) * var(--office-rows-visible)) + var(--office-card-vertical-padding));
+  max-height: calc(var(--office-head-h) + (var(--office-row-h) * var(--office-rows-visible)) + var(--office-card-vertical-padding));
+  overflow: hidden; /* prevent visual overflow */
+  box-sizing: border-box;
+}
+
+/* header/table box sizing */
+#officeHeadTable, #officeBodyTable { box-sizing:border-box; margin:0; }
+
+/* body wrapper shows exactly 5 rows tall, scroll if more */
+#officeBodyWrap {
+  height: calc(var(--office-row-h) * var(--office-rows-visible));
+  min-height: calc(var(--office-row-h) * var(--office-rows-visible));
+  overflow-y: auto;
+  overflow-x: hidden;
+  box-sizing: border-box;
+}
+
+/* ensure inner tables do not add extra margins */
+#officeHeadTable, #officeBodyTable { border-collapse: collapse; }
+
+/* scrollbar visuals */
 #officeBodyWrap::-webkit-scrollbar { width:8px; }
 #officeBodyWrap::-webkit-scrollbar-thumb { background:#e0e0e0; border-radius:8px; }
 
 /* keep status badges */
 .status-open{ color:#0b7a3a; font-weight:700; background:#e6f9ee; padding:6px 10px; border-radius:12px; display:inline-block; }
 .status-full{ color:#b22222; font-weight:700; background:#fff4f4; padding:6px 10px; border-radius:12px; display:inline-block; }
-/* ensure header stays visible and body scrolls independently while keeping alignment via colgroup */
-#officeHeadTable thead th { background:#f5f6fa; }
 </style>
 
 <script>
@@ -1027,7 +1058,7 @@ async function openViewModal(appId) {
    'view_college','view_course','view_year','view_school_address','view_adviser',
    'view_emg_name','view_emg_relation','view_emg_contact','view_attachments'].forEach(id=> {
      const el = document.getElementById(id);
-     if (el) el.textContent = '';
+     if el) el.textContent = '';
    });
    document.getElementById('view_avatar').innerHTML = '👤';
 
