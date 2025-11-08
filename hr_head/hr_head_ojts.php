@@ -297,7 +297,9 @@ if ($moa_q) {
         Reports
       </a>
         </div>
-    <p style="margin-top:auto;font-weight:600">OJT-MS</p>
+    <div style="margin-top:auto;padding:18px 0;width:100%;text-align:center;">
+      <p style="margin:0;font-weight:600">OJT-MS</p>
+    </div>
 </div>
  
 <div class="main">
@@ -317,7 +319,7 @@ if ($moa_q) {
       <a href="settings.php" title="Settings" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06A2 2 0 1 1 2.28 16.8l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09c.7 0 1.3-.4 1.51-1A1.65 1.65 0 0 0 4.27 6.3L4.2 6.23A2 2 0 1 1 6 3.4l.06.06c.5.5 1.2.7 1.82.33.7-.4 1.51-.4 2.21 0 .62.37 1.32.17 1.82-.33L12.6 3.4a2 2 0 1 1 1.72 3.82l-.06.06c-.5.5-.7 1.2-.33 1.82.4.7.4 1.51 0 2.21-.37.62-.17 1.32.33 1.82l.06.06A2 2 0 1 1 19.4 15z"></path></svg>
       </a>
-      <a id="top-logout" href="/logout.php" title="Logout" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;">
+      <a id="top-logout" href="../logout.php" title="Logout" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
       </a>
   </div>
@@ -346,47 +348,60 @@ if ($moa_q) {
       <div id="tabsUnderline" aria-hidden="true" style="height:3px;background:#2f3850;border-radius:3px;width:180px;transition:all .25s;margin-bottom:12px;margin-top:6px;"></div>
 
       <!-- Second row: search / filters / sort (now spans full width with icons) -->
-      <div style="display:flex;align-items:center;gap:12px;width:100%;padding:6px 0;">
-        <div class="ojt-table-searchbar" style="flex:1;display:flex;align-items:center;gap:8px;">
-          <!-- Search input with icon -->
-          <div style="display:flex;align-items:center;background:#f7f8fc;border:1px solid #ccc;border-radius:8px;padding:6px 8px;min-width:0;flex:1;">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false" style="flex:0 0 auto;margin-right:8px;">
-          <path d="M21 21l-4.35-4.35" stroke="#666" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-          <circle cx="11" cy="11" r="6" stroke="#666" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-        <input type="text" id="searchInput" placeholder="Search name / office / school / course" aria-label="Search" style="border:0;background:transparent;outline:none;padding:6px 4px;font-size:15px;flex:1;min-width:0;"
-               onfocus="this.style.outline='3px solid #2f3850';this.style.outlineOffset='2px';this.parentElement.style.boxShadow='0 0 0 3px rgba(47,56,80,0.08)';"
-               onblur="this.style.outline='';this.style.outlineOffset='';this.parentElement.style.boxShadow='';">
-          </div>
-
-          <!-- Office filter (replaced Year) -->
-          <select id="officeFilter" aria-label="Filter by office" style="padding:8px 10px;border-radius:8px;border:1px solid #ccc;background:#f7f8fc;font-size:15px;flex:0 0 220px;"
-            onfocus="this.style.outline='3px solid #2f3850';this.style.outlineOffset='2px';this.style.boxShadow='0 0 0 3px rgba(47,56,80,0.08)';"
-            onblur="this.style.outline='';this.style.outlineOffset='';this.style.boxShadow='';">
-            <option value="">Office</option>
-            <?php foreach ($offices_for_requests as $of): ?>
-              <option value="<?php echo htmlspecialchars($of['office_name']); ?>"><?php echo htmlspecialchars($of['office_name']); ?></option>
-            <?php endforeach; ?>
+      <!-- Controls area: two containers (OJTs controls, Requested controls) share same position.
+           Only one is visible at a time; Requested controls are injected here so they appear
+           in the same spot as the OJTs controls. -->
+      <div id="controlsRow" style="width:100%;padding:6px 0;">
+        <!-- OJTs controls (visible by default) -->
+        <div id="controlsOJTs" style="display:flex;align-items:center;gap:12px;width:100%;">
+          <div class="ojt-table-searchbar" style="flex:1;display:flex;align-items:center;gap:8px;">
+            <div style="display:flex;align-items:center;background:#f7f8fc;border:1px solid #ccc;border-radius:8px;padding:6px 8px;min-width:0;flex:1;">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false" style="flex:0 0 auto;margin-right:8px;">
+                <path d="M21 21l-4.35-4.35" stroke="#666" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                <circle cx="11" cy="11" r="6" stroke="#666" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              <input type="text" id="searchInput" placeholder="Search name / office / school / course" aria-label="Search" style="border:0;background:transparent;outline:none;padding:6px 4px;font-size:15px;flex:1;min-width:0;">
+            </div>
+            <select id="officeFilter" aria-label="Filter by office" style="padding:8px 10px;border-radius:8px;border:1px solid #ccc;background:#f7f8fc;font-size:15px;flex:0 0 220px;">
+              <option value="">Office</option>
+              <?php foreach ($offices_for_requests as $of): ?>
+                <option value="<?php echo htmlspecialchars($of['office_name']); ?>"><?php echo htmlspecialchars($of['office_name']); ?></option>
+              <?php endforeach; ?>
             </select>
-
-            <!-- Status filter (replaced Sort) -->
-            <div style="flex:0 0 180px;position:relative;display:inline-block;">
-            <select id="statusFilter" aria-label="Filter by status" style="padding:8px 12px;border-radius:8px;border:1px solid #ccc;background:#f7f8fc;font-size:15px;width:100%;box-sizing:border-box;cursor:pointer;"
-              onfocus="this.style.outline='3px solid #2f3850';this.style.outlineOffset='2px';this.style.boxShadow='0 0 0 3px rgba(47,56,80,0.08)';"
-              onblur="this.style.outline='';this.style.outlineOffset='';this.style.boxShadow='';">
+            <select id="statusFilter" aria-label="Filter by status" style="padding:8px 12px;border-radius:8px;border:1px solid #ccc;background:#f7f8fc;font-size:15px;width:160px;box-sizing:border-box;cursor:pointer;">
               <option value="">Status</option>
               <option value="approved">Approved</option>
               <option value="ongoing">Ongoing</option>
               <option value="completed">Completed</option>
             </select>
+          </div>
+        </div>
+        <!-- Requested controls (hidden by default; will be shown when Requested tab active) -->
+        <div id="controlsRequested" style="display:none;align-items:center;gap:12px;width:100%;">
+          <div style="display:flex;gap:8px;align-items:center;width:100%;">
+            <div style="display:flex;align-items:center;gap:8px;">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false" style="flex:0 0 auto;margin-right:4px;">
+                <path d="M21 21l-4.35-4.35" stroke="#666" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                <circle cx="11" cy="11" r="6" stroke="#666" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              <input id="requestedSearch" type="text" placeholder="Search office..." aria-label="Search offices" style="padding:8px 10px;border:1px solid #ccc;border-radius:8px;background:#f7f8fc;font-size:14px;min-width:220px;">
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;margin-left:auto;">
+              <label for="requestedSort" style="font-weight:700;font-size:13px;color:#445;">Sort by</label>
+              <select id="requestedSort" style="padding:8px;border-radius:8px;border:1px solid #ccc;background:#f7f8fc;font-size:14px;">
+                <option value="">None</option>
+                <option value="current_limit">Current Limit</option>
+                <option value="active_ojts">Active OJTs</option>
+                <option value="available_slots">Available Slots</option>
+                <option value="requested_limit">Requested Limit</option>
+              </select>
+              <button id="requestedSortDir" type="button" style="padding:8px 10px;border-radius:8px;border:1px solid #ccc;background:#f7f8fc;cursor:pointer">Desc</button>
             </div>
           </div>
-          </div>
+        </div>
       </div>
-      </div>
-
-    <!-- underline bar -->
-    <div id="tabsUnderline" aria-hidden="true" style="height:3px;background:#2f3850;border-radius:3px;width:180px;transition:all .25s;margin-bottom:12px;"></div>
+     <!-- underline bar -->
+     <div id="tabsUnderline" aria-hidden="true" style="height:3px;background:#2f3850;border-radius:3px;width:180px;transition:all .25s;margin-bottom:12px;"></div>
 
     <!-- Tab panels -->
     <div id="tab-ojts" class="tab-panel" role="tabpanel" aria-labelledby="tab-ojts" style="display:block;">
@@ -446,7 +461,9 @@ if ($moa_q) {
           <?php if (count($offices_for_requests) === 0): ?>
             <div class="empty">No office requests found.</div>
           <?php else: ?>
-            <table class="request-table" role="table" aria-label="Requested OJTs">
+            <!-- Controls moved to top controls row (#controlsRow) so they appear in the same position as OJTs controls -->
+ 
+            <table class="request-table" role="table" aria-label="Requested OJTs" style="width:100%;">
               <thead>
                 <tr>
                   <th>Office</th>
@@ -458,9 +475,9 @@ if ($moa_q) {
                   <th style="text-align:center">Action</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody id="requested_tbody">
                 <?php foreach ($offices_for_requests as $of): ?>
-                  <tr>
+                  <tr data-office="<?php echo htmlspecialchars(strtolower($of['office_name'] ?? '')); ?>">
                     <td><?= htmlspecialchars($of['office_name']) ?></td>
                     <td style="text-align:center"><?= $of['current_limit'] === null ? '—' : (int)$of['current_limit'] ?></td>
                     <td style="text-align:center"><?= (int)$of['active_ojts'] ?></td>
@@ -468,9 +485,9 @@ if ($moa_q) {
                     <td style="text-align:center"><?= $of['requested_limit'] === '' ? '—' : (int)$of['requested_limit'] ?></td>
                     <td><?= htmlspecialchars($of['reason'] ?: '—') ?></td>
                     <td style="text-align:center">
-                      <?php if (strtolower($of['status']) === 'approved' || strtolower($of['status']) === 'Approved'): ?>
+                      <?php if (strtolower($of['status']) === 'approved'): ?>
                         <span class="action-ok">Approved</span>
-                      <?php elseif (strtolower($of['status']) === 'declined' || strtolower($of['status']) === 'Declined'): ?>
+                      <?php elseif (strtolower($of['status']) === 'declined'): ?>
                         <span style="color:#a00;font-weight:700">Declined</span>
                       <?php else: ?>
                         <span class="action-pending">
@@ -650,6 +667,72 @@ if ($moa_q) {
     const active = document.querySelector('.tabs .tab.active') || tabs[0];
     if (active) positionUnderline(active);
 
+    // controls elements (top row)
+    const controlsOJTs = document.getElementById('controlsOJTs');
+    const controlsRequested = document.getElementById('controlsRequested');
+
+    function showControlsFor(tabName){
+      if (tabName === 'requested') {
+        if (controlsOJTs) controlsOJTs.style.display = 'none';
+        if (controlsRequested) controlsRequested.style.display = 'flex';
+      } else {
+        if (controlsRequested) controlsRequested.style.display = 'none';
+        if (controlsOJTs) controlsOJTs.style.display = 'flex';
+      }
+    }
+
+    // Requested table filter/sort wiring
+    function wireRequestedControls(){
+      const tbodyReq = document.getElementById('requested_tbody');
+      if (!tbodyReq) return;
+      const search = document.getElementById('requestedSearch');
+      const sortSel = document.getElementById('requestedSort');
+      const sortDirBtn = document.getElementById('requestedSortDir');
+      const COL = { current_limit:1, active_ojts:2, available_slots:3, requested_limit:4 };
+      function parseNum(txt){
+        if (txt === null || txt === undefined) return null;
+        txt = txt.toString().trim();
+        if (txt === '—' || txt === '') return null;
+        const n = parseInt(txt.replace(/[^\d-]/g,''),10);
+        return isNaN(n) ? null : n;
+      }
+      function filterAndSort(){
+        const q = (search?.value || '').toLowerCase().trim();
+        const rows = Array.from(tbodyReq.querySelectorAll('tr'));
+        rows.forEach(r=>{
+          const office = (r.cells[0]?.textContent || '').toLowerCase();
+          const matches = q === '' || office.indexOf(q) !== -1;
+          r.style.display = matches ? '' : 'none';
+        });
+        const sortBy = sortSel?.value;
+        const dir = (sortDirBtn?.dataset.dir || 'desc') === 'asc' ? 1 : -1;
+        if (sortBy && COL.hasOwnProperty(sortBy)) {
+          const visible = rows.filter(r => r.style.display !== 'none');
+          visible.sort((a,b)=>{
+            const aVal = parseNum(a.cells[COL[sortBy]]?.textContent);
+            const bVal = parseNum(b.cells[COL[sortBy]]?.textContent);
+            if (aVal === null && bVal === null) return 0;
+            if (aVal === null) return 1 * dir;
+            if (bVal === null) return -1 * dir;
+            return (aVal - bVal) * dir;
+          });
+          visible.forEach(r => tbodyReq.appendChild(r));
+        }
+      }
+      if (sortDirBtn) {
+        if (!sortDirBtn.dataset.dir) sortDirBtn.dataset.dir = 'desc';
+        sortDirBtn.addEventListener('click', function(){
+          this.dataset.dir = this.dataset.dir === 'asc' ? 'desc' : 'asc';
+          this.textContent = this.dataset.dir === 'asc' ? 'Asc' : 'Desc';
+          filterAndSort();
+        });
+      }
+      if (search) search.addEventListener('input', filterAndSort);
+      if (sortSel) sortSel.addEventListener('change', filterAndSort);
+      // run once
+      filterAndSort();
+    }
+
     tabs.forEach(btn=>{
         btn.addEventListener('click', function(){
             // toggle active class
@@ -662,9 +745,22 @@ if ($moa_q) {
                 p.style.display = p.id === 'tab-'+tab ? 'block' : 'none';
             });
             positionUnderline(this);
+           // swap controls in same position
+           showControlsFor(tab);
+           if (tab === 'requested') {
+             // wire requested controls after they become visible
+             setTimeout(wireRequestedControls, 20);
+           }
         });
     });
 
+    // initial controls visibility and requested wiring if needed
+    (function initControls(){
+      const cur = active ? active.getAttribute('data-tab') : 'ojts';
+      showControlsFor(cur);
+      if (cur === 'requested') setTimeout(wireRequestedControls, 20);
+    })();
+ 
     // reposition underline on resize
     window.addEventListener('resize', ()=> {
         const cur = document.querySelector('.tabs .tab.active') || tabs[0];
@@ -958,6 +1054,20 @@ if ($moa_q) {
   // initial run
   filterRows();
 })();
+</script>
+
+<script>
+  // attach confirm to top logout like hr_head_home.php
+  (function(){
+    const logoutBtn = document.getElementById('top-logout');
+    if (!logoutBtn) return;
+    logoutBtn.addEventListener('click', function(e){
+      e.preventDefault();
+      if (confirm('Are you sure you want to logout?')) {
+        window.location.href = this.getAttribute('href');
+      }
+    });
+  })();
 </script>
 </body>
 </html>

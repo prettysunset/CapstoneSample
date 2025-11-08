@@ -390,6 +390,17 @@ $stmtCount = $conn->prepare("
               <option value="full">Full</option>
               <option value="all">All</option>
             </select>
+
+            <!-- added sort control (same line) -->
+            <label for="officeSort" style="margin:0 6px 0 6px;color:#444;font-weight:600;font-size:13px">Sort by</label>
+            <select id="officeSort" style="padding:8px;border:1px solid #ddd;border-radius:8px;background:#fff">
+              <option value="">None</option>
+              <option value="capacity">Capacity</option>
+              <option value="active">Active OJTs</option>
+              <option value="approved">Approved</option>
+              <option value="available">Available Slot</option>
+            </select>
+            <button id="officeSortDir" title="Toggle sort direction" style="padding:8px 10px;border:1px solid #ddd;border-radius:8px;background:#fff;cursor:pointer">Desc</button>
           </div>
         </div>
 
@@ -399,17 +410,19 @@ $stmtCount = $conn->prepare("
             <!-- Header table (keeps header fixed/aligned) -->
             <table id="officeHeadTable" style="width:100%;border-collapse:collapse;font-size:13px;table-layout:fixed;margin:0 0 0 0;">
               <colgroup>
-                <col style="width:45%">
+                <col style="width:38%">
                 <col style="width:12%">
                 <col style="width:12%">
                 <col style="width:12%">
-                <col style="width:19%">
+                <col style="width:12%">
+                <col style="width:14%">
               </colgroup>
               <thead>
                 <tr>
                   <th style="text-align:left;padding:6px;border:1px solid #eee;background:#fff5f8">Office</th>
                   <th style="padding:6px;border:1px solid #eee;background:#fff5f8;text-align:center">Capacity</th>
                   <th style="padding:6px;border:1px solid #eee;background:#fff5f8;text-align:center">Active OJTs</th>
+                  <th style="padding:6px;border:1px solid #eee;background:#fff5f8;text-align:center">Approved</th>
                   <th style="padding:6px;border:1px solid #eee;background:#fff5f8;text-align:center">Available Slot</th>
                   <th style="padding:6px;border:1px solid #eee;background:#fff5f8;text-align:center">Status</th>
                 </tr>
@@ -421,11 +434,12 @@ $stmtCount = $conn->prepare("
             <div id="officeBodyWrap" style="height:calc(48px * 5);min-height:calc(48px * 5);overflow:auto;">
               <table id="officeBodyTable" style="width:100%;border-collapse:collapse;font-size:13px;table-layout:fixed;margin:0;">
                 <colgroup>
-                  <col style="width:45%">
+                  <col style="width:38%">
                   <col style="width:12%">
                   <col style="width:12%">
                   <col style="width:12%">
-                  <col style="width:19%">
+                  <col style="width:12%">
+                  <col style="width:14%">
                 </colgroup>
                 <tbody id="officesBody">
                 <?php foreach ($offices as $o):
@@ -440,6 +454,9 @@ $stmtCount = $conn->prepare("
                         $stmtCount->free_result(); // free result so next bind works
                     }
                     $cap = isset($o['capacity']) ? (int)$o['capacity'] : null;
+
+                    // Approved count (using same approved applications count as 'filled')
+                    $approved = $filled;
 
                     if ($cap === null) {
                         $availableDisplay = '—';
@@ -461,6 +478,7 @@ $stmtCount = $conn->prepare("
                     <td style="padding:6px;border:1px solid #eee;"><?= htmlspecialchars($o['office_name'] ?? '—') ?></td>
                     <td style="text-align:center;padding:6px;border:1px solid #eee"><?= $cap === null ? '—' : $cap ?></td>
                     <td style="text-align:center;padding:6px;border:1px solid #eee"><?= $filled ?></td>
+                    <td style="text-align:center;padding:6px;border:1px solid #eee"><?= $approved ?></td>
                     <td style="text-align:center;padding:6px;border:1px solid #eee"><?= $availableDisplay ?></td>
                     <td style="text-align:center;padding:6px;border:1px solid #eee"><span class="<?= $statusClass ?>"><?= htmlspecialchars($statusLabel) ?></span></td>
                   </tr>
@@ -528,16 +546,35 @@ $stmtCount->close();
 </style>
 
 <script>
-// Office availability filtering (search + status) - updated to work with two-table approach
+/* Office availability filtering (search + status) with sorting on same line
+   sorts by Capacity (col 1), Active OJTs (col 2), Approved (col 3), Available Slot (col 4) */
 (function(){
   const searchInput = document.getElementById('officeSearch');
   const statusSel = document.getElementById('officeStatusFilter');
+  const sortSel = document.getElementById('officeSort');
+  const sortDirBtn = document.getElementById('officeSortDir');
   const tbody = document.getElementById('officesBody');
 
-  function filterOffices(){
+  // column indices in the table body (0-based)
+  const COL = { capacity:1, active:2, approved:3, available:4 };
+
+  function parseNumCell(text){
+    if (!text) return null;
+    text = text.toString().trim();
+    if (text === '—' || text === '') return null;
+    const n = parseInt(text.replace(/[^\d-]/g,''), 10);
+    return isNaN(n) ? null : n;
+  }
+
+  function filterAndSort(){
     const q = (searchInput.value || '').toLowerCase().trim();
     const status = (statusSel.value || 'active');
+    const sortBy = (sortSel.value || '');
+    const dir = (sortDirBtn.dataset.dir || 'desc'); // 'asc' or 'desc'
+
     const rows = Array.from(tbody.querySelectorAll('tr'));
+
+    // First: filter rows (set display)
     rows.forEach(r => {
       const name = (r.getAttribute('data-office') || '').toLowerCase();
       const statusText = (r.querySelector('td:last-child').textContent || '').toLowerCase();
@@ -552,12 +589,47 @@ $stmtCount->close();
       }
       r.style.display = (matchesQuery && matchesStatus) ? '' : 'none';
     });
+
+    // Then: sort visible rows if requested
+    if (sortBy && COL.hasOwnProperty(sortBy)) {
+      const visibleRows = rows.filter(r => r.style.display !== 'none');
+      // build sortable array
+      visibleRows.sort((a,b) => {
+        const aRaw = a.cells[COL[sortBy]] ? a.cells[COL[sortBy]].textContent : '';
+        const bRaw = b.cells[COL[sortBy]] ? b.cells[COL[sortBy]].textContent : '';
+        const aVal = parseNumCell(aRaw);
+        const bVal = parseNumCell(bRaw);
+
+        // handle nulls: push nulls to end
+        if (aVal === null && bVal === null) return 0;
+        if (aVal === null) return dir === 'asc' ? 1 : -1;
+        if (bVal === null) return dir === 'asc' ? -1 : 1;
+
+        if (aVal === bVal) return 0;
+        return (aVal < bVal ? -1 : 1) * (dir === 'asc' ? 1 : -1);
+      });
+
+      // re-append visible rows in sorted order at the end of tbody (keeps hidden rows in place)
+      // approach: move each visible row in order
+      visibleRows.forEach(r => tbody.appendChild(r));
+    }
   }
 
-  searchInput.addEventListener('input', filterOffices);
-  statusSel.addEventListener('change', filterOffices);
-  // initial filter (default active)
-  filterOffices();
+  // toggle direction button
+  sortDirBtn.dataset.dir = 'desc';
+  sortDirBtn.addEventListener('click', function(){
+    this.dataset.dir = this.dataset.dir === 'asc' ? 'desc' : 'asc';
+    this.textContent = this.dataset.dir === 'asc' ? 'Asc' : 'Desc';
+    filterAndSort();
+  });
+
+  // wire inputs
+  searchInput.addEventListener('input', filterAndSort);
+  statusSel.addEventListener('change', filterAndSort);
+  sortSel.addEventListener('change', filterAndSort);
+
+  // initial run
+  filterAndSort();
 })();
 </script>
 
