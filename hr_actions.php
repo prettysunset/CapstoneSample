@@ -237,6 +237,7 @@ if ($action === 'approve_send') {
     }
 
     // If both pref1 and pref2 are present and both full -> auto-reject and notify student
+    // Case A: both choices provided and both full -> auto-reject
     if (($pref1 && $pref2) && $pref1_full && $pref2_full) {
         $remarks = "Auto-rejected: Full slots in preferred offices.";
         $u = $conn->prepare("UPDATE ojt_applications SET status = 'rejected', remarks = ?, date_updated = CURDATE() WHERE application_id = ?");
@@ -278,6 +279,47 @@ if ($action === 'approve_send') {
         }
 
         respond(['success' => true, 'action' => 'auto_reject', 'mail' => $mailSent ? 'sent' : 'failed', 'message' => 'Application auto-rejected due to full slots.']);
+    }
+    // Case B: only first choice provided (pref2 empty) and first is full -> auto-reject
+    if ($pref1 && !$pref2 && $pref1_full) {
+        $remarks = "Auto-rejected: Preferred office has reached capacity.";
+        $u = $conn->prepare("UPDATE ojt_applications SET status = 'rejected', remarks = ?, date_updated = CURDATE() WHERE application_id = ?");
+        $u->bind_param("si", $remarks, $app_id);
+        $ok = $u->execute();
+        $u->close();
+        if (!$ok) respond(['success' => false, 'message' => 'Failed to update application status.']);
+
+        $mailSent = false;
+        if (filter_var($to, FILTER_VALIDATE_EMAIL)) {
+            try {
+                $mail = new PHPMailer(true);
+                $mail->isSMTP();
+                $mail->Host       = SMTP_HOST;
+                $mail->SMTPAuth   = true;
+                $mail->Username   = SMTP_USER;
+                $mail->Password   = SMTP_PASS;
+                $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
+                $mail->Port       = SMTP_PORT;
+                $mail->CharSet    = 'UTF-8';
+                $mail->setFrom(SMTP_FROM_EMAIL, SMTP_FROM_NAME);
+                $mail->addAddress($to, $student_name);
+
+                $mail->isHTML(true);
+                $mail->Subject = "OJT Application Update";
+                $mail->Body    = "<p>Dear <strong>" . htmlspecialchars($student_name) . "</strong>,</p>"
+                               . "<p>We regret to inform you that your OJT application has been <strong>rejected</strong>.</p>"
+                               . "<p><strong>Reason:</strong> Your preferred office has reached capacity and no second choice was provided.</p>"
+                               . "<p>If you have questions, please contact the HR department.</p>"
+                               . "<p>— HR Department</p>";
+
+                $mail->send();
+                $mailSent = true;
+            } catch (Exception $e) {
+                $mailSent = false;
+            }
+        }
+
+        respond(['success' => true, 'action' => 'auto_reject', 'mail' => $mailSent ? 'sent' : 'failed', 'message' => 'Application auto-rejected: preferred office full and no second choice.']);
     }
 
     // decide assigned office (same logic as before)

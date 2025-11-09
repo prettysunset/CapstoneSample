@@ -393,9 +393,9 @@ $stmtActive = $conn->prepare("
           <div style="display:flex;gap:8px;align-items:center">
             <input id="officeSearch" type="text" placeholder="Search office..." style="padding:8px 10px;border:1px solid #ddd;border-radius:8px;width:220px" />
             <select id="officeStatusFilter" style="padding:8px;border:1px solid #ddd;border-radius:8px;background:#fff">
-              <option value="active" selected>Open</option>
+              <option value="active">Open</option>
               <option value="full">Full</option>
-              <option value="all">All</option>
+              <option value="all" selected>All</option>
             </select>
 
             <!-- added sort control (same line) -->
@@ -403,7 +403,7 @@ $stmtActive = $conn->prepare("
             <select id="officeSort" style="padding:8px;border:1px solid #ddd;border-radius:8px;background:#fff">
               <option value="">None</option>
               <option value="capacity">Capacity</option>
-              <option value="active">Active OJTs</option>
+              <option value="active">Ongoing OJTs</option>
               <option value="approved">Approved</option>
               <option value="available">Available Slot</option>
             </select>
@@ -428,7 +428,7 @@ $stmtActive = $conn->prepare("
                 <tr>
                   <th style="text-align:left;padding:6px;border:1px solid #eee;background:#fff5f8">Office</th>
                   <th style="padding:6px;border:1px solid #eee;background:#fff5f8;text-align:center">Capacity</th>
-                  <th style="padding:6px;border:1px solid #eee;background:#fff5f8;text-align:center">Active OJTs</th>
+                  <th style="padding:6px;border:1px solid #eee;background:#fff5f8;text-align:center">Ongoing OJTs</th>
                   <th style="padding:6px;border:1px solid #eee;background:#fff5f8;text-align:center">Approved</th>
                   <th style="padding:6px;border:1px solid #eee;background:#fff5f8;text-align:center">Available Slot</th>
                   <th style="padding:6px;border:1px solid #eee;background:#fff5f8;text-align:center">Status</th>
@@ -1296,5 +1296,105 @@ if (logoutBtn) {
   });
 }
 </script>
+<?php
+// --- AFTER you load $offices (right after the block that builds $offices) ---
+/* AUTO-REJECT: move pending -> rejected when pref2 is NULL and pref1 office is Full.
+   This runs only when viewing the pending tab to avoid unexpected updates elsewhere. */
+if ($tab === 'pending' && !empty($offices)) {
+    // find capacity column used by offices (already computed as $capacityCol above)
+    $capacityCol = $capacityCol ?? null;
+
+    // prepare fill-count stmt (counts approved + active variants)
+    $countStmt = $conn->prepare("
+        SELECT COUNT(DISTINCT student_id) AS filled
+        FROM ojt_applications
+        WHERE (office_preference1 = ? OR office_preference2 = ?)
+          AND status IN ('approved','active','ongoing','in_progress','assigned','started','on_ojt')
+    ");
+
+    $fullOfficeIds = [];
+    foreach ($offices as $o) {
+        $officeId = (int)($o['office_id'] ?? 0);
+        $cap = isset($o['capacity']) ? (int)$o['capacity'] : null;
+        if ($capacityCol === null || $cap === null) continue; // treat as unlimited -> not full
+
+        // get filled
+        $filled = 0;
+        if ($countStmt) {
+            $countStmt->bind_param('ii', $officeId, $officeId);
+            $countStmt->execute();
+            $cntRow = $countStmt->get_result()->fetch_assoc();
+            $countStmt->free_result();
+            $filled = (int)($cntRow['filled'] ?? 0);
+        }
+
+        if ($filled >= $cap) $fullOfficeIds[] = $officeId;
+    }
+    if ($countStmt) $countStmt->close();
+
+    if (!empty($fullOfficeIds)) {
+        // find pending applications where pref2 IS NULL and pref1 in fullOfficeIds
+        // build placeholders
+        $placeholders = implode(',', array_fill(0, count($fullOfficeIds), '?'));
+        $types = str_repeat('i', count($fullOfficeIds));
+
+        $sql = "SELECT oa.application_id, oa.student_id, s.email
+                FROM ojt_applications oa
+                JOIN students s ON oa.student_id = s.student_id
+                WHERE oa.status = 'pending' AND (oa.office_preference2 IS NULL OR oa.office_preference2 = 0)
+                  AND oa.office_preference1 IN ($placeholders)";
+        $stmtFind = $conn->prepare($sql);
+        if ($stmtFind) {
+            // bind dynamic params
+            $bindNames = [];
+            $bindNames[] = &$types;
+            foreach ($fullOfficeIds as $k => $id) {
+                $bindNames[] = &$fullOfficeIds[$k];
+            }
+            // call_user_func_array for bind_param
+            call_user_func_array([$stmtFind, 'bind_param'], $bindNames);
+            $stmtFind->execute();
+            $resPending = $stmtFind->get_result();
+            $toReject = $resPending->fetch_all(MYSQLI_ASSOC);
+            $stmtFind->close();
+
+            if (!empty($toReject)) {
+                // prepare update stmt
+                $u = $conn->prepare("UPDATE ojt_applications SET status = 'rejected', remarks = ?, date_updated = CURDATE() WHERE application_id = ?");
+                $mailHeaders = "MIME-Version: 1.0\r\nContent-type: text/html; charset=utf-8\r\nFrom: OJTMS HR <no-reply@localhost>\r\n";
+                foreach ($toReject as $rj) {
+                    $appId = (int)$rj['application_id'];
+                    $studentEmail = trim($rj['email'] ?? '');
+                    $remarks = 'Auto-rejected: Preferred office has reached capacity (no second choice).';
+                    if ($u) {
+                        $u->bind_param('si', $remarks, $appId);
+                        $u->execute();
+                    }
+                    // send simple rejection email (mail() fallback)
+                    if (filter_var($studentEmail, FILTER_VALIDATE_EMAIL)) {
+                        $subject = "OJT Application Rejected";
+                        $body = "<p>Dear Applicant,</p>"
+                              . "<p>We regret to inform you that your OJT application has been <strong>rejected</strong>.</p>"
+                              . "<p><strong>Reason:</strong> Your preferred office has reached capacity and no second choice was provided.</p>"
+                              . "<p>If you have questions, please contact HR.</p>"
+                              . "<p>— HR Department</p>";
+                        @mail($studentEmail, $subject, $body, $mailHeaders);
+                    }
+                }
+                if ($u) $u->close();
+                // refresh $apps so UI immediately reflects the moved rows
+                $stmtApps = $conn->prepare($q);
+                if ($stmtApps) {
+                    $stmtApps->bind_param("s", $statusFilter);
+                    $stmtApps->execute();
+                    $result = $stmtApps->get_result();
+                    $apps = $result->fetch_all(MYSQLI_ASSOC);
+                    $stmtApps->close();
+                }
+            }
+        }
+    }
+}
+?>
 </body>
 </html>
