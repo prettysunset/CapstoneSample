@@ -45,7 +45,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 header("Location: hr_head/hr_head_home.php");
                 break;
             case 'hr_staff':
-                header("Location: hr_staff/dashboard.php");
+                header("Location: hr_staff/hr_staff_home.php");
                 break;
             case 'office_head':
                 header("Location: office_head/office_head_home.php");

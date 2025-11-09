@@ -446,27 +446,74 @@ $late_dtr_res = $late_dtr->get_result();
       cancel.addEventListener('click', closeModal);
 
       requestBtn.addEventListener('click', function(){
-        const reqLimit = document.getElementById('m_requested_limit').value;
-        const reason = document.getElementById('m_reason').value.trim();
-        // basic validation
-        if (reqLimit === '' || isNaN(reqLimit)) { alert('Please enter requested limit'); return; }
-        // send AJAX
+        const reqLimitEl = document.getElementById('m_requested_limit');
+        const reasonEl = document.getElementById('m_reason');
+        const reqLimitRaw = (reqLimitEl.value || '').toString().trim();
+        const reason = (reasonEl.value || '').toString().trim();
+
+        // validation: required fields
+        if (reqLimitRaw === '') {
+          alert('Requested Limit is required.');
+          reqLimitEl.focus();
+          return;
+        }
+        const reqLimitNum = Number(reqLimitRaw);
+        if (!Number.isFinite(reqLimitNum) || isNaN(reqLimitNum) || reqLimitNum < 0) {
+          alert('Requested Limit must be a valid non-negative number.');
+          reqLimitEl.focus();
+          return;
+        }
+        if (reason === '') {
+          alert('Reason is required.');
+          reasonEl.focus();
+          return;
+        }
+
+        // disable button during request
+        requestBtn.disabled = true;
+        requestBtn.textContent = 'Sending...';
+
         fetch('office_head_action.php', {
           method: 'POST',
           headers: {'Content-Type':'application/json'},
-          body: JSON.stringify({ action: 'request_limit', office_id: parseInt(officeId,10), requested_limit: parseInt(reqLimit,10), reason })
-        }).then(r=>r.json()).then(j=>{
-          if (!j || !j.success) { alert('Request failed: '+(j?.message||'unknown')); return; }
-          // update UI fields
-          document.getElementById('ci_requested_limit').value = j.data.requested_limit;
-          document.getElementById('ci_reason').value = j.data.reason;
-          document.getElementById('ci_status').value = j.data.status.charAt(0).toUpperCase() + j.data.status.slice(1);
-          closeModal();
-        }).catch(e=>{
-          console.error(e);
-          alert('Request failed');
-        });
-      });
+          body: JSON.stringify({
+            action: 'request_limit',
+            office_id: parseInt(officeId,10),
+            requested_limit: Math.floor(reqLimitNum),
+            reason
+          })
+        }).then(r => r.json().catch(()=>null))
+          .then(j => {
+            if (!j) {
+              alert('Request failed: invalid server response.');
+              return;
+            }
+            if (!j.success) {
+              // clearer handling for unknown action
+              if (j.message && j.message.toLowerCase().indexOf('unknown action') !== -1) {
+                alert('Server error: Unknown action. Please ensure office_head_action.php implements "request_limit".');
+              } else {
+                alert('Request failed: ' + (j.message || 'unknown error'));
+              }
+              return;
+            }
+            // update UI fields on success
+            if (j.data) {
+              document.getElementById('ci_requested_limit').value = j.data.requested_limit ?? document.getElementById('ci_requested_limit').value;
+              document.getElementById('ci_reason').value = j.data.reason ?? document.getElementById('ci_reason').value;
+              if (j.data.status) {
+                document.getElementById('ci_status').value = (j.data.status.charAt(0).toUpperCase() + j.data.status.slice(1));
+              }
+            }
+            closeModal();
+          }).catch(e=>{
+            console.error(e);
+            alert('Request failed (network or server error).');
+          }).finally(()=>{
+            requestBtn.disabled = false;
+            requestBtn.textContent = 'Request';
+          });
+       });
     })();
     </script>
 

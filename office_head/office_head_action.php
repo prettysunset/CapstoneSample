@@ -76,5 +76,51 @@ if ($action === 'create_late') {
     exit;
 }
 
+if ($action === 'request_limit') {
+    $office_id = isset($data['office_id']) ? (int)$data['office_id'] : 0;
+    $requested_limit = isset($data['requested_limit']) ? (int)$data['requested_limit'] : null;
+    $reason = isset($data['reason']) ? trim($data['reason']) : '';
+
+    if ($office_id <= 0) { echo json_encode(['success'=>false,'message'=>'Invalid office_id']); exit; }
+    if ($requested_limit === null || !is_int($requested_limit) || $requested_limit < 0) { echo json_encode(['success'=>false,'message'=>'Invalid requested_limit']); exit; }
+    if ($reason === '') { echo json_encode(['success'=>false,'message'=>'Reason is required']); exit; }
+
+    // fetch current limit
+    $stmt = $conn->prepare("SELECT current_limit FROM offices WHERE office_id = ? LIMIT 1");
+    $stmt->bind_param('i', $office_id);
+    $stmt->execute();
+    $row = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+    if (!$row) { echo json_encode(['success'=>false,'message'=>'Office not found']); exit; }
+    $old_limit = (int)($row['current_limit'] ?? 0);
+
+    // insert office_requests record
+    $ins = $conn->prepare("INSERT INTO office_requests (office_id, old_limit, new_limit, reason, status, date_requested) VALUES (?, ?, ?, ?, 'pending', CURDATE())");
+    $ins->bind_param('iiis', $office_id, $old_limit, $requested_limit, $reason);
+    $okIns = $ins->execute();
+    $ins->close();
+
+    if (!$okIns) {
+        echo json_encode(['success'=>false,'message'=>'Failed to create request']); exit;
+    }
+
+    // update offices table requested_limit / reason / status
+    $upd = $conn->prepare("UPDATE offices SET requested_limit = ?, reason = ?, status = 'Pending' WHERE office_id = ?");
+    $upd->bind_param('isi', $requested_limit, $reason, $office_id);
+    $okUpd = $upd->execute();
+    $upd->close();
+
+    if (!$okUpd) {
+        echo json_encode(['success'=>false,'message'=>'Failed to update office']); exit;
+    }
+
+    echo json_encode(['success'=>true,'data'=>[
+        'requested_limit' => $requested_limit,
+        'reason' => $reason,
+        'status' => 'Pending'
+    ]]);
+    exit;
+}
+
 echo json_encode(['success'=>false,'message'=>'Unknown action']);
 ?>
