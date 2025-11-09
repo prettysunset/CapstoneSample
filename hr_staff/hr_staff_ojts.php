@@ -19,8 +19,8 @@ $stmtUser->execute();
 $user = $stmtUser->get_result()->fetch_assoc() ?: [];
 $stmtUser->close();
 
-$full_name = trim(($user['first_name'] ?? '') . ' ' . ($user['middle_name'] ?? '') . ' ' . ($user['last_name'] ?? ''));
-$role_label = !empty($user['role']) ? ucwords(str_replace('_',' ', $user['role'])) : 'User';
+$full_name = trim(($user['first_name'] ?? '') . ' ' . ($user['last_name'] ?? '')); // show only first + last for sidebar
+$role_label = 'HR Staff'; // force label for staff OJTs page
 
 // fetch all OJT applications with status 'approved' or 'rejected'
 $q = "SELECT oa.application_id, oa.date_submitted, oa.status,
@@ -88,6 +88,13 @@ if ($off_q) {
             return $rank($a['status']) <=> $rank($b['status']);
         });
     }
+
+    // Only show pending requests in the Requested OJTs table.
+    // Approved / Declined requests will no longer appear here.
+    $offices_for_requests = array_values(array_filter($offices_for_requests, function($r){
+        $s = strtolower(trim((string)($r['status'] ?? '')));
+        return $s === '' || $s === 'pending';
+    }));
 }
 
 // --- NEW: load MOA rows for client usage (array of {school_name, moa_file}) ---
@@ -107,7 +114,7 @@ if ($moa_q) {
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>OJT-MS | HR Head OJTs</title>
+<title>OJT-MS | HR Staff OJTs</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>
     *{box-sizing:border-box;font-family:'Poppins',sans-serif}
@@ -247,13 +254,10 @@ if ($moa_q) {
         <img src="https://cdn-icons-png.flaticon.com/512/149/149071.png" alt="Profile">
         <h3><?php echo htmlspecialchars($full_name ?: ($_SESSION['username'] ?? '')); ?></h3>
         <p><?php echo htmlspecialchars($role_label); ?></p>
-        <?php if(!empty($user['office_name'])): ?>
-            <p style="font-size:12px;color:#bfc4d1"><?php echo htmlspecialchars($user['office_name']); ?></p>
-        <?php endif; ?>
     </div>
 
     <div class="nav">
-      <a href="hr_head_home.php">
+      <a href="hr_staff_home.php">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px">
           <path d="M3 11.5L12 4l9 7.5"></path>
           <path d="M5 12v7a1 1 0 0 0 1 1h3v-5h6v5h3a1 1 0 0 0 1-1v-7"></path>
@@ -267,28 +271,28 @@ if ($moa_q) {
         </svg>
         OJTs
       </a>
-      <a href="hr_head_dtr.php">
+      <a href="hr_staff_dtr.php">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px">
           <circle cx="12" cy="12" r="8"></circle>
           <path d="M12 8v5l3 2"></path>
         </svg>
         DTR
       </a>
-      <a href="hr_head_moa.php">
+      <a href="hr_staff_moa.php">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px">
           <circle cx="12" cy="12" r="8"></circle>
           <path d="M12 8v5l3 2"></path>
         </svg>
         MOA
       </a>
-      <a href="hr_head_accounts.php">
+      <a href="hr_staff_accounts.php">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px">
           <circle cx="12" cy="12" r="3"></circle>
           <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06A2 2 0 1 1 2.28 16.8l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09c.7 0 1.3-.4 1.51-1A1.65 1.65 0 0 0 4.27 6.3L4.2 6.23A2 2 0 1 1 6 3.4l.06.06c.5.5 1.2.7 1.82.33.7-.4 1.51-.4 2.21 0 .62.37 1.32.17 1.82-.33L12.6 3.4a2 2 0 1 1 1.72 3.82l-.06.06c-.5.5-.7 1.2-.33 1.82.4.7.4 1.51 0 2.21-.37.62-.17 1.32.33 1.82l.06.06A2 2 0 1 1 19.4 15z"></path>
         </svg>
         Accounts
       </a>
-      <a href="hr_head_reports.php">
+      <a href="hr_staff_reports.php">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px">
           <rect x="3" y="10" width="4" height="10"></rect>
           <rect x="10" y="6" width="4" height="14"></rect>
@@ -472,7 +476,7 @@ if ($moa_q) {
                   <th style="text-align:center">Available Slots</th>
                   <th style="text-align:center">Requested Limit</th>
                   <th>Reason</th>
-                  <th style="text-align:center">Action</th>
+                  <th style="text-align:center">Status</th>
                 </tr>
               </thead>
               <tbody id="requested_tbody">
@@ -485,16 +489,17 @@ if ($moa_q) {
                     <td style="text-align:center"><?= $of['requested_limit'] === '' ? '—' : (int)$of['requested_limit'] ?></td>
                     <td><?= htmlspecialchars($of['reason'] ?: '—') ?></td>
                     <td style="text-align:center">
-                      <?php if (strtolower($of['status']) === 'approved'): ?>
-                        <span class="action-ok">Approved</span>
-                      <?php elseif (strtolower($of['status']) === 'declined'): ?>
-                        <span style="color:#a00;font-weight:700">Declined</span>
-                      <?php else: ?>
-                        <span class="action-pending">
-                          <button type="button" class="ok" onclick="handleOfficeRequest(<?= (int)$of['office_id'] ?>, 'approve')" title="Approve" aria-label="Approve">✔</button>
-                          <button type="button" class="no" onclick="handleOfficeRequest(<?= (int)$of['office_id'] ?>, 'decline')" title="Decline" aria-label="Decline">✖</button>
-                        </span>
-                      <?php endif; ?>
+                      <?php
+                        $st = strtolower(trim((string)($of['status'] ?? '')));
+                        if ($st === '' || $st === 'pending') {
+                          // show word "Pending" instead of action icons
+                          echo '<span style="color:#ff9800;font-weight:700">Pending</span>';
+                        } elseif ($st === 'approved') {
+                          echo '<span class="status-approved">Approved</span>';
+                        } else {
+                          echo '<span class="status-rejected">' . htmlspecialchars(ucfirst($st)) . '</span>';
+                        }
+                      ?>
                     </td>
                   </tr>
                 <?php endforeach; ?>
@@ -570,40 +575,35 @@ if ($moa_q) {
             </div>
           </div>
 
-            <div class="view-right">
+          <div class="view-right">
             <div style="display:flex;justify-content:space-between;align-items:center;">
               <div style="font-weight:700">Progress</div>
+              <div style="font-size:12px;color:#6b7280">Expected / Required</div>
             </div>
 
-            <div class="progress-wrap" style="display:flex;flex-direction:row;gap:16px;align-items:center;justify-content:flex-start;margin-top:14px;">
-              <div class="donut" id="view_donut" style="position:relative;flex:0 0 auto;">
-              <svg width="120" height="120" viewBox="0 0 120 120">
-                <circle cx="60" cy="60" r="48" stroke="#eef2f6" stroke-width="18" fill="none"></circle>
-                <circle id="donut_fore" cx="60" cy="60" r="48" stroke="#10b981" stroke-width="18" stroke-linecap="round" fill="none" stroke-dasharray="302" stroke-dashoffset="302"></circle>
-              </svg>
-              <div id="view_percent" style="position:absolute;inset:0;display:grid;place-items:center;font-weight:800;color:#111827;font-size:16px;pointer-events:none">0%</div>
+            <div class="progress-wrap" style="display:flex;gap:12px;align-items:flex-start;margin-top:8px">
+              <div class="donut" id="view_donut">
+                <svg width="120" height="120" viewBox="0 0 120 120">
+                  <circle cx="60" cy="60" r="48" stroke="#eef2f6" stroke-width="18" fill="none"></circle>
+                  <circle id="donut_fore" cx="60" cy="60" r="48" stroke="#10b981" stroke-width="18" stroke-linecap="round" fill="none" stroke-dasharray="302" stroke-dashoffset="302"></circle>
+                </svg>
+                <div style="position:absolute;font-weight:800;color:#111827;font-size:16px" id="view_percent">0%</div>
               </div>
-
-              <div style="flex:1;min-width:0;max-width:320px;margin-left:12px;">
-              <div style="font-size:14px;font-weight:700" id="view_hours_text">0 out of 500 hours</div>
-              <div style="font-size:12px;color:#6b7280;margin-top:6px;white-space:pre-line" id="view_dates">Date Started: — 
-              Expected End Date: —</div>
+              <div style="flex:1">
+                <div style="font-size:14px;font-weight:700" id="view_hours_text">0 out of 500 hours</div>
+                <div style="font-size:12px;color:#6b7280;margin-top:6px" id="view_dates">Date Started: — <br> Expected End Date: —</div>
+                <div class="assigned" id="view_assigned" style="margin-top:10px">
+                  <div style="font-weight:700">Assigned Office:</div>
+                  <div id="view_assigned_office">—</div>
+                  <div style="margin-top:8px;font-weight:700">Office Head:</div>
+                  <div id="view_office_head">—</div>
+                  <div style="margin-top:8px;font-weight:700">Contact #:</div>
+                  <div id="view_office_contact">—</div>
+                </div>
               </div>
             </div>
 
-            <!-- Assigned office moved below the progress block to avoid overlap -->
-            <div class="assigned" id="view_assigned" style="margin-top:18px;display:flex;flex-direction:column;gap:8px;text-align:left;">
-              <div style="font-weight:700">Assigned Office:</div>
-              <div id="view_assigned_office">—</div>
-
-              <div style="margin-top:6px;font-weight:700">Office Head:</div>
-              <div id="view_office_head">—</div>
-
-              <div style="margin-top:6px;font-weight:700">Contact #:</div>
-              <div id="view_office_contact">—</div>
-            </div>
-
-            </div>
+          </div>
         </div> <!-- .view-body -->
       </div> <!-- #panel-info -->
 
