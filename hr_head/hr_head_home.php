@@ -426,12 +426,12 @@ $stmtActive = $conn->prepare("
               </colgroup>
               <thead>
                 <tr>
-                  <th style="text-align:left;padding:6px;border:1px solid #eee;background:#fff5f8">Office</th>
-                  <th style="padding:6px;border:1px solid #eee;background:#fff5f8;text-align:center">Capacity</th>
-                  <th style="padding:6px;border:1px solid #eee;background:#fff5f8;text-align:center">Ongoing OJTs</th>
-                  <th style="padding:6px;border:1px solid #eee;background:#fff5f8;text-align:center">Approved</th>
-                  <th style="padding:6px;border:1px solid #eee;background:#fff5f8;text-align:center">Available Slot</th>
-                  <th style="padding:6px;border:1px solid #eee;background:#fff5f8;text-align:center">Status</th>
+                  <th style="text-align:left;padding:6px;border:1px solid #eee;background:#e6e9fb">Office</th>
+                  <th style="padding:6px;border:1px solid #eee;background:#e6e9fb;text-align:center">Capacity</th>
+                  <th style="padding:6px;border:1px solid #eee;background:#e6e9fb;text-align:center">Ongoing OJTs</th>
+                  <th style="padding:6px;border:1px solid #eee;background:#e6e9fb;text-align:center">Approved</th>
+                  <th style="padding:6px;border:1px solid #eee;background:#e6e9fb;text-align:center">Available Slot</th>
+                  <th style="padding:6px;border:1px solid #eee;background:#e6e9fb;text-align:center">Status</th>
                 </tr>
               </thead>
             </table>
@@ -696,7 +696,13 @@ $stmtActive->close();
 
             <!-- keep search + office dropdown inside the white .table-container -->
             <div style="display:flex;gap:8px;align-items:center;">
-                <input id="tabSearch" type="text" placeholder="Search name / address / office..." style="padding:6px 10px;border:1px solid #ddd;border-radius:8px;min-width:220px" />
+                <div style="position:relative;display:inline-flex;align-items:center;">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#888" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="position:absolute;left:6px;pointer-events:none;">
+                    <circle cx="11" cy="11" r="6"></circle>
+                    <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                  </svg>
+                  <input id="tabSearch" aria-label="Search pending or rejected" type="text" placeholder="Search name / address / office..." style="padding:6px 10px 6px 34px;border:1px solid #ddd;border-radius:8px;min-width:220px" />
+                </div>
                 <select id="tabOfficeFilter" style="padding:6px;border:1px solid #ddd;border-radius:8px;">
                     <option value="all">All offices</option>
                     <?php foreach($offices as $o): ?>

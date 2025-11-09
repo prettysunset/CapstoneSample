@@ -93,47 +93,17 @@ $stmt->close();
 <meta charset="utf-8">
 <title>Office Head — Reports</title>
 <style>
-  /* Sidebar safety (make sure include's sidebar displays correctly) */
-  .sidebar{
-    width:220px;
-    background:#2f3459;
-    position:fixed;
-    left:0;
-    top:0;
-    height:100vh;
-    padding:28px 18px;
-    box-sizing:border-box;
-    color:#fff;
-    z-index:1000; /* high so it stays above page content */
-  }
-  .sidebar {
-        width: 220px;
-        background-color: #2f3459;
-        height: 100vh;
-        color: white;
-        position: fixed;
-        padding-top: 30px;
-    }
-    .sidebar h3 {
-        text-align: center;
-        margin-bottom: 5px;
-    }
-    .sidebar p {
-        text-align: center;
-        font-size: 14px;
-        margin-top: 0;
-    }
-    .sidebar a {
-        display: block;
-        padding: 10px 20px;
-        margin: 10px;
-        color: black;
-        border-radius: 20px;
-        text-decoration: none;
-    }
-    .sidebar a.active {
-        background-color: #fff;
-    }
+<style>
+  body{font-family:'Poppins',sans-serif;margin:0;background:#f5f6fa;color:#2f3459}
+  .sidebar{width:220px;background:#2f3459;height:100vh;position:fixed;color:#fff;padding-top:30px}
+  .main{margin-left:240px;padding:28px}
+  .card{background:#fff;border-radius:12px;padding:22px;box-shadow:0 6px 20px rgba(47,52,89,0.04)}
+  .top-icons{position:fixed;top:18px;right:28px;display:flex;gap:12px;z-index:1200}
+  .sidebar h3{text-align:center;margin-bottom:5px}
+  .sidebar p{text-align:center;font-size:14px;margin-top:0}
+  .sidebar a{display:flex;align-items:center;gap:8px;padding:10px 20px;margin:10px;color:#fff;border-radius:20px;text-decoration:none}
+  .sidebar a.active{background:#fff;color:#2f3459}
+
   /* Page layout (account for sidebar width + spacing) */
   body{font-family:Poppins, sans-serif;margin:0;background:#f5f6fa;color:#2f3459}
   .main{margin-left:260px; /* leave space for sidebar + gap */ padding:28px}
@@ -187,17 +157,18 @@ if (!empty($_SESSION['user_name'])) {
 $user_name = trim($user_name) ?: 'Office Head';
 $current = basename($_SERVER['SCRIPT_NAME']);
 ?>
-<div class="sidebar">
+
+  <div class="sidebar">
   <div style="text-align:center;padding:18px 12px 8px;">
-  <div style="width:64px;height:64px;border-radius:50%;background:#fff;color:#2f3459;display:inline-flex;align-items:center;justify-content:center;font-weight:700;margin:6px auto;font-size:20px;">
-    <?= htmlspecialchars(mb_strtoupper(substr(trim($user_name),0,1) ?: 'O')) ?>
-  </div>
-  <h3 style="margin:8px 0 4px;font-size:16px;"><?= htmlspecialchars($user_name) ?></h3>
-  <p style="margin:0;font-size:13px;opacity:0.9">Office Head — <?= htmlspecialchars($office_display) ?></p>
+    <div style="width:64px;height:64px;border-radius:50%;background:#fff;color:#2f3459;display:inline-flex;align-items:center;justify-content:center;font-weight:700;margin:6px auto;font-size:20px;">
+      <?= htmlspecialchars(mb_strtoupper(substr(trim($user_name),0,1) ?: 'O')) ?>
+    </div>
+    <h3 style="margin:8px 0 4px;font-size:16px;"><?= htmlspecialchars($user_name) ?></h3>
+    <p style="margin:0;font-size:13px;opacity:0.9">Office Head — <?= htmlspecialchars($office_display) ?></p>
   </div>
 
   <nav class="nav" style="margin-top:14px;display:flex;flex-direction:column;gap:8px;padding:0 12px;">
-    <a href="office_head_home.php" title="Home" style="display:flex;align-items:center;gap:8px;color:#fff;">
+    <a href="office_head_home.php" title="Home">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
         <path d="M3 11.5L12 4l9 7.5"></path>
         <path d="M5 12v7a1 1 0 0 0 1 1h3v-5h6v5h3a1 1 0 0 0 1-1v-7"></path>
@@ -205,7 +176,7 @@ $current = basename($_SERVER['SCRIPT_NAME']);
       <span>Home</span>
     </a>
 
-    <a href="office_head_ojts.php" title="OJTs" style="display:flex;align-items:center;gap:8px;color:#fff;">
+    <a href="office_head_ojts.php" title="OJTs">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
         <circle cx="12" cy="8" r="3"></circle>
         <path d="M5.5 20a6.5 6.5 0 0 1 13 0"></path>
@@ -213,7 +184,7 @@ $current = basename($_SERVER['SCRIPT_NAME']);
       <span>OJTs</span>
     </a>
 
-    <a href="office_head_dtr.php" title="DTR" style="display:flex;align-items:center;gap:8px;color:#fff;">
+    <a href="office_head_dtr.php" title="DTR">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
         <rect x="3" y="4" width="18" height="18" rx="2"></rect>
         <line x1="16" y1="2" x2="16" y2="6"></line>
@@ -223,7 +194,7 @@ $current = basename($_SERVER['SCRIPT_NAME']);
       <span>DTR</span>
     </a>
 
-    <a href="office_head_reports.php" class="active" title="Reports" style="display:flex;align-items:center;gap:8px;background:#fff;color:#2f3459;border-radius:20px;padding:10px 20px;">
+    <a href="office_head_reports.php" class="active" title="Reports">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
         <rect x="3" y="10" width="4" height="10"></rect>
         <rect x="10" y="6" width="4" height="14"></rect>
@@ -231,9 +202,9 @@ $current = basename($_SERVER['SCRIPT_NAME']);
       </svg>
       <span>Reports</span>
     </a>
-
-  
   </nav>
+
+  <div style="position:absolute;bottom:20px;width:100%;text-align:center;font-weight:700;padding-bottom:6px">OJT-MS</div>
 </div>
 
 <div class="top-icons">

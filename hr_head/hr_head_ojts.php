@@ -570,35 +570,40 @@ if ($moa_q) {
             </div>
           </div>
 
-          <div class="view-right">
+            <div class="view-right">
             <div style="display:flex;justify-content:space-between;align-items:center;">
               <div style="font-weight:700">Progress</div>
-              <div style="font-size:12px;color:#6b7280">Expected / Required</div>
             </div>
 
-            <div class="progress-wrap" style="display:flex;gap:12px;align-items:flex-start;margin-top:8px">
-              <div class="donut" id="view_donut">
-                <svg width="120" height="120" viewBox="0 0 120 120">
-                  <circle cx="60" cy="60" r="48" stroke="#eef2f6" stroke-width="18" fill="none"></circle>
-                  <circle id="donut_fore" cx="60" cy="60" r="48" stroke="#10b981" stroke-width="18" stroke-linecap="round" fill="none" stroke-dasharray="302" stroke-dashoffset="302"></circle>
-                </svg>
-                <div style="position:absolute;font-weight:800;color:#111827;font-size:16px" id="view_percent">0%</div>
+            <div class="progress-wrap" style="display:flex;flex-direction:row;gap:16px;align-items:center;justify-content:flex-start;margin-top:14px;">
+              <div class="donut" id="view_donut" style="position:relative;flex:0 0 auto;">
+              <svg width="120" height="120" viewBox="0 0 120 120">
+                <circle cx="60" cy="60" r="48" stroke="#eef2f6" stroke-width="18" fill="none"></circle>
+                <circle id="donut_fore" cx="60" cy="60" r="48" stroke="#10b981" stroke-width="18" stroke-linecap="round" fill="none" stroke-dasharray="302" stroke-dashoffset="302"></circle>
+              </svg>
+              <div id="view_percent" style="position:absolute;inset:0;display:grid;place-items:center;font-weight:800;color:#111827;font-size:16px;pointer-events:none">0%</div>
               </div>
-              <div style="flex:1">
-                <div style="font-size:14px;font-weight:700" id="view_hours_text">0 out of 500 hours</div>
-                <div style="font-size:12px;color:#6b7280;margin-top:6px" id="view_dates">Date Started: — <br> Expected End Date: —</div>
-                <div class="assigned" id="view_assigned" style="margin-top:10px">
-                  <div style="font-weight:700">Assigned Office:</div>
-                  <div id="view_assigned_office">—</div>
-                  <div style="margin-top:8px;font-weight:700">Office Head:</div>
-                  <div id="view_office_head">—</div>
-                  <div style="margin-top:8px;font-weight:700">Contact #:</div>
-                  <div id="view_office_contact">—</div>
-                </div>
+
+              <div style="flex:1;min-width:0;max-width:320px;margin-left:12px;">
+              <div style="font-size:14px;font-weight:700" id="view_hours_text">0 out of 500 hours</div>
+              <div style="font-size:12px;color:#6b7280;margin-top:6px;white-space:pre-line" id="view_dates">Date Started: — 
+              Expected End Date: —</div>
               </div>
             </div>
 
-          </div>
+            <!-- Assigned office moved below the progress block to avoid overlap -->
+            <div class="assigned" id="view_assigned" style="margin-top:18px;display:flex;flex-direction:column;gap:8px;text-align:left;">
+              <div style="font-weight:700">Assigned Office:</div>
+              <div id="view_assigned_office">—</div>
+
+              <div style="margin-top:6px;font-weight:700">Office Head:</div>
+              <div id="view_office_head">—</div>
+
+              <div style="margin-top:6px;font-weight:700">Contact #:</div>
+              <div id="view_office_contact">—</div>
+            </div>
+
+            </div>
         </div> <!-- .view-body -->
       </div> <!-- #panel-info -->
 
