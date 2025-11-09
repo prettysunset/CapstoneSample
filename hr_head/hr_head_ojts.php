@@ -88,6 +88,13 @@ if ($off_q) {
             return $rank($a['status']) <=> $rank($b['status']);
         });
     }
+
+    // Only show pending requests in the Requested OJTs table.
+    // Approved / Declined requests will no longer appear here.
+    $offices_for_requests = array_values(array_filter($offices_for_requests, function($r){
+        $s = strtolower(trim((string)($r['status'] ?? '')));
+        return $s === '' || $s === 'pending';
+    }));
 }
 
 // --- NEW: load MOA rows for client usage (array of {school_name, moa_file}) ---
