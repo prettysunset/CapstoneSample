@@ -22,24 +22,61 @@ $stmtUser->close();
 $full_name = trim(($user['first_name'] ?? '') . ' ' . ($user['middle_name'] ?? '') . ' ' . ($user['last_name'] ?? ''));
 $role_label = !empty($user['role']) ? ucwords(str_replace('_',' ', $user['role'])) : 'User';
 
-// fetch all OJT applications with status 'approved' or 'rejected'
-$q = "SELECT oa.application_id, oa.date_submitted, oa.status,
-             s.first_name, s.last_name, s.college, s.course, s.year_level,
-             oa.office_preference1, oa.office_preference2,
-             o1.office_name AS office1, o2.office_name AS office2,
-             oa.remarks,
-             s.hours_rendered, s.total_hours_required
-      FROM ojt_applications oa
-      LEFT JOIN students s ON oa.student_id = s.student_id
-      LEFT JOIN offices o1 ON oa.office_preference1 = o1.office_id
-      LEFT JOIN offices o2 ON oa.office_preference2 = o2.office_id
-      WHERE oa.status IN ('approved', 'rejected')
-      ORDER BY oa.date_submitted DESC, oa.application_id DESC";
+// --- CHANGED: fetch OJT trainees using users table (prepared statement with bound statuses)
+// Only include users whose status is 'approved', 'ongoing' or 'completed'.
+$visibleStatuses = ['approved', 'ongoing', 'completed'];
+// We'll use placeholders for the status list (repeated where needed).
+$q = "
+    SELECT
+        u.user_id,
+        u.first_name,
+        u.middle_name,
+        u.last_name,
+        u.office_name,
+        u.status AS user_status,
+        s.student_id,
+        s.first_name AS student_first_name,
+        s.middle_name AS student_middle_name,
+        s.last_name AS student_last_name,
+        s.college,
+        s.course,
+        s.year_level,
+        s.hours_rendered,
+        s.total_hours_required,
+        (SELECT oa.application_id
+         FROM ojt_applications oa
+         WHERE oa.student_id = s.student_id AND oa.status IN (?,?,?)
+         ORDER BY oa.date_submitted DESC, oa.application_id DESC
+         LIMIT 1
+        ) AS application_id
+    FROM users u
+    LEFT JOIN students s ON s.user_id = u.user_id
+    WHERE u.role = 'ojt'
+      AND u.status IN (?,?,?)
+    ORDER BY u.last_name ASC, u.first_name ASC
+";
 $stmt = $conn->prepare($q);
+if (!$stmt) {
+    // fail gracefully with DB error message (developer friendly)
+    throw new Exception('DB prepare failed: ' . $conn->error);
+}
+// bind statuses twice (for subquery and outer IN)
+$s1 = $visibleStatuses[0]; $s2 = $visibleStatuses[1]; $s3 = $visibleStatuses[2];
+$stmt->bind_param('ssssss', $s1, $s2, $s3, $s1, $s2, $s3);
 $stmt->execute();
 $result = $stmt->get_result();
 $students = $result->fetch_all(MYSQLI_ASSOC);
 $stmt->close();
+
+// load all offices for the dropdown (show every office in the DB)
+$officeList = [];
+$resAllOff = $conn->query("SELECT office_id, office_name FROM offices ORDER BY office_name");
+if ($resAllOff) {
+    while ($r = $resAllOff->fetch_assoc()) {
+        $officeList[] = $r;
+    }
+    $resAllOff->free();
+}
 
 $current_time = date("g:i A");
 $current_date = date("l, F j, Y");
@@ -371,8 +408,8 @@ if ($moa_q) {
             </div>
             <select id="officeFilter" aria-label="Filter by office" style="padding:8px 10px;border-radius:8px;border:1px solid #ccc;background:#f7f8fc;font-size:15px;flex:0 0 220px;">
               <option value="">Office</option>
-              <?php foreach ($offices_for_requests as $of): ?>
-                <option value="<?php echo htmlspecialchars($of['office_name']); ?>"><?php echo htmlspecialchars($of['office_name']); ?></option>
+              <?php foreach ($officeList as $of): ?>
+                <option value="<?php echo htmlspecialchars(strtolower($of['office_name'])); ?>"><?php echo htmlspecialchars($of['office_name']); ?></option>
               <?php endforeach; ?>
             </select>
             <select id="statusFilter" aria-label="Filter by status" style="padding:8px 12px;border-radius:8px;border:1px solid #ccc;background:#f7f8fc;font-size:15px;width:160px;box-sizing:border-box;cursor:pointer;">
@@ -430,32 +467,48 @@ if ($moa_q) {
             <?php if (empty($students)): ?>
                 <tr><td colspan="8" class="empty">No OJT trainees found.</td></tr>
             <?php else: foreach ($students as $row):
-                $office = $row['office1'] ?: ($row['office2'] ?: '—');
-                $name = trim(($row['first_name'] ?? '') . ' ' . ($row['last_name'] ?? ''));
-                $school = $row['college'] ?? '—';
-                $course = $row['course'] ?? '—';
-                $year = $row['year_level'] ?? '—';
-                $hours = (int)($row['hours_rendered'] ?? 0) . ' /' . (int)($row['total_hours_required'] ?? 500) . ' hrs';
-                $status = $row['status'] ?? '';
-                $statusClass = $status === 'approved' ? 'status-approved' : ($status === 'rejected' ? 'status-rejected' : '');
+                // Prefer student name from students table (matched by user_id). Fallback to users.* if missing.
+                $office = trim((string)($row['office_name'] ?? '—'));
+                $s_first = trim((string)($row['student_first_name'] ?? ''));
+                $s_middle = trim((string)($row['student_middle_name'] ?? ''));
+                $s_last = trim((string)($row['student_last_name'] ?? ''));
+                if ($s_first !== '' || $s_last !== '') {
+                    $name = trim($s_first . ' ' . ($s_middle ? ($s_middle . ' ') : '') . $s_last);
+                } else {
+                    $u_first = trim((string)($row['first_name'] ?? ''));
+                    $u_middle = trim((string)($row['middle_name'] ?? ''));
+                    $u_last = trim((string)($row['last_name'] ?? ''));
+                    $name = trim($u_first . ' ' . ($u_middle ? ($u_middle . ' ') : '') . $u_last);
+                }
+                if ($name === '') $name = '—';
+                 $school = $row['college'] ?? '—';
+                 $course = $row['course'] ?? '—';
+                 $year = $row['year_level'] ?? '—';
+                 $hours = (int)($row['hours_rendered'] ?? 0) . ' / ' . (int)($row['total_hours_required'] ?? 500) . ' hrs';
+                 // status comes from users.status in the query (alias user_status)
+                 $status = strtolower(trim((string)($row['user_status'] ?? '')));
+                 $statusClass = $status === 'approved' ? 'status-approved' : ($status === 'rejected' ? 'status-rejected' : ($status === 'ongoing' ? 'status-ongoing' : ($status === 'completed' ? 'status-completed' : '')));
+                 // application_id may be null if no application exists; user_id always present
+                 $appId = isset($row['application_id']) && $row['application_id'] ? (int)$row['application_id'] : 0;
+                 $userId = isset($row['user_id']) ? (int)$row['user_id'] : 0;
             ?>
-                <tr>
-                    <td><?= htmlspecialchars($name) ?></td>
-                    <td><?= htmlspecialchars($office) ?></td>
-                    <td><?= htmlspecialchars($school) ?></td>
-                    <td><?= htmlspecialchars($course) ?></td>
-                    <td><?= htmlspecialchars($year) ?></td>
-                    <td><?= htmlspecialchars($hours) ?></td>
-                    <td class="<?= $statusClass ?>"><?= ucfirst($status) ?></td>
-                    <td>
-                        <button class="view-btn" title="View" onclick="openViewModal(<?= (int)$row['application_id'] ?>)" aria-label="View">
-                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true">
-                            <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/>
-                            <circle cx="12" cy="12" r="3"/>
-                          </svg>
-                        </button>
-                    </td>
-                </tr>
+                 <tr>
+                     <td><?= htmlspecialchars($name) ?></td>
+                     <td><?= htmlspecialchars($office) ?></td>
+                     <td><?= htmlspecialchars($school) ?></td>
+                     <td><?= htmlspecialchars($course) ?></td>
+                     <td><?= htmlspecialchars($year) ?></td>
+                     <td><?= htmlspecialchars($hours) ?></td>
+                     <td class="<?= $statusClass ?>"><?= ucfirst($status) ?></td>
+                     <td>
+                         <button class="view-btn" title="View" onclick="openViewModal(<?= $appId ?>, <?= $userId ?>)" aria-label="View">
+                           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true">
+                             <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/>
+                             <circle cx="12" cy="12" r="3"/>
+                           </svg>
+                         </button>
+                     </td>
+                 </tr>
             <?php endforeach; endif; ?>
             </tbody>
         </table>
@@ -837,25 +890,37 @@ if ($moa_q) {
       t.addEventListener('click', switchViewTab);
     });
     // openViewModal: fetch application details and populate modal
-    window.openViewModal = async function(appId){
-      showViewOverlay();
-      // reset
-      ['view_name','view_age','view_birthday','view_address','view_phone','view_email','view_college','view_course','view_year','view_school_address','view_adviser','view_emg_name','view_emg_rel','view_emg_contact','view_hours_text','view_dates','view_assigned_office','view_office_head','view_office_contact','view_attachments_list'].forEach(id=>{
-        const el = document.getElementById(id);
-        if(el) el.textContent = '—';
-      });
-      // avatar
-      const avatarEl = document.getElementById('view_avatar');
-      avatarEl.innerHTML = '👤';
+    window.openViewModal = async function(appId, userId){
+       showViewOverlay();
+       // reset
+       ['view_name','view_age','view_birthday','view_address','view_phone','view_email','view_college','view_course','view_year','view_school_address','view_adviser','view_emg_name','view_emg_rel','view_emg_contact','view_hours_text','view_dates','view_assigned_office','view_office_head','view_office_contact','view_attachments_list'].forEach(id=>{
+         const el = document.getElementById(id);
+         if(el) el.textContent = '—';
+       });
+       // avatar
+       const avatarEl = document.getElementById('view_avatar');
+       avatarEl.innerHTML = '👤';
 
-      try{
+       try{
+        // decide which backend action to call
+        let payload;
+        if (parseInt(appId,10) > 0) {
+          payload = { action:'get_application', application_id: parseInt(appId,10) };
+        } else if (parseInt(userId,10) > 0) {
+          payload = { action:'get_user', user_id: parseInt(userId,10) };
+        } else {
+          alert('No application or user id available.');
+          closeViewModal();
+          return;
+        }
+
         const res = await fetch('../hr_actions.php', {
           method:'POST',
           headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ action:'get_application', application_id: parseInt(appId,10) })
+          body: JSON.stringify(payload)
         });
         const json = await res.json();
-        if (!json.success) { alert('Failed to load application'); closeViewModal(); return; }
+        if (!json.success) { alert('Failed to load details'); closeViewModal(); return; }
         const d = json.data;
         const s = d.student || {};
 
@@ -1070,10 +1135,10 @@ if ($moa_q) {
   if (officeFilter) officeFilter.addEventListener('change', filterRows);
   if (statusFilter) statusFilter.addEventListener('change', filterRows);
 
+ 
   // initial run
   filterRows();
 })();
-</script>
 
 <script>
   // attach confirm to top logout like hr_head_home.php
@@ -1084,6 +1149,7 @@ if ($moa_q) {
       e.preventDefault();
       if (confirm('Are you sure you want to logout?')) {
         window.location.href = this.getAttribute('href');
+
       }
     });
   })();

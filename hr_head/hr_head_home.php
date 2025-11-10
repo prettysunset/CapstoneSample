@@ -374,14 +374,14 @@ if ($resOff = $conn->query($sql)) {
 // approved => status = 'approved'
 // active => common labels for ongoing/active assignments (best-effort; adjust list to your schema)
 $stmtApproved = $conn->prepare("
-    SELECT COUNT(DISTINCT student_id) AS cnt
-    FROM ojt_applications
-    WHERE (office_preference1 = ? OR office_preference2 = ?) AND status = 'approved'
+    SELECT COUNT(*) AS cnt
+    FROM users
+    WHERE role = 'ojt' AND office_name = ? AND status = 'approved'
 ");
 $stmtActive = $conn->prepare("
-    SELECT COUNT(DISTINCT student_id) AS cnt
-    FROM ojt_applications
-    WHERE (office_preference1 = ? OR office_preference2 = ?) AND status IN ('active','ongoing','in_progress','assigned','started','on_ojt')
+    SELECT COUNT(*) AS cnt
+    FROM users
+    WHERE role = 'ojt' AND office_name = ? AND status = 'ongoing'
 ");
 ?>
 
@@ -453,17 +453,18 @@ $stmtActive = $conn->prepare("
                     // approved count per office
                     $approved = 0;
                     $active = 0;
+                    // use office_name from offices table to count users assigned to that office
+                    $officeName = $o['office_name'] ?? '';
                     if ($stmtApproved) {
-                        $stmtApproved->bind_param('ii', $o['office_id'], $o['office_id']);
+                        $stmtApproved->bind_param('s', $officeName);
                         $stmtApproved->execute();
                         $stmtApproved->bind_result($approvedTemp);
                         $stmtApproved->fetch();
                         $approved = (int)($approvedTemp ?? 0);
                         $stmtApproved->free_result();
                     }
-                    // active (currently ongoing) count per office (may be zero if your app doesn't use these statuses)
                     if ($stmtActive) {
-                        $stmtActive->bind_param('ii', $o['office_id'], $o['office_id']);
+                        $stmtActive->bind_param('s', $officeName);
                         $stmtActive->execute();
                         $stmtActive->bind_result($activeTemp);
                         $stmtActive->fetch();

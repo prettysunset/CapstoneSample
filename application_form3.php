@@ -39,24 +39,25 @@ if (!empty($course_id) && ctype_digit((string)$course_id)) {
             $office_id = (int)$r['office_id'];
             $capacity = $r['capacity'] === null ? null : (int)$r['capacity'];
 
-            // count approved & active for this office
+            // count approved & active for this office (USE users table)
             $approved = 0; $active = 0;
-            if ($stmtApprovedCount) {
-                $stmtApprovedCount->bind_param('ii', $office_id, $office_id);
-                $stmtApprovedCount->execute();
-                $stmtApprovedCount->bind_result($approvedTmp);
-                $stmtApprovedCount->fetch();
-                $approved = (int)($approvedTmp ?? 0);
-                $stmtApprovedCount->reset();
-            }
-            if ($stmtActiveCount) {
-                $stmtActiveCount->bind_param('ii', $office_id, $office_id);
-                $stmtActiveCount->execute();
-                $stmtActiveCount->bind_result($activeTmp);
-                $stmtActiveCount->fetch();
-                $active = (int)($activeTmp ?? 0);
-                $stmtActiveCount->reset();
-            }
+
+            $officeName = $r['office_name'] ?? '';
+            $likeName = '%' . $officeName . '%';
+
+            // approved from users table
+            $su = $conn->prepare("SELECT COUNT(*) AS total FROM users WHERE role = 'ojt' AND office_name LIKE ? AND status = 'approved'");
+            $su->bind_param('s', $likeName);
+            $su->execute();
+            $approved = (int)($su->get_result()->fetch_assoc()['total'] ?? 0);
+            $su->close();
+
+            // active/ongoing from users table (treat 'ongoing' and 'active' as filling slots)
+            $su2 = $conn->prepare("SELECT COUNT(*) AS total FROM users WHERE role = 'ojt' AND office_name LIKE ? AND status IN ('ongoing','active')");
+            $su2->bind_param('s', $likeName);
+            $su2->execute();
+            $active = (int)($su2->get_result()->fetch_assoc()['total'] ?? 0);
+            $su2->close();
 
             // determine availability: if capacity is NULL -> unlimited -> show
             $show = true;

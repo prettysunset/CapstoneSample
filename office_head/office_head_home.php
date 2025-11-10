@@ -115,93 +115,36 @@ if ($office_id > 0) {
     $req->close();
 }
 
-// initialize counts
+// initialize counts (derive directly from users table — authoritative source for OJT account status)
 $approved_ojts = 0;
-$ongoing_ojts = 0;
+$ongoing_ojts  = 0;
 $completed_ojts = 0;
 
-// 1) get OJT users that belong to this office (use exact office_name match)
 $office_name_for_query = $office['office_name'] ?? '';
-$user_ids = [];
-$user_status_map = [];
-
 if (!empty($office_name_for_query)) {
-    $uStmt = $conn->prepare("SELECT user_id, status FROM users WHERE role = 'ojt' AND office_name = ?");
-    $uStmt->bind_param('s', $office_name_for_query);
-    if ($uStmt->execute()) {
-        $ures = $uStmt->get_result();
-        while ($u = $ures->fetch_assoc()) {
-            $uid = (int)($u['user_id'] ?? 0);
-            if ($uid > 0) {
-                $user_ids[] = $uid;
-                $user_status_map[$uid] = $u['status'] ?? '';
-            }
-        }
-        $ures->free();
-    }
-    $uStmt->close();
+    // Approved
+    $s1 = $conn->prepare("SELECT COUNT(*) AS total FROM users WHERE role = 'ojt' AND office_name = ? AND status = 'approved'");
+    $s1->bind_param('s', $office_name_for_query);
+    $s1->execute();
+    $approved_ojts = (int)($s1->get_result()->fetch_assoc()['total'] ?? 0);
+    $s1->close();
+
+    // Ongoing
+    $s2 = $conn->prepare("SELECT COUNT(*) AS total FROM users WHERE role = 'ojt' AND office_name = ? AND status = 'ongoing'");
+    $s2->bind_param('s', $office_name_for_query);
+    $s2->execute();
+    $ongoing_ojts = (int)($s2->get_result()->fetch_assoc()['total'] ?? 0);
+    $s2->close();
+
+    // Completed: treat users.status = 'completed' or 'inactive' as completed OJTs
+    $s3 = $conn->prepare("SELECT COUNT(*) AS total FROM users WHERE role = 'ojt' AND office_name = ? AND status IN ('completed','inactive')");
+    $s3->bind_param('s', $office_name_for_query);
+    $s3->execute();
+    $completed_ojts = (int)($s3->get_result()->fetch_assoc()['total'] ?? 0);
+    $s3->close();
 }
 
-if (!empty($user_ids)) {
-    // 2) map users -> students
-    $inUsers = implode(',', array_map('intval', $user_ids)); // safe ints from DB
-    $student_map = []; // user_id => student row
-    $student_ids = [];
-
-    $q = "SELECT student_id, user_id, status FROM students WHERE user_id IN ($inUsers)";
-    $res = $conn->query($q);
-    if ($res) {
-        while ($s = $res->fetch_assoc()) {
-            $uid = (int)($s['user_id'] ?? 0);
-            $sid = (int)($s['student_id'] ?? 0);
-            if ($uid > 0 && $sid > 0) {
-                $student_map[$uid] = $s;
-                $student_ids[] = $sid;
-            }
-        }
-        $res->free();
-    }
-
-    // 3) counts from ojt_applications for those student_ids
-    if (!empty($student_ids)) {
-        $inStudents = implode(',', array_map('intval', $student_ids));
-
-        // approved (distinct students with approved application)
-        $r = $conn->query("SELECT COUNT(DISTINCT student_id) AS total FROM ojt_applications WHERE student_id IN ($inStudents) AND status = 'approved'");
-        $approved_ojts = (int)($r ? $r->fetch_assoc()['total'] : 0);
-        if ($r) $r->free();
-
-        // ongoing: approved applications whose student record shows ongoing
-        $r2 = $conn->query("
-            SELECT COUNT(DISTINCT oa.student_id) AS total
-            FROM ojt_applications oa
-            JOIN students s ON oa.student_id = s.student_id
-            WHERE oa.student_id IN ($inStudents) AND oa.status = 'approved' AND s.status = 'ongoing'
-        ");
-        $ongoing_ojts = (int)($r2 ? $r2->fetch_assoc()['total'] : 0);
-        if ($r2) $r2->free();
-    } else {
-        // no student rows found -> approved and ongoing remain 0
-        $approved_ojts = 0;
-        $ongoing_ojts = 0;
-    }
-
-    // 4) completed: prefer students.status = 'completed' else fallback to users.status = 'inactive'
-    $completed_set = [];
-    foreach ($user_ids as $uid) {
-        if (isset($student_map[$uid]) && !empty($student_map[$uid]['status']) && strtolower(trim($student_map[$uid]['status'])) === 'completed') {
-            $completed_set['s' . (int)$student_map[$uid]['student_id']] = true;
-            continue;
-        }
-        // fallback: if user.status = 'inactive' treat as completed
-        if (!empty($user_status_map[$uid]) && strtolower(trim($user_status_map[$uid])) === 'inactive') {
-            $completed_set['u' . $uid] = true;
-        }
-    }
-    $completed_ojts = count($completed_set);
-}
-
-// compute available slots using offices.current_limit (from $office) minus ongoing + approved
+// compute available slots using offices.current_limit minus (ongoing + approved)
 $curLimit = isset($office['current_limit']) ? (int)$office['current_limit'] : 0;
 $available_slots = max($curLimit - ($ongoing_ojts + $approved_ojts), 0);
 // --- end replacement ---
@@ -225,18 +168,94 @@ $s2->execute();
 $completed_ojts = (int)$s2->get_result()->fetch_assoc()['total'];
 $s2->close();
 
-// Pending student applications (if table exists)
+// Pending student applications: count pending ojt_applications where this office is chosen
+// Rule:
+//  - Always count when this office is the 1st choice.
+//  - Count when this office is the 2nd choice ONLY if the 1st-choice office is full
 $pending_students = 0;
-// check if table exists to avoid exception on environments without that table
-$tblCheck = $conn->query("SHOW TABLES LIKE 'student_applications'");
-if ($tblCheck && $tblCheck->num_rows > 0) {
-    $s3 = $conn->prepare("SELECT COUNT(*) AS total FROM student_applications WHERE status = 'Pending' AND office_name = ?");
-    $s3->bind_param("s", $office_name_for_query);
-    $s3->execute();
-    $pending_students = (int)$s3->get_result()->fetch_assoc()['total'];
-    $s3->close();
-} else {
+$office_id = (int)($office['office_id'] ?? 0);
+
+// If this office has no available slots, do not count pending applications
+if ($available_slots <= 0) {
     $pending_students = 0;
+} else {
+    if ($office_id > 0) {
+        // 1) count pending apps where this office is first choice
+        $p1 = $conn->prepare("
+            SELECT COUNT(*) AS total
+            FROM ojt_applications
+            WHERE status = 'pending' AND office_preference1 = ?
+        ");
+        if ($p1) {
+            $p1->bind_param('i', $office_id);
+            $p1->execute();
+            $pending_students = (int)($p1->get_result()->fetch_assoc()['total'] ?? 0);
+            $p1->close();
+        }
+
+        // 2) consider pending apps where this office is second choice, but only if their first choice is full
+        $p2 = $conn->prepare("
+            SELECT oa.application_id, oa.office_preference1
+            FROM ojt_applications oa
+            WHERE oa.status = 'pending' AND oa.office_preference2 = ?
+        ");
+        if ($p2) {
+            $p2->bind_param('i', $office_id);
+            $p2->execute();
+            $res = $p2->get_result();
+            if ($res) {
+                // helper: checks if office (by id) is full (uses users counts like elsewhere)
+                $isOfficeFull = function($checkOfficeId) use ($conn) {
+                    $checkOfficeId = (int)$checkOfficeId;
+                    if ($checkOfficeId <= 0) return false;
+                    // get office row
+                    $q = $conn->prepare("SELECT office_name, COALESCE(current_limit, NULL) AS capacity FROM offices WHERE office_id = ? LIMIT 1");
+                    if (!$q) return false;
+                    $q->bind_param('i', $checkOfficeId);
+                    $q->execute();
+                    $row = $q->get_result()->fetch_assoc();
+                    $q->close();
+                    if (!$row) return false;
+                    $capacity = $row['capacity'] === null ? null : (int)$row['capacity'];
+                    if (is_null($capacity)) return false; // unlimited -> not full
+
+                    $officeName = $row['office_name'] ?? '';
+                    if ($officeName === '') return false;
+
+                    $likeParam = '%' . $officeName . '%';
+
+                    // approved
+                    $s1 = $conn->prepare("SELECT COUNT(*) AS total FROM users WHERE role = 'ojt' AND office_name LIKE ? AND status = 'approved'");
+                    if (!$s1) return false;
+                    $s1->bind_param('s', $likeParam);
+                    $s1->execute();
+                    $approved = (int)($s1->get_result()->fetch_assoc()['total'] ?? 0);
+                    $s1->close();
+
+                    // ongoing/active
+                    $s2 = $conn->prepare("SELECT COUNT(*) AS total FROM users WHERE role = 'ojt' AND office_name LIKE ? AND status IN ('ongoing','active')");
+                    if (!$s2) return false;
+                    $s2->bind_param('s', $likeParam);
+                    $s2->execute();
+                    $ongoing = (int)($s2->get_result()->fetch_assoc()['total'] ?? 0);
+                    $s2->close();
+
+                    $available = $capacity - ($approved + $ongoing);
+                    return ($available <= 0);
+                };
+
+                while ($row = $res->fetch_assoc()) {
+                    $firstOfficeId = (int)($row['office_preference1'] ?? 0);
+                    // If first choice is full, this pending app should count for current office
+                    if ($firstOfficeId > 0 && $isOfficeFull($firstOfficeId)) {
+                        $pending_students++;
+                    }
+                }
+                $res->free();
+            }
+            $p2->close();
+        }
+    }
 }
 
 // Pending office requests for this office_id

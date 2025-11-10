@@ -402,6 +402,7 @@ if ($action === 'approve_send') {
     $chk->close();
 
     if (empty($rowChk['user_id'])) {
+        // --- existing code that creates a new users row ---
         $emailLocal = '';
         if (!empty($to) && strpos($to, '@') !== false) $emailLocal = strtolower(explode('@', $to)[0]);
         $base = $emailLocal ?: strtolower(preg_replace('/[^a-z0-9]/', '', substr($res['first_name'],0,1) . $res['last_name']));
@@ -440,10 +441,28 @@ if ($action === 'approve_send') {
         $ins->close();
     }
 
-    $u2 = $conn->prepare("UPDATE students SET status = 'ongoing' WHERE student_id = ?");
-    $u2->bind_param("i", $student_id);
-    $u2->execute();
-    $u2->close();
+    // --- CHANGED: set user account status = 'approved' (do NOT mark student as ongoing yet)
+    // Find the user_id for this student (either pre-existing or the one we just created)
+    $targetUserId = null;
+    if (!empty($rowChk['user_id'])) {
+        $targetUserId = (int)$rowChk['user_id'];
+    } elseif (!empty($newUserId)) {
+        $targetUserId = (int)$newUserId;
+    }
+
+    if ($targetUserId) {
+        $updUserStatus = $conn->prepare("UPDATE users SET status = 'approved' WHERE user_id = ?");
+        $updUserStatus->bind_param("i", $targetUserId);
+        $updUserStatus->execute();
+        $updUserStatus->close();
+    }
+
+    // Keep student.status as 'pending' after HR approval.
+    // Student will transition to 'ongoing' when the first DTR/time-in entry is created (DTR handler must perform that update).
+    $updStudent = $conn->prepare("UPDATE students SET status = 'pending' WHERE student_id = ?");
+    $updStudent->bind_param("i", $student_id);
+    $updStudent->execute();
+    $updStudent->close();
 
     // prepare email content (HTML) — format orientation date + time + location
     $subject = "OJT Application Approved";
