@@ -943,15 +943,27 @@ async function openApproveModal(btn) {
 
     const dateInput = document.getElementById('modal_date');
 
-    // --- ADDED: prevent selecting past dates ---
+    // --- ADDED: prevent selecting past dates and disable next 7 days starting tomorrow ---
     const today = new Date();
-    const yyyy = today.getFullYear();
-    const mm = String(today.getMonth() + 1).padStart(2, '0');
-    const dd = String(today.getDate()).padStart(2, '0');
-    const minDate = `${yyyy}-${mm}-${dd}`;
-    dateInput.min = minDate;
-    // optionally prefill with today
-    dateInput.value = minDate;
+
+    // block range: tomorrow .. tomorrow + 6 (7 days total: days 1..7)
+    const blockedStart = new Date(today);
+    blockedStart.setDate(blockedStart.getDate() + 1);
+    const blockedEnd = new Date(today);
+    blockedEnd.setDate(blockedEnd.getDate() + 7);
+
+    // earliest allowed date is the day after the blockedEnd
+    const allowedMin = new Date(today);
+    allowedMin.setDate(allowedMin.getDate() + 8);
+
+    const toIsoDate = d => d.toISOString().split('T')[0];
+
+    dateInput.min = toIsoDate(allowedMin);
+    // optionally prefill with the first allowed date
+    dateInput.value = toIsoDate(allowedMin);
+
+    // add user hint (shows on hover) about the disabled range
+    dateInput.title = `Unavailable: ${toIsoDate(blockedStart)} — ${toIsoDate(blockedEnd)}. Earliest selectable: ${toIsoDate(allowedMin)}.`;
     // --- end added ---
 
     // disable send until date chosen

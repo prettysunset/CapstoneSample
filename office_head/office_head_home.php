@@ -85,21 +85,126 @@ function short_office_name($name) {
 // display-only name
 $office_display = short_office_name($office['office_name'] ?? 'Unknown Office');
 
-// --- NEW: resolve office_id and approved count (use ojt_applications by office_id) ---
+
+// --- REPLACE: fetch office request/office info and compute counts using users -> students -> ojt_applications ---
+// ensure office_id
 $office_id = (int)($office['office_id'] ?? 0);
-$approved_ojts = 0;
+
+// prefer any pending office_requests for display (most recent)
+$display_requested_limit = $office['requested_limit'] ?? null;
+$display_reason = $office['reason'] ?? '';
+$display_status = $office['status'] ?? '';
+
 if ($office_id > 0) {
-    $sa = $conn->prepare("
-        SELECT COUNT(DISTINCT student_id) AS total
-        FROM ojt_applications
-        WHERE (office_preference1 = ? OR office_preference2 = ?) AND status = 'approved'
-    ");
-    $sa->bind_param("ii", $office_id, $office_id);
-    $sa->execute();
-    $approved_ojts = (int)($sa->get_result()->fetch_assoc()['total'] ?? 0);
-    $sa->close();
+    $req = $conn->prepare("SELECT new_limit, reason, status, date_requested FROM office_requests WHERE office_id = ? AND status = 'pending' ORDER BY date_requested DESC LIMIT 1");
+    $req->bind_param('i', $office_id);
+    if ($req->execute()) {
+        $rrow = $req->get_result()->fetch_assoc();
+        if ($rrow) {
+            // use pending request values for display
+            $display_requested_limit = $rrow['new_limit'];
+            $display_reason = $rrow['reason'];
+            $display_status = $rrow['status']; // 'pending'
+        } else {
+            // fallback to offices table values already in $office
+            $display_requested_limit = $office['requested_limit'] ?? $display_requested_limit;
+            $display_reason = $office['reason'] ?? $display_reason;
+            $display_status = $office['status'] ?? $display_status;
+        }
+    }
+    $req->close();
 }
-// --- end new ---
+
+// initialize counts
+$approved_ojts = 0;
+$ongoing_ojts = 0;
+$completed_ojts = 0;
+
+// 1) get OJT users that belong to this office (use exact office_name match)
+$office_name_for_query = $office['office_name'] ?? '';
+$user_ids = [];
+$user_status_map = [];
+
+if (!empty($office_name_for_query)) {
+    $uStmt = $conn->prepare("SELECT user_id, status FROM users WHERE role = 'ojt' AND office_name = ?");
+    $uStmt->bind_param('s', $office_name_for_query);
+    if ($uStmt->execute()) {
+        $ures = $uStmt->get_result();
+        while ($u = $ures->fetch_assoc()) {
+            $uid = (int)($u['user_id'] ?? 0);
+            if ($uid > 0) {
+                $user_ids[] = $uid;
+                $user_status_map[$uid] = $u['status'] ?? '';
+            }
+        }
+        $ures->free();
+    }
+    $uStmt->close();
+}
+
+if (!empty($user_ids)) {
+    // 2) map users -> students
+    $inUsers = implode(',', array_map('intval', $user_ids)); // safe ints from DB
+    $student_map = []; // user_id => student row
+    $student_ids = [];
+
+    $q = "SELECT student_id, user_id, status FROM students WHERE user_id IN ($inUsers)";
+    $res = $conn->query($q);
+    if ($res) {
+        while ($s = $res->fetch_assoc()) {
+            $uid = (int)($s['user_id'] ?? 0);
+            $sid = (int)($s['student_id'] ?? 0);
+            if ($uid > 0 && $sid > 0) {
+                $student_map[$uid] = $s;
+                $student_ids[] = $sid;
+            }
+        }
+        $res->free();
+    }
+
+    // 3) counts from ojt_applications for those student_ids
+    if (!empty($student_ids)) {
+        $inStudents = implode(',', array_map('intval', $student_ids));
+
+        // approved (distinct students with approved application)
+        $r = $conn->query("SELECT COUNT(DISTINCT student_id) AS total FROM ojt_applications WHERE student_id IN ($inStudents) AND status = 'approved'");
+        $approved_ojts = (int)($r ? $r->fetch_assoc()['total'] : 0);
+        if ($r) $r->free();
+
+        // ongoing: approved applications whose student record shows ongoing
+        $r2 = $conn->query("
+            SELECT COUNT(DISTINCT oa.student_id) AS total
+            FROM ojt_applications oa
+            JOIN students s ON oa.student_id = s.student_id
+            WHERE oa.student_id IN ($inStudents) AND oa.status = 'approved' AND s.status = 'ongoing'
+        ");
+        $ongoing_ojts = (int)($r2 ? $r2->fetch_assoc()['total'] : 0);
+        if ($r2) $r2->free();
+    } else {
+        // no student rows found -> approved and ongoing remain 0
+        $approved_ojts = 0;
+        $ongoing_ojts = 0;
+    }
+
+    // 4) completed: prefer students.status = 'completed' else fallback to users.status = 'inactive'
+    $completed_set = [];
+    foreach ($user_ids as $uid) {
+        if (isset($student_map[$uid]) && !empty($student_map[$uid]['status']) && strtolower(trim($student_map[$uid]['status'])) === 'completed') {
+            $completed_set['s' . (int)$student_map[$uid]['student_id']] = true;
+            continue;
+        }
+        // fallback: if user.status = 'inactive' treat as completed
+        if (!empty($user_status_map[$uid]) && strtolower(trim($user_status_map[$uid])) === 'inactive') {
+            $completed_set['u' . $uid] = true;
+        }
+    }
+    $completed_ojts = count($completed_set);
+}
+
+// compute available slots using offices.current_limit (from $office) minus ongoing + approved
+$curLimit = isset($office['current_limit']) ? (int)$office['current_limit'] : 0;
+$available_slots = max($curLimit - ($ongoing_ojts + $approved_ojts), 0);
+// --- end replacement ---
 
 // counts (use correct role/status values from your schema)
 $office_name_for_query = $office['office_name'] ?? '';
@@ -501,6 +606,17 @@ $late_dtr_res = $late_dtr->get_result();
         if (reason === '') {
           alert('Reason is required.');
           reasonEl.focus();
+          return;
+        }
+
+        // NEW: ensure requested_limit is not less than ongoing + approved
+        // read values from modal inputs (fallback to current display inputs)
+        const ongoingVal = Number(document.getElementById('m_active_ojts')?.value || document.getElementById('ci_active_ojts')?.value || 0);
+        const approvedVal = Number(document.getElementById('m_approved_ojts')?.value || document.getElementById('ci_approved_ojts')?.value || 0);
+        const minAllowed = ongoingVal + approvedVal;
+        if (reqLimitNum < minAllowed) {
+          alert('Requested Limit cannot be less than the sum of Ongoing + Approved OJTs (' + minAllowed + ').');
+          reqLimitEl.focus();
           return;
         }
 

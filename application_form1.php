@@ -17,24 +17,47 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     $birthday = $_POST['birthday'] ?? '';
     $age_computed = compute_age_php($birthday);
 
-    $_SESSION['af1'] = [
-        'first_name'    => $_POST['first_name'] ?? '',
-        'middle_name'   => $_POST['middle_name'] ?? '',
-        'last_name'     => $_POST['last_name'] ?? '',
-        'address'       => $_POST['address'] ?? '',
-        'age'           => $age_computed,
-        'email'         => $_POST['email'] ?? '',
-        'birthday'      => $birthday,
-        'contact'       => $_POST['contact'] ?? '',
-        'gender'        => $_POST['gender'] ?? '',
-        'emg_first'     => $_POST['emg_first'] ?? '',
-        'emg_middle'    => $_POST['emg_middle'] ?? '',
-        'emg_last'      => $_POST['emg_last'] ?? '',
-        'emg_relation'  => $_POST['emg_relation'] ?? '',
-        'emg_contact'   => $_POST['emg_contact'] ?? ''
-    ];
-    header("Location: application_form2.php");
-    exit;
+    // server-side age validation: must be at least 18
+    if ($age_computed === null || $age_computed < 18) {
+        $error_age = 'You must be at least 18 years old to apply.';
+        // keep submitted values so form is repopulated
+        $af1 = [
+            'first_name'    => $_POST['first_name'] ?? '',
+            'middle_name'   => $_POST['middle_name'] ?? '',
+            'last_name'     => $_POST['last_name'] ?? '',
+            'address'       => $_POST['address'] ?? '',
+            'age'           => $age_computed,
+            'email'         => $_POST['email'] ?? '',
+            'birthday'      => $birthday,
+            'contact'       => $_POST['contact'] ?? '',
+            'gender'        => $_POST['gender'] ?? '',
+            'emg_first'     => $_POST['emg_first'] ?? '',
+            'emg_middle'    => $_POST['emg_middle'] ?? '',
+            'emg_last'      => $_POST['emg_last'] ?? '',
+            'emg_relation'  => $_POST['emg_relation'] ?? '',
+            'emg_contact'   => $_POST['emg_contact'] ?? ''
+        ];
+        // do not save to session or redirect; fall through to show form with error
+    } else {
+        $_SESSION['af1'] = [
+            'first_name'    => $_POST['first_name'] ?? '',
+            'middle_name'   => $_POST['middle_name'] ?? '',
+            'last_name'     => $_POST['last_name'] ?? '',
+            'address'       => $_POST['address'] ?? '',
+            'age'           => $age_computed,
+            'email'         => $_POST['email'] ?? '',
+            'birthday'      => $birthday,
+            'contact'       => $_POST['contact'] ?? '',
+            'gender'        => $_POST['gender'] ?? '',
+            'emg_first'     => $_POST['emg_first'] ?? '',
+            'emg_middle'    => $_POST['emg_middle'] ?? '',
+            'emg_last'      => $_POST['emg_last'] ?? '',
+            'emg_relation'  => $_POST['emg_relation'] ?? '',
+            'emg_contact'   => $_POST['emg_contact'] ?? ''
+        ];
+        header("Location: application_form2.php");
+        exit;
+    }
 }
 
 $af1 = isset($_SESSION['af1']) ? $_SESSION['af1'] : [];
@@ -309,13 +332,26 @@ $af1 = isset($_SESSION['af1']) ? $_SESSION['af1'] : [];
     </div>
   </div>
 
+  <?php if (!empty($error_age)): ?>
+    <script>window.addEventListener('load',function(){ alert(<?= json_encode($error_age) ?>); });</script>
+  <?php endif; ?>
+
   <script>
     window.addEventListener('load', () => { document.body.style.opacity = 1; });
 
     (function(){
-      const today = new Date().toISOString().split('T')[0];
+      const today = new Date();
+      // cutoff = today - 18 years
+      const cutoff = new Date(today.getFullYear() - 18, today.getMonth(), today.getDate());
+      const cutoffIso = cutoff.toISOString().split('T')[0];
+
       const birthdayInput = document.getElementById('birthday');
-      if (birthdayInput) birthdayInput.setAttribute('max', today);
+      if (birthdayInput) {
+        // set max to ensure users cannot pick a date that makes them younger than 18
+        birthdayInput.setAttribute('max', cutoffIso);
+        // optional: set a reasonable min (e.g. 1900-01-01)
+        birthdayInput.setAttribute('min', '1900-01-01');
+      }
 
       function refreshDateState() {
         if (!birthdayInput) return;
@@ -369,7 +405,30 @@ $af1 = isset($_SESSION['af1']) ? $_SESSION['af1'] : [];
             e.preventDefault();
             return false;
           }
- 
+
+          // 4) Client-side age check (defensive): ensure birthday makes user at least 18
+          if (birthdayInput && birthdayInput.value) {
+            const b = new Date(birthdayInput.value);
+            if (isNaN(b.getTime())) {
+              alert('Please enter a valid birthday.');
+              e.preventDefault();
+              return false;
+            }
+            const now = new Date();
+            const age = now.getFullYear() - b.getFullYear() - ((now.getMonth() < b.getMonth() || (now.getMonth() === b.getMonth() && now.getDate() < b.getDate())) ? 1 : 0);
+            if (age < 18) {
+              alert('You must be at least 18 years old to apply.');
+              birthdayInput.focus();
+              e.preventDefault();
+              return false;
+            }
+          } else {
+            alert('Birthday is required.');
+            if (birthdayInput) birthdayInput.focus();
+            e.preventDefault();
+            return false;
+          }
+
         });
       }
     })();
