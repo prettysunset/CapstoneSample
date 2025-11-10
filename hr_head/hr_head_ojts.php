@@ -663,6 +663,10 @@ if ($moa_q) {
 <script>
   window.moaBySchool = <?php echo json_encode($moa_rows, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_AMP|JSON_HEX_QUOT); ?>;
 </script>
+<script>
+  // embed mapping office_id => office_name for client-side usage
+  window.officeNames = <?= json_encode(array_column($offices_for_requests, 'office_name', 'office_id'), JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_AMP|JSON_HEX_QUOT) ?> || {};
+</script>
 
 <script>
 (function(){
@@ -787,26 +791,29 @@ if ($moa_q) {
 
     // call backend to approve/decline office requested limits
     window.handleOfficeRequest = async function(officeId, action) {
-      if (!confirm(`Are you sure you want to ${action} the requested limit for office #${officeId}?`)) return;
-      try {
-        const res = await fetch('../hr_actions.php', {
-          method: 'POST',
-          headers: {'Content-Type':'application/json'},
-          body: JSON.stringify({ action: 'respond_office_request', office_id: parseInt(officeId,10), response: action })
-        });
-        const j = await res.json();
-        if (!j || !j.success) {
-          alert('Failed: ' + (j?.message || 'Unknown error'));
-          return;
-        }
-        // success — reload so HR + Office Head pages reflect updated limits/status
-        alert('Request processed: ' + (j.message || 'OK'));
-        location.reload();
-      } catch (err) {
-        console.error(err);
-        alert('Request failed');
+    const displayName = (window.officeNames && window.officeNames[officeId]) ? window.officeNames[officeId] : ('office #' + officeId);
+    const verb = action === 'approve' ? 'approve' : (action === 'decline' ? 'decline' : action);
+    if (!confirm(`Are you sure you want to ${verb} the requested limit for ${displayName}?`)) return;
+
+    try {
+      const res = await fetch('../hr_actions.php', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ action: 'respond_office_request', office_id: parseInt(officeId,10), response: action })
+      });
+      const j = await res.json();
+      if (!j || !j.success) {
+        alert('Failed: ' + (j?.message || 'Unknown error'));
+        return;
       }
+      // success — reload so HR + Office Head pages reflect updated limits/status
+      alert('Request processed: ' + (j.message || 'OK'));
+      location.reload();
+    } catch (err) {
+      console.error(err);
+      alert('Request failed');
     }
+  }
 
     /* tab switcher - show panel-* elements */
     function switchViewTab(e){

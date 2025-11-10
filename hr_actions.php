@@ -765,8 +765,8 @@ if ($action === 'respond_office_request') {
         respond(['success'=>false,'message'=>'Invalid payload']);
     }
 
-    // find latest pending request for this office
-    $rq = $conn->prepare("SELECT request_id, old_limit, new_limit, reason, status FROM office_requests WHERE office_id = ? AND status = 'pending' ORDER BY date_requested DESC LIMIT 1");
+    // find latest pending request for this office (case-insensitive status check)
+    $rq = $conn->prepare("SELECT request_id, old_limit, new_limit, reason, status FROM office_requests WHERE office_id = ? AND LOWER(status) = 'pending' ORDER BY date_requested DESC LIMIT 1");
     $rq->bind_param("i", $office_id);
     $rq->execute();
     $pending = $rq->get_result()->fetch_assoc();
@@ -789,8 +789,8 @@ if ($action === 'respond_office_request') {
             respond(['success'=>false,'message'=>'No pending office request found for this office.']);
         }
 
-        // insert a pending office_requests row
-        $ins = $conn->prepare("INSERT INTO office_requests (office_id, old_limit, new_limit, reason, status, date_requested) VALUES (?, ?, ?, ?, 'pending', CURDATE())");
+        // insert a pending office_requests row (use NOW() for datetime)
+        $ins = $conn->prepare("INSERT INTO office_requests (office_id, old_limit, new_limit, reason, status, date_requested) VALUES (?, ?, ?, ?, 'pending', NOW())");
         if (!$ins) {
             respond(['success'=>false,'message'=>'DB prepare failed for inserting request: '.$conn->error]);
         }
@@ -830,26 +830,28 @@ if ($action === 'respond_office_request') {
     $conn->begin_transaction();
     try {
         if ($response === 'approve') {
-            // update offices: set current_limit= requested, updated_limit, clear requested_limit, set status Approved
-            $upd = $conn->prepare("UPDATE offices SET current_limit = ?, updated_limit = ?, requested_limit = NULL, reason = NULL, status = 'Approved' WHERE office_id = ?");
+            // update offices: set current_limit = requested, clear requested fields, set status = 'approved'
+            $upd = $conn->prepare("UPDATE offices SET current_limit = ?, requested_limit = NULL, reason = NULL, status = 'approved' WHERE office_id = ?");
             $rl = (int)$requested_limit;
-            $upd->bind_param("iii", $rl, $rl, $office_id);
+            $upd->bind_param("ii", $rl, $office_id);
             $upd_ok = $upd->execute();
             $upd->close();
             if (!$upd_ok) throw new Exception('Failed to update offices.');
-            // set corresponding office_requests row status to approved
-            $u2 = $conn->prepare("UPDATE office_requests SET status = 'approved' WHERE request_id = ?");
+
+            // set corresponding office_requests row status to approved and record date_of_action
+            $u2 = $conn->prepare("UPDATE office_requests SET status = 'approved', date_of_action = NOW() WHERE request_id = ?");
             $u2->bind_param("i", $pending['request_id']);
             $u2->execute();
             $u2->close();
         } else { // decline
-            // set offices.status = 'Declined' and keep requested_limit (optional) or clear it - we'll clear requested_limit but keep reason
-            $decl = $conn->prepare("UPDATE offices SET status = 'Declined' WHERE office_id = ?");
+            // clear requested fields and mark office status as 'declined'
+            $decl = $conn->prepare("UPDATE offices SET requested_limit = NULL, reason = NULL, status = 'declined' WHERE office_id = ?");
             $decl->bind_param("i", $office_id);
             $decl->execute();
             $decl->close();
-            // mark office_requests row rejected
-            $u3 = $conn->prepare("UPDATE office_requests SET status = 'rejected' WHERE request_id = ?");
+
+            // mark office_requests row rejected/declined and set date_of_action
+            $u3 = $conn->prepare("UPDATE office_requests SET status = 'rejected', date_of_action = NOW() WHERE request_id = ?");
             $u3->bind_param("i", $pending['request_id']);
             $u3->execute();
             $u3->close();

@@ -85,6 +85,22 @@ function short_office_name($name) {
 // display-only name
 $office_display = short_office_name($office['office_name'] ?? 'Unknown Office');
 
+// --- NEW: resolve office_id and approved count (use ojt_applications by office_id) ---
+$office_id = (int)($office['office_id'] ?? 0);
+$approved_ojts = 0;
+if ($office_id > 0) {
+    $sa = $conn->prepare("
+        SELECT COUNT(DISTINCT student_id) AS total
+        FROM ojt_applications
+        WHERE (office_preference1 = ? OR office_preference2 = ?) AND status = 'approved'
+    ");
+    $sa->bind_param("ii", $office_id, $office_id);
+    $sa->execute();
+    $approved_ojts = (int)($sa->get_result()->fetch_assoc()['total'] ?? 0);
+    $sa->close();
+}
+// --- end new ---
+
 // counts (use correct role/status values from your schema)
 $office_name_for_query = $office['office_name'] ?? '';
 
@@ -297,9 +313,16 @@ $late_dtr_res = $late_dtr->get_result();
 
     <div class="cards">
       <div class="card" style="height:110px;min-height:90px;max-height:140px;display:flex;flex-direction:column;justify-content:center;align-items:center;box-sizing:border-box;overflow:hidden;">
-        <p style="margin:0 0 6px 0">Active OJTs</p>
+        <p style="margin:0 0 6px 0">Ongoing OJTs</p>
         <h2 style="margin:0"><?= $active_ojts ?></h2>
       </div>
+
+      <!-- NEW: Approved card placed to the right of Ongoing -->
+      <div class="card" style="height:110px;min-height:90px;max-height:140px;display:flex;flex-direction:column;justify-content:center;align-items:center;box-sizing:border-box;overflow:hidden;">
+        <p style="margin:0 0 6px 0">Approved</p>
+        <h2 style="margin:0"><?= $approved_ojts ?></h2>
+      </div>
+
       <div class="card" style="height:110px;min-height:90px;max-height:140px;display:flex;flex-direction:column;justify-content:center;align-items:center;box-sizing:border-box;overflow:hidden;">
         <p style="margin:0 0 6px 0">Completed OJTs</p>
         <h2 style="margin:0"><?= $completed_ojts ?></h2>
@@ -308,18 +331,20 @@ $late_dtr_res = $late_dtr->get_result();
         <p style="margin:0 0 6px 0">Pending Student Applications</p>
         <h2 style="margin:0"><?= $pending_students ?></h2>
       </div>
-      <div class="card" style="height:110px;min-height:90px;max-height:140px;display:flex;flex-direction:column;justify-content:center;align-items:center;box-sizing:border-box;overflow:hidden;">
-        <p style="margin:0 0 6px 0">Pending Office Request</p>
-        <h2 style="margin:0"><?= $pending_office ?></h2>
-      </div>
+
     </div>
 
     <div class="table-section">
         <div style="display:flex;align-items:center;justify-content:space-between">
             <!-- keep only the Edit button (no heading text) -->
             <div></div>
-            <button id="btnEditOffice" style="padding:6px 10px;border-radius:6px;border:1px solid #ccc;background:#fff;cursor:pointer">Edit</button>
+            <?php if ((int)$pending_office > 0): ?>
+              <button id="btnEditOffice" disabled style="padding:6px 10px;border-radius:6px;border:1px solid #ccc;background:#f0f0f0;color:#666;cursor:not-allowed">Request Pending</button>
+            <?php else: ?>
+              <button id="btnEditOffice" style="padding:6px 10px;border-radius:6px;border:1px solid #ccc;background:#fff;cursor:pointer">Edit</button>
+            <?php endif; ?>
         </div>
+        <input type="hidden" id="oh_has_pending" value="<?= (int)$pending_office ?>">
 
         <!-- Office Information table with headers -->
         <div style="margin-top:12px; overflow-x:auto;">
@@ -327,7 +352,8 @@ $late_dtr_res = $late_dtr->get_result();
             <thead>
               <tr>
                 <th style="padding:8px; background:#f7f7f7; border:1px solid #e0e0e0;">Current Limit</th>
-                <th style="padding:8px; background:#f7f7f7; border:1px solid #e0e0e0;">Active OJTs</th>
+                <th style="padding:8px; background:#f7f7f7; border:1px solid #e0e0e0;">Ongoing OJTs</th>
+                <th style="padding:8px; background:#f7f7f7; border:1px solid #e0e0e0;">Approved</th>
                 <th style="padding:8px; background:#f7f7f7; border:1px solid #e0e0e0;">Available Slots</th>
                 <th style="padding:8px; background:#f7f7f7; border:1px solid #e0e0e0;">Requested Limit</th>
                 <th style="padding:8px; background:#f7f7f7; border:1px solid #e0e0e0;">Reason</th>
@@ -343,7 +369,14 @@ $late_dtr_res = $late_dtr->get_result();
                   <input id="ci_active_ojts" type="text" value="<?= $active_ojts ?>" readonly style="width:70px;border:0;background:transparent;text-align:center;">
                 </td>
                 <td style="padding:8px; border:1px solid #e0e0e0;">
-                  <input id="ci_available_slots" type="text" value="<?= max((int)$office['current_limit'] - $active_ojts, 0) ?>" readonly style="width:70px;border:0;background:transparent;text-align:center;">
+                  <input id="ci_approved_ojts" type="text" value="<?= $approved_ojts ?>" readonly style="width:70px;border:0;background:transparent;text-align:center;">
+                </td>
+                <td style="padding:8px; border:1px solid #e0e0e0;">
+                  <?php
+                    $curLimit = isset($office['current_limit']) ? (int)$office['current_limit'] : 0;
+                    $available = max($curLimit - ($active_ojts + $approved_ojts), 0);
+                  ?>
+                  <input id="ci_available_slots" type="text" value="<?= $available ?>" readonly style="width:70px;border:0;background:transparent;text-align:center;">
                 </td>
                 <td style="padding:8px; border:1px solid #e0e0e0;">
                   <input id="ci_requested_limit" type="text" value="<?= htmlspecialchars($office['requested_limit'] ?? '') ?>" readonly style="width:90px;border:0;background:transparent;text-align:center;">
@@ -365,7 +398,8 @@ $late_dtr_res = $late_dtr->get_result();
                 <h4 style="margin:0 0 8px 0">Request Change - <?= htmlspecialchars($office_display) ?></h4>
                 <div style="display:grid;gap:8px;margin-top:8px">
                     <label>Current Limit <input id="m_current_limit" readonly style="width:100%;padding:8px;border-radius:6px;border:1px solid #ddd"></label>
-                    <label>Active OJTs <input id="m_active_ojts" readonly style="width:100%;padding:8px;border-radius:6px;border:1px solid #ddd"></label>
+                    <label>Ongoing OJTs <input id="m_active_ojts" readonly style="width:100%;padding:8px;border-radius:6px;border:1px solid #ddd"></label>
+                    <label>Approved <input id="m_approved_ojts" readonly style="width:100%;padding:8px;border-radius:6px;border:1px solid #ddd"></label>
                     <label>Available Slots <input id="m_available_slots" readonly style="width:100%;padding:8px;border-radius:6px;border:1px solid #ddd"></label>
                     <label>Requested Limit <input id="m_requested_limit" type="number" min="0" style="width:100%;padding:8px;border-radius:6px;border:1px solid #ddd"></label>
                     <label>Reason <textarea id="m_reason" rows="3" style="width:100%;padding:8px;border-radius:6px;border:1px solid #ddd"></textarea></label>
@@ -435,6 +469,7 @@ $late_dtr_res = $late_dtr->get_result();
       function openModal(){
         document.getElementById('m_current_limit').value = document.getElementById('ci_current_limit').value;
         document.getElementById('m_active_ojts').value = document.getElementById('ci_active_ojts').value;
+        document.getElementById('m_approved_ojts').value = document.getElementById('ci_approved_ojts').value;
         document.getElementById('m_available_slots').value = document.getElementById('ci_available_slots').value;
         document.getElementById('m_requested_limit').value = document.getElementById('ci_requested_limit').value || '';
         document.getElementById('m_reason').value = document.getElementById('ci_reason').value || '';

@@ -339,10 +339,10 @@ $current_date = date("l, F j, Y");
            <div style="color:#666;font-size:12px;margin-top:6px">Approved Applicants</div>
          </div>
 
-        <!-- Active -->
+        <!-- Ongoing -->
         <div style="background:#fff;border-radius:8px;padding:10px;border:1px solid #eef2f7;box-shadow:0 2px 6px rgba(0,0,0,0.03);flex:1;display:flex;flex-direction:column;justify-content:center;min-width:0;text-align:center;">
            <div style="font-size:18px;font-weight:700;color:#2f3850"><?php echo (int)$pending_count; ?></div>
-           <div style="color:#666;font-size:12px;margin-top:6px">Active</div>
+           <div style="color:#666;font-size:12px;margin-top:6px">Ongoing</div>
         </div>
         </div>
       </div>
