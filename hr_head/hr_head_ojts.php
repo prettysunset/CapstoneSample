@@ -180,16 +180,14 @@ if ($moa_q) {
     thead th {
                   background: #dadadaff;
                   color: black;
+                  text-align: center;
               }
     .ojt-table-searchbar select{
         padding:8px 12px;border-radius:8px;border:1px solid #ccc;font-size:15px;background:#f7f8fc;
     }
-    .ojt-table-searchbar .sort-btn{
-        padding:8px 12px;border-radius:8px;border:1px solid #ccc;background:#f7f8fc;cursor:pointer;font-size:15px;
-    }
     table{width:100%;border-collapse:collapse;font-size:14px}
-    th,td{padding:10px;border:1px solid #eee;text-align:left}
-    th{background:#f5f6fa}
+    td{padding:10px;border:1px solid #eee;text-align:left}
+    th{background:#f5f6fa;padding:10px;border:1px solid #eee;text-align:center}
     .view-btn{background:none;border:none;cursor:pointer;font-size:18px;color:#222}
     .empty{padding:20px;text-align:center;color:#666}
     .status-approved{color:#0b7a3a;font-weight:600;}
@@ -283,6 +281,16 @@ if ($moa_q) {
       .view-avatar { width:72px;height:72px; flex:0 0 72px; }
       .view-right{ width:100%; min-width:0; }
     }
+
+    /* remove underline under tabs/search bar (hidden) */
+    #tabsUnderline { display: none !important; }
+    /* also hide any similar thin rule just in case */
+    .tabs .tab.active { border-bottom: none !important; }
+    #controlsRow + #tabsUnderline { display: none !important; }
+    /* show underline under tabs (used by JS to position below active tab) */
+    #tabsUnderline { display: block !important; height:3px; background:#2f3850; border-radius:3px; transition:all .25s; margin-bottom:12px; }
+    /* keep per-tab active border removed since underline provides the visual */
+    .tabs .tab.active { border-bottom: none !important; }
 </style>
 </head>
 <body>
@@ -389,7 +397,7 @@ if ($moa_q) {
       </div>
 
       <!-- underline bar (moved under the buttons row) -->
-      <div id="tabsUnderline" aria-hidden="true" style="height:3px;background:#2f3850;border-radius:3px;width:180px;transition:all .25s;margin-bottom:12px;margin-top:6px;"></div>
+      <div id="tabsUnderline" aria-hidden="true" style="height:3px;background:#2f3850;border-radius:3px;width:180px;transition:all .25s;margin-bottom:12px;"></div>
 
       <!-- Second row: search / filters / sort (now spans full width with icons) -->
       <!-- Controls area: two containers (OJTs controls, Requested controls) share same position.
@@ -444,7 +452,7 @@ if ($moa_q) {
           </div>
         </div>
       </div>
-     <!-- underline bar -->
+     <!-- underline bar (moved under the buttons row) -->
      <div id="tabsUnderline" aria-hidden="true" style="height:3px;background:#2f3850;border-radius:3px;width:180px;transition:all .25s;margin-bottom:12px;"></div>
 
     <!-- Tab panels -->
@@ -1104,6 +1112,7 @@ if ($moa_q) {
     const status = norm(statusFilter?.value || '');
 
     const rows = Array.from(tbody.querySelectorAll('tr'));
+
     let anyVisible = false;
     rows.forEach(tr => {
       // placeholder empty row handling (hide until no matches)
