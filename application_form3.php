@@ -9,17 +9,27 @@ require 'conn.php';
 $offices = [];
 $course_id = $_SESSION['af2']['course_id'] ?? null;
 
-// prepared counters
-$stmtApprovedCount = $conn->prepare(
-    "SELECT COUNT(DISTINCT oa.student_id) AS cnt
-     FROM ojt_applications oa
-     WHERE (oa.office_preference1 = ? OR oa.office_preference2 = ?) AND oa.status = 'approved'"
-);
-$stmtActiveCount = $conn->prepare(
-    "SELECT COUNT(DISTINCT oa.student_id) AS cnt
-     FROM ojt_applications oa
-     WHERE (oa.office_preference1 = ? OR oa.office_preference2 = ?) AND oa.status IN ('active','ongoing','in_progress','assigned','started')"
-);
+// If course_id not set, try to resolve by course name saved in AF2
+if (empty($course_id) && !empty($_SESSION['af2']['course'])) {
+    $crsName = trim($_SESSION['af2']['course']);
+    if ($crsName !== '') {
+        $sr = $conn->prepare("SELECT course_id FROM courses WHERE LOWER(course_name) = LOWER(?) LIMIT 1");
+        if ($sr) {
+            $sr->bind_param('s', $crsName);
+            $sr->execute();
+            $tmp = $sr->get_result()->fetch_assoc();
+            $sr->close();
+            if ($tmp && !empty($tmp['course_id'])) $course_id = (int)$tmp['course_id'];
+        }
+    }
+}
+
+// Helper prepared stmt: count OJTs for an office using users table (robust LIKE + common active statuses)
+$cntStmt = $conn->prepare("
+    SELECT COUNT(*) AS total
+    FROM users
+    WHERE LOWER(role) = 'ojt' AND office_name LIKE ? AND status IN ('approved','ongoing')
+");
 
 if (!empty($course_id) && ctype_digit((string)$course_id)) {
     // Only offices related to the selected course
@@ -27,7 +37,7 @@ if (!empty($course_id) && ctype_digit((string)$course_id)) {
       SELECT o.office_id, o.office_name, COALESCE(o.current_limit, NULL) AS capacity
       FROM offices o
       JOIN office_courses oc ON o.office_id = oc.office_id
-      WHERE oc.course_id = ? AND o.status = 'Approved'
+      WHERE oc.course_id = ?
       ORDER BY o.office_name
     ";
     $stmt = $conn->prepare($sql);
@@ -36,70 +46,49 @@ if (!empty($course_id) && ctype_digit((string)$course_id)) {
         $stmt->execute();
         $res = $stmt->get_result();
         while ($r = $res->fetch_assoc()) {
-            $office_id = (int)$r['office_id'];
             $capacity = $r['capacity'] === null ? null : (int)$r['capacity'];
-
-            // count approved & active for this office (USE users table)
-            $approved = 0; $active = 0;
-
             $officeName = $r['office_name'] ?? '';
-            $likeName = '%' . $officeName . '%';
 
-            // approved from users table
-            $su = $conn->prepare("SELECT COUNT(*) AS total FROM users WHERE role = 'ojt' AND office_name LIKE ? AND status = 'approved'");
-            $su->bind_param('s', $likeName);
-            $su->execute();
-            $approved = (int)($su->get_result()->fetch_assoc()['total'] ?? 0);
-            $su->close();
+            $occupied = 0;
+            if ($cntStmt) {
+                $like = '%' . $officeName . '%';
+                $cntStmt->bind_param('s', $like);
+                $cntStmt->execute();
+                $rowCnt = $cntStmt->get_result()->fetch_assoc();
+                $occupied = (int)($rowCnt['total'] ?? 0);
+            }
 
-            // active/ongoing from users table (treat 'ongoing' and 'active' as filling slots)
-            $su2 = $conn->prepare("SELECT COUNT(*) AS total FROM users WHERE role = 'ojt' AND office_name LIKE ? AND status IN ('ongoing','active')");
-            $su2->bind_param('s', $likeName);
-            $su2->execute();
-            $active = (int)($su2->get_result()->fetch_assoc()['total'] ?? 0);
-            $su2->close();
-
-            // determine availability: if capacity is NULL -> unlimited -> show
             $show = true;
             if ($capacity !== null) {
-                $available = $capacity - ($approved + $active);
+                $available = $capacity - $occupied;
                 if ($available <= 0) $show = false;
             }
 
             if ($show) $offices[] = $r;
-        }
-        $stmt->close();
-    }
+         }
+         $stmt->close();
+     }
 } else {
     // No course selected -> show all approved offices with available slots
-    $sql = "SELECT office_id, office_name, COALESCE(current_limit, NULL) AS capacity FROM offices WHERE status='Approved' ORDER BY office_name";
+    $sql = "SELECT office_id, office_name, COALESCE(current_limit, NULL) AS capacity FROM offices ORDER BY office_name";
     $resOff = $conn->query($sql);
     if ($resOff) {
         while ($r = $resOff->fetch_assoc()) {
-            $office_id = (int)$r['office_id'];
             $capacity = $r['capacity'] === null ? null : (int)$r['capacity'];
+            $officeName = $r['office_name'] ?? '';
 
-            $approved = 0; $active = 0;
-            if ($stmtApprovedCount) {
-                $stmtApprovedCount->bind_param('ii', $office_id, $office_id);
-                $stmtApprovedCount->execute();
-                $stmtApprovedCount->bind_result($approvedTmp);
-                $stmtApprovedCount->fetch();
-                $approved = (int)($approvedTmp ?? 0);
-                $stmtApprovedCount->reset();
-            }
-            if ($stmtActiveCount) {
-                $stmtActiveCount->bind_param('ii', $office_id, $office_id);
-                $stmtActiveCount->execute();
-                $stmtActiveCount->bind_result($activeTmp);
-                $stmtActiveCount->fetch();
-                $active = (int)($activeTmp ?? 0);
-                $stmtActiveCount->reset();
+            $occupied = 0;
+            if ($cntStmt) {
+                $like = '%' . $officeName . '%';
+                $cntStmt->bind_param('s', $like);
+                $cntStmt->execute();
+                $resCnt = $cntStmt->get_result();
+                $occupied = (int)($resCnt->fetch_assoc()['total'] ?? 0);
             }
 
             $show = true;
             if ($capacity !== null) {
-                $available = $capacity - ($approved + $active);
+                $available = $capacity - $occupied;
                 if ($available <= 0) $show = false;
             }
 
@@ -109,11 +98,9 @@ if (!empty($course_id) && ctype_digit((string)$course_id)) {
     }
 }
 
-// cleanup prepared count stmts
-if ($stmtApprovedCount) $stmtApprovedCount->close();
-if ($stmtActiveCount) $stmtActiveCount->close();
+if ($cntStmt) $cntStmt->close();
 
-// detect existing valid MOA for the school entered in AF2 (if any)
+ // detect existing valid MOA for the school entered in AF2 (if any)
 $existing_moa = null;
 if (!empty($_SESSION['af2']['school'])) {
     $school_search = trim($_SESSION['af2']['school']);

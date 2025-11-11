@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: 127.0.0.1:3306
--- Generation Time: Nov 10, 2025 at 12:13 PM
+-- Generation Time: Nov 11, 2025 at 02:58 AM
 -- Server version: 11.8.3-MariaDB-log
 -- PHP Version: 7.2.34
 
@@ -196,10 +196,10 @@ CREATE TABLE `offices` (
 
 INSERT INTO `offices` (`office_id`, `office_name`, `current_limit`, `updated_limit`, `requested_limit`, `reason`, `status`) VALUES
 (2, 'IT Office', 10, 10, NULL, NULL, 'Approved'),
-(6, 'City General Services Office', 3, 0, NULL, NULL, 'Approved'),
-(8, 'City Budget Office', 2, 0, NULL, NULL, 'Approved'),
+(6, 'City General Services Office', 2, 0, NULL, NULL, 'Approved'),
+(8, 'City Budget Office', 1, 0, NULL, NULL, 'Approved'),
 (9, 'City Accounting Office', 3, 0, NULL, NULL, 'Approved'),
-(11, 'City Mayor\'s Office', 3, 0, NULL, NULL, 'Approved'),
+(11, 'City Mayor\'s Office', 2, 0, NULL, NULL, 'Approved'),
 (12, 'City Engineering Office', 2, 0, NULL, NULL, 'Approved');
 
 -- --------------------------------------------------------
@@ -272,7 +272,11 @@ INSERT INTO `office_requests` (`request_id`, `office_id`, `old_limit`, `new_limi
 (4, 9, 2, 3, 'increased workload', 'approved', '2025-11-10', '2025-11-10 10:06:21'),
 (5, 8, 3, 2, 'decreased workload', 'approved', '2025-11-10', '2025-11-10 10:07:26'),
 (6, 8, 2, 3, 'increased workload', 'approved', '2025-11-10', '2025-11-10 10:15:44'),
-(7, 8, 3, 2, 'decreased workload', 'approved', '2025-11-10', '2025-11-10 10:25:55');
+(7, 8, 3, 2, 'decreased workload', 'approved', '2025-11-10', '2025-11-10 10:25:55'),
+(8, 8, 2, 1, 'decreased workload', 'approved', '2025-11-10', '2025-11-10 13:10:38'),
+(9, 6, 3, 2, 'decreased workload', 'rejected', '2025-11-11', '2025-11-11 02:20:04'),
+(10, 6, 3, 2, 'decreased workload', 'approved', '2025-11-11', '2025-11-11 02:51:22'),
+(11, 11, 3, 2, 'decreased workload', 'approved', '2025-11-11', '2025-11-11 02:56:54');
 
 -- --------------------------------------------------------
 
@@ -305,14 +309,18 @@ INSERT INTO `ojt_applications` (`application_id`, `student_id`, `office_preferen
 (28, 29, 2, NULL, 'uploads/1762224372_60_percent_checklist.pdf', 'uploads/1762224372_60_percent_checklist.pdf', 'uploads/1762224372_60_percent_checklist.pdf', '', 'uploads/1762224372_566604494_4276808525876147_3434795590404980034_n.jpg', 'approved', 'Orientation/Start: November 13, 2025 08:30 | Location: CHRMO/3rd Floor | Assigned Office: IT Office', '2025-11-04', '2025-11-06'),
 (29, 30, 6, NULL, 'uploads/1762508778_Deficiencies-of-BSIS-4B-AY-25-26.pdf', 'uploads/1762508778_Deficiencies-of-BSIS-4B-AY-25-26.pdf', 'uploads/1762508778_Deficiencies-of-BSIS-4B-AY-25-26.pdf', 'uploads/moa/img029_1761923740.jpg', 'uploads/1762508778_id.jpg', 'approved', 'Orientation/Start: November 14, 2025 08:30 | Location: CHRMO/3rd Floor | Assigned Office: City General Services Office', '2025-11-07', '2025-11-07'),
 (30, 33, 9, NULL, 'uploads/1762609992_Needs_Assessment_Questionnaire_Template.pdf', 'uploads/1762609992_Needs_Assessment_Questionnaire_Template.pdf', 'uploads/1762609992_Needs_Assessment_Questionnaire_Template.pdf', 'uploads/1762609992_Needs_Assessment_Questionnaire_Template.pdf', 'uploads/1762609992_3674f89d-dd46-4d3b-af93-8111af7fb386.jpg', 'rejected', 'Auto-rejected: Preferred office has reached capacity (no second choice).', '2025-11-08', '2025-11-09'),
-(31, 35, 11, NULL, 'uploads/1762610225_Needs_Assessment_Questionnaire_Template.pdf', 'uploads/1762610225_Needs_Assessment_Questionnaire_Template.pdf', 'uploads/1762610225_Needs_Assessment_Questionnaire_Template.pdf', 'uploads/1762610225_Needs_Assessment_Questionnaire_Template.pdf', 'uploads/1762610225_3674f89d-dd46-4d3b-af93-8111af7fb386.jpg', 'pending', NULL, '2025-11-08', NULL),
+(31, 35, 11, NULL, 'uploads/1762610225_Needs_Assessment_Questionnaire_Template.pdf', 'uploads/1762610225_Needs_Assessment_Questionnaire_Template.pdf', 'uploads/1762610225_Needs_Assessment_Questionnaire_Template.pdf', 'uploads/1762610225_Needs_Assessment_Questionnaire_Template.pdf', 'uploads/1762610225_3674f89d-dd46-4d3b-af93-8111af7fb386.jpg', 'approved', 'Orientation/Start: November 18, 2025 08:30 | Location: CHRMO/3rd Floor | Assigned Office: City Mayor\'s Office', '2025-11-08', '2025-11-10'),
 (32, 36, 12, NULL, 'uploads/1762610495_Development_of_a_Curriculum_Management_System_for_.pdf', 'uploads/1762610495_Development_of_a_Curriculum_Management_System_for_.pdf', 'uploads/1762610495_Development_of_a_Curriculum_Management_System_for_.pdf', 'uploads/moa/img029_1761923740.jpg', 'uploads/1762610494_3674f89d-dd46-4d3b-af93-8111af7fb386.jpg', 'rejected', 'Auto-rejected: Preferred office has reached capacity (no second choice).', '2025-11-08', '2025-11-08'),
 (33, 37, 12, NULL, 'uploads/1762610627_Web-Based_Internship_Information_System.pdf', 'uploads/1762610627_Web-Based_Internship_Information_System.pdf', 'uploads/1762610627_Web-Based_Internship_Information_System.pdf', 'uploads/1762610627_Web-Based_Internship_Information_System.pdf', 'uploads/1762610627_3674f89d-dd46-4d3b-af93-8111af7fb386.jpg', 'rejected', 'Auto-rejected: Preferred office has reached capacity (no second choice).', '2025-11-08', '2025-11-08'),
 (34, 38, 12, NULL, 'uploads/1762610748_Career_Skills_and_On-the-Job_Training_Performance_.pdf', 'uploads/1762610748_Career_Skills_and_On-the-Job_Training_Performance_.pdf', 'uploads/1762610748_Career_Skills_and_On-the-Job_Training_Performance_.pdf', 'uploads/moa/img029_1761923740.jpg', 'uploads/1762610748_3674f89d-dd46-4d3b-af93-8111af7fb386.jpg', 'approved', 'Orientation/Start: November 17, 2025 08:30 | Location: CHRMO/3rd Floor | Assigned Office: City Engineering Office', '2025-11-08', '2025-11-08'),
 (35, 39, 12, NULL, 'uploads/1762638392_Deficiencies-of-BSIS-4B-AY-25-26.pdf', 'uploads/1762638392_Deficiencies-of-BSIS-4B-AY-25-26.pdf', 'uploads/1762638392_Deficiencies-of-BSIS-4B-AY-25-26.pdf', 'uploads/moa/img029_1761923740.jpg', 'uploads/1762638392_Untitled_design__7_.png', 'approved', 'Orientation/Start: November 17, 2025 08:30 | Location: CHRMO/3rd Floor | Assigned Office: City Engineering Office', '2025-11-08', '2025-11-08'),
 (36, 40, 8, 9, 'uploads/1762644952_Deficiencies-of-BSIS-4B-AY-25-26.pdf', 'uploads/1762644952_Deficiencies-of-BSIS-4B-AY-25-26.pdf', 'uploads/1762644952_Deficiencies-of-BSIS-4B-AY-25-26.pdf', 'uploads/moa/img029_1761923740.jpg', 'uploads/1762644952_Untitled_design__7_.png', 'approved', 'Orientation/Start: November 17, 2025 08:30 | Location: CHRMO/3rd Floor | Assigned Office: City Accounting Office', '2025-11-08', '2025-11-09'),
 (37, 41, 8, 9, 'uploads/1762645132_Deficiencies-of-BSIS-4B-AY-25-26.pdf', 'uploads/1762645132_Deficiencies-of-BSIS-4B-AY-25-26.pdf', 'uploads/1762645132_Deficiencies-of-BSIS-4B-AY-25-26.pdf', '', 'uploads/1762645132_Untitled_design__7_.png', 'approved', 'Orientation/Start: November 17, 2025 08:30 | Location: CHRMO/3rd Floor | Assigned Office: City Budget Office', '2025-11-08', '2025-11-09'),
-(38, 43, 8, 9, 'uploads/1762769920_Deficiencies-of-BSIS-4B-AY-25-26.pdf', 'uploads/1762769920_Deficiencies-of-BSIS-4B-AY-25-26.pdf', 'uploads/1762769920_Deficiencies-of-BSIS-4B-AY-25-26.pdf', '', 'uploads/1762769920_563836451_1485251962807957_1963355612580041957_n.jpg', 'approved', 'Orientation/Start: November 18, 2025 08:30 | Location: CHRMO/3rd Floor | Assigned Office: City Accounting Office', '2025-11-10', '2025-11-10');
+(38, 43, 8, 9, 'uploads/1762769920_Deficiencies-of-BSIS-4B-AY-25-26.pdf', 'uploads/1762769920_Deficiencies-of-BSIS-4B-AY-25-26.pdf', 'uploads/1762769920_Deficiencies-of-BSIS-4B-AY-25-26.pdf', '', 'uploads/1762769920_563836451_1485251962807957_1963355612580041957_n.jpg', 'approved', 'Orientation/Start: November 18, 2025 08:30 | Location: CHRMO/3rd Floor | Assigned Office: City Accounting Office', '2025-11-10', '2025-11-10'),
+(39, 44, 8, 9, 'uploads/1762779794_Deficiencies-of-BSIS-4B-AY-25-26.pdf', 'uploads/1762779794_Deficiencies-of-BSIS-4B-AY-25-26.pdf', 'uploads/1762779794_Deficiencies-of-BSIS-4B-AY-25-26.pdf', '', 'uploads/1762779794_566604494_4276808525876147_3434795590404980034_n.jpg', 'rejected', 'wrong requirements', '2025-11-10', '2025-11-11'),
+(40, 45, 6, NULL, 'uploads/1762825595_Deficiencies-of-BSIS-4B-AY-25-26.pdf', 'uploads/1762825595_Deficiencies-of-BSIS-4B-AY-25-26.pdf', 'uploads/1762825595_Deficiencies-of-BSIS-4B-AY-25-26.pdf', 'uploads/moa/img029_1761923740.jpg', 'uploads/1762825595_566604494_4276808525876147_3434795590404980034_n.jpg', 'approved', 'Orientation/Start: November 19, 2025 08:30 | Location: CHRMO/3rd Floor | Assigned Office: City General Services Office', '2025-11-11', '2025-11-11'),
+(41, 46, 11, NULL, 'uploads/1762828184_Deficiencies-of-BSIS-4B-AY-25-26.pdf', 'uploads/1762828184_Deficiencies-of-BSIS-4B-AY-25-26.pdf', 'uploads/1762828184_Deficiencies-of-BSIS-4B-AY-25-26.pdf', 'uploads/moa/img029_1761923740.jpg', 'uploads/1762828184_566604494_4276808525876147_3434795590404980034_n.jpg', 'approved', 'Orientation/Start: November 19, 2025 08:30 | Location: CHRMO/3rd Floor | Assigned Office: City Mayor\'s Office', '2025-11-11', '2025-11-11'),
+(42, 47, 6, 11, 'uploads/1762829291_Deficiencies-of-BSIS-4B-AY-25-26.pdf', 'uploads/1762829291_Deficiencies-of-BSIS-4B-AY-25-26.pdf', 'uploads/1762829291_Deficiencies-of-BSIS-4B-AY-25-26.pdf', '', 'uploads/1762829291_566604494_4276808525876147_3434795590404980034_n.jpg', 'pending', NULL, '2025-11-11', NULL);
 
 -- --------------------------------------------------------
 
@@ -338,7 +346,10 @@ INSERT INTO `orientation_assignments` (`id`, `session_id`, `application_id`, `as
 (4, 3, 34, '2025-11-08 21:48:49'),
 (5, 3, 37, '2025-11-09 00:00:43'),
 (6, 3, 36, '2025-11-09 00:05:52'),
-(7, 4, 38, '2025-11-10 10:38:12');
+(7, 4, 38, '2025-11-10 10:38:12'),
+(8, 4, 31, '2025-11-10 12:20:21'),
+(9, 5, 40, '2025-11-11 02:51:37'),
+(10, 5, 41, '2025-11-11 02:52:11');
 
 -- --------------------------------------------------------
 
@@ -361,7 +372,8 @@ INSERT INTO `orientation_sessions` (`session_id`, `session_date`, `session_time`
 (1, '2025-11-13', '08:30:00', 'CHRMO/3rd Floor'),
 (2, '2025-11-14', '08:30:00', 'CHRMO/3rd Floor'),
 (3, '2025-11-17', '08:30:00', 'CHRMO/3rd Floor'),
-(4, '2025-11-18', '08:30:00', 'CHRMO/3rd Floor');
+(4, '2025-11-18', '08:30:00', 'CHRMO/3rd Floor'),
+(5, '2025-11-19', '08:30:00', 'CHRMO/3rd Floor');
 
 -- --------------------------------------------------------
 
@@ -402,21 +414,25 @@ CREATE TABLE `students` (
 
 INSERT INTO `students` (`student_id`, `user_id`, `first_name`, `middle_name`, `last_name`, `address`, `contact_number`, `email`, `birthday`, `emergency_name`, `emergency_relation`, `emergency_contact`, `college`, `course`, `year_level`, `school_year`, `semester`, `school_address`, `ojt_adviser`, `adviser_contact`, `total_hours_required`, `hours_rendered`, `status`) VALUES
 (9, 13, 'Jim Well', NULL, 'Diamante', 'Bagna', '09454659878', 'jimwell@gmail.com', '2004-11-06', 'Jampol', 'Father', '09345646546', 'Bulacan Polytechnic College', 'BSIS-4B', '4', NULL, NULL, 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '08089989898', 500, 0, 'ongoing'),
-(28, 19, 'Jasmine', NULL, 'Santiago', '#0546 Peter Street, Phase 2, Caingin, Malolos, Bulacan', '09454659878', 'santiagojasminem@gmail.com', '2004-11-06', 'Rosaly Santiago', 'mother', '09345646546', 'Centro Escolar University – Malolos Campus', 'Bachelor of Science in Accounting Information System', '4', '2025 - 2026', '2nd Semester', 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '09234342354', 500, 0, 'ongoing'),
+(28, 19, 'Jasmine', NULL, 'Santiago', '#0546 Peter Street, Phase 2, Caingin, Malolos, Bulacan', '09454659878', 'santiagojasminem@gmail.com', '2004-11-06', 'Rosaly Santiago', 'mother', '09345646546', 'AMA Computer College – Malolos', 'Bachelor of Science in Office Administration', '4', '2025 - 2026', '1st Semester', 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '09234342354', 500, 0, 'ongoing'),
 (29, 20, 'Blair', NULL, 'Waldorf', 'Sumapang Matanda, Malolos, Bulacan', '09457842558', 'santiagojasminem@gmail.com', '2004-11-06', 'Myrna Waldorf', 'Mother', '09134664654', 'La Consolacion University Philippines', 'Bachelor of Science in Information Technology', '4', NULL, NULL, 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '09234342354', 500, 0, 'ongoing'),
 (30, 26, 'Minjas', NULL, 'Santiago', '#0546 Peter Street, Phase 2, Caingin, Malolos, Bulacan', '09454659878', 'santiagojasminem@gmail.com', '2025-10-27', 'Rosaly Santiago', 'Mother', '09134664654', 'Bulacan Polytechnic College', 'Bachelor of Science in Office Administration', '3', NULL, NULL, 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '09234342354', 500, 0, 'ongoing'),
 (31, NULL, 'John Paul', 'Demegilio', 'Sayo', 'Pulilan, Bulacan', '09633094696', 'john.sayo@bpc.edu.ph', '2003-06-13', 'Nicole Demegilio Sayo', 'Sister', '09633094696', 'Bulacan Polytechnic College', 'Bachelor of Science in Accountancy', '4', NULL, NULL, 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '09633094696', 500, 0, 'pending'),
 (32, NULL, 'Jenny', 'Alba', 'Robles', 'Sumapang Bata Malolos Bulacan', '09269317441', 'jenny.robles@bpc.edu.ph', '2003-11-26', 'Elizabeth  Alba Robles', 'Mother', '09657761424', 'Bulacan State University', 'Bachelor of Science in Electrical Engineering', '4', '2025-2026', '2nd Semester', 'Bulihan Malolos Bulacan', 'Rhey SAntos', '09269317441', 500, 0, 'pending'),
 (33, NULL, 'Jenny', NULL, 'Robles', 'Sumapang Bata Malolos Bulacan', '09269317441', 'santiagojasminem@gmail.com', '2003-11-26', 'Elizabeth  Robles', 'Mother', '09657761424', 'Bulacan State University', 'Bachelor of Science in Accountancy', '4', NULL, NULL, 'Bulihan Malolos Bulacan', 'Rhey SAntos', '09269317441', 500, 0, 'pending'),
 (34, NULL, 'Julia', '', 'Cruz', 'Guiguinto Bulacan', '09123456789', 'roblesjenny0326@gmail.com', '2003-07-11', 'Joyce  Cruz', 'Siblings', '09987654321', 'Bulacan Polytechnic College', 'Bachelor of Science in Electrical Engineering', '4', '2025-2026', '2nd Semester', 'Bulihan Malolos Bulacan', 'Migs Gatchalian', '09111111111', 500, 0, 'pending'),
-(35, NULL, 'Julia', NULL, 'Cruz', 'Guiguinto Bulacan', '09123456789', 'roblesjenny0326@gmail.com', '2003-07-11', 'Joyce Cruz', 'Siblings', '09987654321', 'STI College – Malolos', 'Bachelor of Science in Office Administration', '4', NULL, NULL, 'Dakila, McArthur Highway, Malolos City, Bulacan ', 'Migs Gatchalian', '09111111111', 500, 0, 'pending'),
+(35, 39, 'Julia', NULL, 'Cruz', 'Guiguinto Bulacan', '09123456789', 'roblesjenny0326@gmail.com', '2003-07-11', 'Joyce Cruz', 'Siblings', '09987654321', 'STI College – Malolos', 'Bachelor of Science in Office Administration', '4', NULL, NULL, 'Dakila, McArthur Highway, Malolos City, Bulacan ', 'Migs Gatchalian', '09111111111', 500, 0, 'pending'),
 (36, NULL, 'Jaime', NULL, 'Bautista', 'Hagonoy, Bulacan', '09269317441', 'jenny.robles@bpc.edu.ph', '2002-08-21', 'Jessica Bautista', 'Mother', '09987654321', 'Bulacan Polytechnic College', 'Bachelor of Science in Civil Engineering', '4', NULL, NULL, 'Bulihan Malolos Bulacan', 'Rhey SAntos', '09111111111', 500, 0, 'pending'),
 (37, NULL, 'John Paul', NULL, 'Sayo', 'Pulilan, Bulacan', '09123456789', 'jenny.robles@bpc.edu.ph', '2001-09-05', 'Jasmine Sayo', 'Siblings', '09987654321', 'Bulacan State University', 'Bachelor of Science in Electrical Engineering', '4', NULL, NULL, 'Bulihan Malolos Bulacan', 'Rhey SAntos', '09269317441', 500, 0, 'pending'),
 (38, 35, 'Jasmine', NULL, 'Santiago', 'Malolos, Bulacan', '09269317441', 'roblesjenny0326@gmail.com', '2002-11-06', 'Jenny Santiago', 'Siblings', '09987654321', 'Bulacan Polytechnic College', 'Bachelor of Science in Electrical Engineering', '4', NULL, NULL, 'Bulihan Malolos Bulacan', 'Migs Gatchalian', '09111111111', 500, 0, 'ongoing'),
 (39, 34, 'Jasmin', NULL, 'Santiago', '#0546 Peter Street, Phase 2, Caingin, Malolos, Bulacan', '09454659878', 'santiagojasminem@gmail.com', '2025-10-08', 'Rosaly Santiago', 'Mother', '09134664654', 'Bulacan Polytechnic College', 'Bachelor of Science in Civil Engineering', '3', NULL, NULL, 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '09234342354', 500, 0, 'ongoing'),
 (40, 37, 'John', NULL, 'Coria', 'Sta. Maria, Bulacan', '09454659878', 'santiagojasminem@gmail.com', '2025-10-13', 'Jen Robles', 'Father', '09134664654', 'Bulacan Polytechnic College', 'Bachelor of Science in Accounting Information System', '4', NULL, NULL, 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '08089989898', 500, 0, 'ongoing'),
 (41, 36, 'Jeremiah', NULL, 'Ong', '#0546 Peter Street, Phase 2, Caingin, Malolos, Bulacan', '09457842558', 'santiagojasminem@gmail.com', '2025-11-04', 'Geo Ong', 'Father', '09134664654', 'Bulacan State University', 'Bachelor of Science in Accounting Information System', '3', NULL, NULL, 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '09234342354', 500, 0, 'ongoing'),
-(43, 38, 'Vanessa', NULL, 'Manuel', '', '', 'santiagojasminem@gmail.com', NULL, 'Lily', '', '', 'Centro Escolar University – Malolos Campus', 'Bachelor of Science in Accounting Information System', '4', NULL, NULL, 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '09234342354', 500, 0, 'ongoing');
+(43, 38, 'Vanessa', NULL, 'Manuel', '', '', 'santiagojasminem@gmail.com', NULL, 'Lily', '', '', 'Centro Escolar University – Malolos Campus', 'Bachelor of Science in Accounting Information System', '4', NULL, NULL, 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '09234342354', 500, 0, 'ongoing'),
+(44, NULL, '', NULL, '', '', '', '', NULL, '', '', '', '', '', '', NULL, NULL, '', '', '', 500, 0, 'pending'),
+(45, 40, 'Jadon', NULL, 'Ong', 'Malolos, Bulacan', '09454659878', 'santiagojasminem@gmail.com', '2007-10-31', 'Janice Ong', 'Mother', '09134664654', 'Bulacan Polytechnic College', 'Bachelor of Science in Office Administration', '4', NULL, NULL, 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '09234342354', 500, 0, 'pending'),
+(46, 41, 'Arvin', NULL, 'Ong', '#0546 Peter Street, Phase 2, Caingin, Malolos, Bulacan', '09454659878', 'santiagojasminem@gmail.com', '2007-11-10', 'Janice Ong', 'Mother', '09134664654', 'Bulacan Polytechnic College', 'Bachelor of Science in Office Administration', '4', NULL, NULL, 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '09234342354', 500, 0, 'pending'),
+(47, NULL, 'Jenny', NULL, 'Humphrey', '#0546 Peter Street, Phase 2, Caingin, Malolos, Bulacan', '09454659878', 'santiagojasminem@gmail.com', '2007-11-10', 'Rufus Humphrey', 'Father', '09134664654', 'AMA Computer College – Malolos', 'Bachelor of Science in Office Administration', '4', NULL, NULL, 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '09234342354', 500, 0, 'pending');
 
 -- --------------------------------------------------------
 
@@ -450,16 +466,19 @@ INSERT INTO `users` (`user_id`, `username`, `email`, `first_name`, `middle_name`
 (19, 'santiagojasminem3', NULL, NULL, NULL, NULL, '378d162747', 'ojt', 'IT Office', 'active', '2025-11-04 03:01:25'),
 (20, 'santiagojasminem', NULL, NULL, NULL, NULL, '59d0650e0f', 'ojt', 'IT Office', 'active', '2025-11-06 06:20:22'),
 (25, 'narchibald833', 'nate@gmail.com', 'Nate', NULL, 'Archibald', 'smlVMRHYSY', 'office_head', 'City General Services Office', 'active', '2025-11-07 07:13:06'),
-(26, 'santiagojasminem1', NULL, NULL, NULL, NULL, '248d64ba66', 'ojt', 'City General Services Office', 'active', '2025-11-07 09:47:41'),
+(26, 'santiagojasminem1', NULL, NULL, NULL, NULL, '248d64ba66', 'ojt', 'City General Services Office', 'approved', '2025-11-07 09:47:41'),
 (27, 'lgarcia811', 'santiagojasminem@gmail.com', 'Layla', NULL, 'Garcia', 'pZEiw1LxZm', 'office_head', 'City Budget Office', 'active', '2025-11-07 09:58:55'),
 (29, 'cbass610', 'santiagojasminem@gmail.com', 'Charles', NULL, 'Bass', 'qGKHPLR8Eo', 'office_head', 'City Accounting Office', 'active', '2025-11-08 07:58:24'),
 (32, 'fdurupa407', 'santiagojasminem@gmail.com', 'Fredy', NULL, 'Durupa', '2uDY8lTdbm', 'office_head', 'City Mayor\'s Office', 'active', '2025-11-08 08:50:03'),
 (33, 'rmilan347', 'santiagojasminem@gmail.com', 'Rico', NULL, 'Milan', 'UN8BMbOyne', 'office_head', 'City Engineering Office', 'active', '2025-11-08 10:24:44'),
-(34, 'santiagojasminem2', NULL, NULL, NULL, NULL, '8b58db06d7', 'ojt', 'City Engineering Office', 'active', '2025-11-08 21:48:02'),
-(35, 'roblesjenny0326', NULL, NULL, NULL, NULL, '0c0789741b', 'ojt', 'City Engineering Office', 'active', '2025-11-08 21:48:49'),
-(36, 'santiagojasminem4', NULL, NULL, NULL, NULL, 'd16064a812', 'ojt', 'City Budget Office', 'active', '2025-11-09 00:00:43'),
-(37, 'santiagojasminem5', NULL, NULL, NULL, NULL, 'e27ea9aec4', 'ojt', 'City Accounting Office', 'active', '2025-11-09 00:05:52'),
-(38, 'santiagojasminem6', NULL, NULL, NULL, NULL, '7ea8782bf2', 'ojt', 'City Accounting Office', 'active', '2025-11-10 10:38:12');
+(34, 'santiagojasminem2', NULL, NULL, NULL, NULL, '8b58db06d7', 'ojt', 'City Engineering Office', 'approved', '2025-11-08 21:48:02'),
+(35, 'roblesjenny0326', NULL, NULL, NULL, NULL, '0c0789741b', 'ojt', 'City Engineering Office', 'approved', '2025-11-08 21:48:49'),
+(36, 'santiagojasminem4', NULL, NULL, NULL, NULL, 'd16064a812', 'ojt', 'City Budget Office', 'approved', '2025-11-09 00:00:43'),
+(37, 'santiagojasminem5', NULL, NULL, NULL, NULL, 'e27ea9aec4', 'ojt', 'City Accounting Office', 'approved', '2025-11-09 00:05:52'),
+(38, 'santiagojasminem6', NULL, NULL, NULL, NULL, '7ea8782bf2', 'ojt', 'City Accounting Office', 'approved', '2025-11-10 10:38:12'),
+(39, 'roblesjenny03261', NULL, NULL, NULL, NULL, 'e87bea7663', 'ojt', 'City Mayor\'s Office', 'approved', '2025-11-10 12:20:21'),
+(40, 'santiagojasminem7', NULL, NULL, NULL, NULL, '5f8c12fef6', 'ojt', 'City General Services Office', 'approved', '2025-11-11 02:51:37'),
+(41, 'santiagojasminem8', NULL, NULL, NULL, NULL, '736c1490a6', 'ojt', 'City Mayor\'s Office', 'approved', '2025-11-11 02:52:11');
 
 -- --------------------------------------------------------
 
@@ -658,37 +677,37 @@ ALTER TABLE `office_courses`
 -- AUTO_INCREMENT for table `office_requests`
 --
 ALTER TABLE `office_requests`
-  MODIFY `request_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=8;
+  MODIFY `request_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=12;
 
 --
 -- AUTO_INCREMENT for table `ojt_applications`
 --
 ALTER TABLE `ojt_applications`
-  MODIFY `application_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=39;
+  MODIFY `application_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=43;
 
 --
 -- AUTO_INCREMENT for table `orientation_assignments`
 --
 ALTER TABLE `orientation_assignments`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=8;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=11;
 
 --
 -- AUTO_INCREMENT for table `orientation_sessions`
 --
 ALTER TABLE `orientation_sessions`
-  MODIFY `session_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=5;
+  MODIFY `session_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=6;
 
 --
 -- AUTO_INCREMENT for table `students`
 --
 ALTER TABLE `students`
-  MODIFY `student_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=44;
+  MODIFY `student_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=48;
 
 --
 -- AUTO_INCREMENT for table `users`
 --
 ALTER TABLE `users`
-  MODIFY `user_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=39;
+  MODIFY `user_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=42;
 
 --
 -- AUTO_INCREMENT for table `weekly_journal`

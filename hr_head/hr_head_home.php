@@ -24,16 +24,23 @@ $role_label = !empty($user['role']) ? ucwords(str_replace('_',' ', $user['role']
 // which tab: pending (default) or rejected
 $tab = isset($_GET['tab']) && $_GET['tab'] === 'rejected' ? 'rejected' : 'pending';
 
-// counts (replace pending/rejected counts with active/completed)
-$stmt = $conn->prepare("SELECT COUNT(*) FROM ojt_applications WHERE status = 'approved'");
+// --- LEFT-COLUMN COUNTS: use users table (role = 'ojt') for approved / completed / ongoing ---
+// (Exclude records where status = 'active' as requested)
+$stmt = $conn->prepare("SELECT COUNT(*) FROM users WHERE role = 'ojt' AND status = 'approved'");
 $stmt->execute();
-$stmt->bind_result($active_count);
+$stmt->bind_result($users_approved_count);
 $stmt->fetch();
 $stmt->close();
 
-$stmt = $conn->prepare("SELECT COUNT(*) FROM ojt_applications WHERE status = 'completed'");
+$stmt = $conn->prepare("SELECT COUNT(*) FROM users WHERE role = 'ojt' AND status = 'completed'");
 $stmt->execute();
-$stmt->bind_result($completed_count);
+$stmt->bind_result($users_completed_count);
+$stmt->fetch();
+$stmt->close();
+
+$stmt = $conn->prepare("SELECT COUNT(*) FROM users WHERE role = 'ojt' AND status = 'ongoing'");
+$stmt->execute();
+$stmt->bind_result($users_ongoing_count);
 $stmt->fetch();
 $stmt->close();
 
@@ -328,20 +335,20 @@ $current_date = date("l, F j, Y");
         <div style="display:flex;flex-direction:column;gap:2px;">
           <div style="font-size:13px;color:#6d6d6d;font-weight:600">Completed</div>
         </div>
-        <div style="font-size:28px;font-weight:700;color:#2f3850"><?php echo (int)$completed_count; ?></div>
+        <div style="font-size:28px;font-weight:700;color:#2f3850"><?php echo (int)($users_completed_count ?? 0); ?></div>
         </div>
 
-        <!-- Row 2: Approved Applicants and Active -->
+        <!-- Row 2: Approved Applicants and Ongoing -->
         <div style="display:flex;gap:8px;">
         <!-- Approved Applicants -->
         <div style="background:#fff;border-radius:8px;padding:10px;border:1px solid #eef2f7;box-shadow:0 2px 6px rgba(0,0,0,0.03);flex:1;display:flex;flex-direction:column;justify-content:center;min-width:0;text-align:center;">
-           <div style="font-size:18px;font-weight:700;color:#2f3850;line-height:1"><?php echo (int)$active_count; ?></div>
+           <div style="font-size:18px;font-weight:700;color:#2f3850;line-height:1"><?php echo (int)($users_approved_count ?? 0); ?></div>
            <div style="color:#666;font-size:12px;margin-top:6px">Approved Applicants</div>
          </div>
 
         <!-- Ongoing -->
         <div style="background:#fff;border-radius:8px;padding:10px;border:1px solid #eef2f7;box-shadow:0 2px 6px rgba(0,0,0,0.03);flex:1;display:flex;flex-direction:column;justify-content:center;min-width:0;text-align:center;">
-           <div style="font-size:18px;font-weight:700;color:#2f3850"><?php echo (int)$pending_count; ?></div>
+           <div style="font-size:18px;font-weight:700;color:#2f3850"><?php echo (int)($users_ongoing_count ?? 0); ?></div>
            <div style="color:#666;font-size:12px;margin-top:6px">Ongoing</div>
         </div>
         </div>
@@ -545,7 +552,7 @@ $stmtActive->close();
 /* body wrapper shows exactly 5 rows tall, scroll if more */
 #officeBodyWrap {
   height: calc(var(--office-row-h) * var(--office-rows-visible));
-  min-height: calc(var(--office-row-h) * var(--office-rows-visible));
+  min-height: calc(var(--office-row-h) * var,--office-rows-visible);
   overflow-y: auto;
   overflow-x: hidden;
   box-sizing: border-box;
@@ -1352,49 +1359,56 @@ if ($tab === 'pending' && !empty($offices)) {
     if ($countStmt) $countStmt->close();
 
     if (!empty($fullOfficeIds)) {
-        // find pending applications where pref2 IS NULL and pref1 in fullOfficeIds
-        // build placeholders
-        $placeholders = implode(',', array_fill(0, count($fullOfficeIds), '?'));
-        $types = str_repeat('i', count($fullOfficeIds));
+        // find pending applications:
+        // - case A: pref2 IS NULL/0 and pref1 is full
+        // - case B: both pref1 AND pref2 are full (both provided)
+        $n = count($fullOfficeIds);
+        $placeholders = implode(',', array_fill(0, $n, '?'));
 
         $sql = "SELECT oa.application_id, oa.student_id, s.email
                 FROM ojt_applications oa
                 JOIN students s ON oa.student_id = s.student_id
-                WHERE oa.status = 'pending' AND (oa.office_preference2 IS NULL OR oa.office_preference2 = 0)
-                  AND oa.office_preference1 IN ($placeholders)";
+                WHERE oa.status = 'pending'
+                  AND (
+                     ((oa.office_preference2 IS NULL OR oa.office_preference2 = 0) AND oa.office_preference1 IN ($placeholders))
+                     OR
+                     (oa.office_preference1 IN ($placeholders) AND oa.office_preference2 IN ($placeholders))
+                  )";
+
         $stmtFind = $conn->prepare($sql);
         if ($stmtFind) {
-            // bind dynamic params
-            $bindNames = [];
-            $bindNames[] = &$types;
-            foreach ($fullOfficeIds as $k => $id) {
-                $bindNames[] = &$fullOfficeIds[$k];
-            }
-            // call_user_func_array for bind_param
-            call_user_func_array([$stmtFind, 'bind_param'], $bindNames);
+            // bind types: SQL uses three IN(...) groups -> total placeholders = 3 * $n
+            $bindTypes = str_repeat('i', $n * 3);
+            $bindParams = [];
+            $bindParams[] = &$bindTypes;
+            // first group (first IN)
+            for ($i = 0; $i < $n; $i++) { $bindParams[] = &$fullOfficeIds[$i]; }
+            // second group (second IN)
+            for ($i = 0; $i < $n; $i++) { $bindParams[] = &$fullOfficeIds[$i]; }
+            // third group (third IN)
+            for ($i = 0; $i < $n; $i++) { $bindParams[] = &$fullOfficeIds[$i]; }
+            call_user_func_array([$stmtFind, 'bind_param'], $bindParams);
             $stmtFind->execute();
             $resPending = $stmtFind->get_result();
             $toReject = $resPending->fetch_all(MYSQLI_ASSOC);
             $stmtFind->close();
 
             if (!empty($toReject)) {
-                // prepare update stmt
                 $u = $conn->prepare("UPDATE ojt_applications SET status = 'rejected', remarks = ?, date_updated = CURDATE() WHERE application_id = ?");
                 $mailHeaders = "MIME-Version: 1.0\r\nContent-type: text/html; charset=utf-8\r\nFrom: OJTMS HR <no-reply@localhost>\r\n";
                 foreach ($toReject as $rj) {
                     $appId = (int)$rj['application_id'];
                     $studentEmail = trim($rj['email'] ?? '');
-                    $remarks = 'Auto-rejected: Preferred office has reached capacity (no second choice).';
+                    $remarks = 'Auto-rejected: Preferred office(s) have reached capacity.';
                     if ($u) {
                         $u->bind_param('si', $remarks, $appId);
                         $u->execute();
                     }
-                    // send simple rejection email (mail() fallback)
                     if (filter_var($studentEmail, FILTER_VALIDATE_EMAIL)) {
                         $subject = "OJT Application Rejected";
                         $body = "<p>Dear Applicant,</p>"
                               . "<p>We regret to inform you that your OJT application has been <strong>rejected</strong>.</p>"
-                              . "<p><strong>Reason:</strong> Your preferred office has reached capacity and no second choice was provided.</p>"
+                              . "<p><strong>Reason:</strong> Your preferred office(s) have reached capacity.</p>"
                               . "<p>If you have questions, please contact HR.</p>"
                               . "<p>— HR Department</p>";
                         @mail($studentEmail, $subject, $body, $mailHeaders);
@@ -1412,7 +1426,7 @@ if ($tab === 'pending' && !empty($offices)) {
                 }
             }
         }
-    }
+     }
 }
 ?>
 </body>

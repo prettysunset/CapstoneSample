@@ -261,11 +261,13 @@ if ($available_slots <= 0) {
 // Pending office requests for this office_id
 $pending_office = 0;
 $office_id = (int)($office['office_id'] ?? 0);
-$s4 = $conn->prepare("SELECT COUNT(*) AS total FROM office_requests WHERE status = 'Pending' AND office_id = ?");
-$s4->bind_param("i", $office_id);
-$s4->execute();
-$pending_office = (int)$s4->get_result()->fetch_assoc()['total'];
-$s4->close();
+$s4 = $conn->prepare("SELECT COUNT(*) AS total FROM office_requests WHERE LOWER(status) = 'pending' AND office_id = ?");
+if ($s4) {
+    $s4->bind_param("i", $office_id);
+    $s4->execute();
+    $pending_office = (int)($s4->get_result()->fetch_assoc()['total'] ?? 0);
+    $s4->close();
+}
 
 // Fetch recent DTR rows for users in this office (most recent 20)
 $late_dtr = $conn->prepare("

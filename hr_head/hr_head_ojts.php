@@ -860,14 +860,13 @@ if ($moa_q) {
         return;
       }
       // success — reload so HR + Office Head pages reflect updated limits/status
-      alert('Request processed: ' + (j.message || 'OK'));
+      console.log('Office request processed:', j.message || 'OK');
       location.reload();
     } catch (err) {
       console.error(err);
       alert('Request failed');
     }
   }
-
     /* tab switcher - show panel-* elements */
     function switchViewTab(e){
       // support being called either with an Event or with a tab name string
@@ -1138,8 +1137,8 @@ if ($moa_q) {
  
   // initial run
   filterRows();
-})();
-
+})(); 
+</script>
 <script>
   // attach confirm to top logout like hr_head_home.php
   (function(){
