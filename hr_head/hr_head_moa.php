@@ -32,11 +32,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['action']) && $_POST[
         echo json_encode(['success' => false, 'message' => 'Invalid date format.']);
         exit;
     }
-    if ($d2 < $d1) {
+    // require Valid Until to be strictly AFTER Date Signed (not earlier or same day)
+    if ($d2 <= $d1) {
         http_response_code(400);
         header('Content-Type: application/json');
-        echo json_encode(['success' => false, 'message' => 'Valid Until must be the same or after Date Signed.']);
+        echo json_encode(['success' => false, 'message' => 'Valid Until must be after Date Signed.']);
         exit;
+    }
+
+    // server-side: prevent adding if there's already an ACTIVE MOA for the same school
+    $activeStmt = $conn->prepare("
+        SELECT COUNT(*) AS cnt
+        FROM moa
+        WHERE LOWER(TRIM(school_name)) = LOWER(TRIM(?))
+          AND DATE_ADD(date_uploaded, INTERVAL COALESCE(validity_months,12) MONTH) >= CURDATE()
+    ");
+    if ($activeStmt) {
+        $activeStmt->bind_param('s', $school);
+        $activeStmt->execute();
+        $actRow = $activeStmt->get_result()->fetch_assoc();
+        $activeCount = (int)($actRow['cnt'] ?? 0);
+        $activeStmt->close();
+        if ($activeCount > 0) {
+            http_response_code(400);
+            header('Content-Type: application/json');
+            echo json_encode(['success' => false, 'message' => 'An active MOA for this school already exists.']);
+            exit;
+        }
     }
 
     // compute months difference (validity_months)
@@ -140,14 +162,25 @@ $current_date = date("l, F j, Y");
 $moas = [];
 $res = $conn->query("SELECT moa_id, school_name, moa_file, date_uploaded, COALESCE(validity_months,12) AS validity_months FROM moa ORDER BY date_uploaded DESC");
 if ($res) {
-    $cntStmt = $conn->prepare("SELECT COUNT(*) AS cnt FROM students WHERE (college LIKE ? OR school_address LIKE ?)");
+    // Count OJTs by joining users -> students and matching students.college to MOA.school_name (case-insensitive, trimmed)
+    $cntStmt = $conn->prepare("
+        SELECT COUNT(DISTINCT u.user_id) AS cnt
+        FROM users u
+        JOIN students s ON s.user_id = u.user_id
+        WHERE LOWER(TRIM(u.role)) = 'ojt'
+          AND LOWER(TRIM(COALESCE(s.college, ''))) = LOWER(TRIM(?))
+    ");
     while ($r = $res->fetch_assoc()) {
         $school = $r['school_name'] ?? '';
-        $like = "%{$school}%";
-        $cntStmt->bind_param("ss", $like, $like);
-        $cntStmt->execute();
-        $cntRow = $cntStmt->get_result()->fetch_assoc();
-        $count = (int)($cntRow['cnt'] ?? 0);
+        $schoolParam = trim((string)$school);
+
+        $count = 0;
+        if ($cntStmt) {
+            $cntStmt->bind_param('s', $schoolParam);
+            $cntStmt->execute();
+            $cntRow = $cntStmt->get_result()->fetch_assoc();
+            $count = (int)($cntRow['cnt'] ?? 0);
+        }
 
         $date_uploaded = $r['date_uploaded'];
         $valid_until = $date_uploaded ? date('Y-m-d', strtotime("+{$r['validity_months']} months", strtotime($date_uploaded))) : null;
@@ -164,8 +197,19 @@ if ($res) {
             'status' => $status
         ];
     }
-    $cntStmt->close();
+    if ($cntStmt) $cntStmt->close();
     $res->free();
+}
+
+// after loading $moas, build list of distinct colleges for autocomplete
+$collegeList = [];
+$col_q = $conn->query("SELECT DISTINCT TRIM(college) AS college FROM students WHERE TRIM(COALESCE(college,'')) <> '' ORDER BY college");
+if ($col_q) {
+    while ($cr = $col_q->fetch_assoc()) {
+        $c = trim((string)($cr['college'] ?? ''));
+        if ($c !== '') $collegeList[] = $c;
+    }
+    $col_q->free();
 }
 
 function fmtDate($d){ if (!$d) return '-'; $dt = date_create($d); return $dt ? date_format($dt,'M j, Y') : '-'; }
@@ -329,7 +373,7 @@ function fmtDate($d){ if (!$d) return '-'; $dt = date_create($d); return $dt ? d
           <div style="position:relative;display:inline-block;vertical-align:middle;">
             <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" width="16" height="16" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:#666;pointer-events:none" stroke="currentColor" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="11" cy="11" r="6"></circle>
-              <path d="M21 21l-4.35-4.35"></path>
+              <path d="M21 21l-4.35-4.35A2.032 2.032 0 0 1 18 14.158V11a6 6 0 1 0-12 0v3.159c0 .538-.214 1.055-.595 1.436L4 17h5"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
             </svg>
             <input type="text" id="search" placeholder="Search school" style="width:320px;padding:8px 10px 8px 36px;border:1px solid #ddd;border-radius:8px">
           </div>
@@ -379,7 +423,13 @@ function fmtDate($d){ if (!$d) return '-'; $dt = date_create($d); return $dt ? d
             <input type="hidden" name="action" value="add_moa">
             <div class="form-row">
               <label>School</label>
-              <input type="text" name="school" required placeholder="School name">
+              <input type="text" name="school" id="schoolInput" list="collegeList" required placeholder="School name">
+              <!-- datalist provides suggestions from students.college -->
+              <datalist id="collegeList">
+                <?php foreach ($collegeList as $c): ?>
+                  <option value="<?= htmlspecialchars($c) ?>"></option>
+                <?php endforeach; ?>
+              </datalist>
             </div>
             <div class="form-row">
               <label>Date Signed</label>
@@ -395,7 +445,7 @@ function fmtDate($d){ if (!$d) return '-'; $dt = date_create($d); return $dt ? d
             </div>
             <div class="modal-actions">
               <button type="button" class="btn-ghost" id="moaCancel">Cancel</button>
-              <button type="submit" class="btn-primary">SEND</button>
+              <button type="submit" class="btn-primary">Add</button>
             </div>
           </form>
         </div>
@@ -435,12 +485,42 @@ function fmtDate($d){ if (!$d) return '-'; $dt = date_create($d); return $dt ? d
   const btnAdd = document.getElementById('btnAdd');
   const btnCancel = document.getElementById('moaCancel');
   const form = document.getElementById('moaForm');
+
+  // inputs for date min handling
+  const dateSignedInput = form.querySelector('[name="date_signed"]');
+  const validUntilInput = form.querySelector('[name="valid_until"]');
+
+  // set Valid Until min to strictly after Date Signed (disable same-day and earlier)
+  function setValidUntilMin() {
+    if (!dateSignedInput || !validUntilInput) return;
+    if (!dateSignedInput.value) {
+      validUntilInput.removeAttribute('min');
+      return;
+    }
+    // min = next calendar day after dateSigned
+    const ds = new Date(dateSignedInput.value);
+    ds.setDate(ds.getDate() + 1);
+    const minISO = ds.toISOString().slice(0,10);
+    validUntilInput.setAttribute('min', minISO);
+    // if current validUntil is on/before dateSigned, adjust to min
+    if (!validUntilInput.value || new Date(validUntilInput.value) <= new Date(dateSignedInput.value)) {
+      validUntilInput.value = minISO;
+    }
+  }
+  if (dateSignedInput) dateSignedInput.addEventListener('change', setValidUntilMin);
+
   function showModal(){ backdrop.classList.add('show'); backdrop.setAttribute('aria-hidden','false'); }
-  function hideModal(){ backdrop.classList.remove('show'); backdrop.setAttribute('aria-hidden','true'); form.reset(); }
+  function hideModal(){
+    backdrop.classList.remove('show');
+    backdrop.setAttribute('aria-hidden','true');
+    form.reset();
+    // clear min after reset
+    if (validUntilInput) validUntilInput.removeAttribute('min');
+  }
   btnAdd.addEventListener('click', function(e){ e.preventDefault(); showModal(); });
   btnCancel.addEventListener('click', function(e){ e.preventDefault(); hideModal(); });
   backdrop.addEventListener('click', function(e){ if (e.target === backdrop) hideModal(); });
-
+  
   document.getElementById('moaForm').addEventListener('submit', function(e){
     e.preventDefault();
     const form = this;
@@ -454,8 +534,9 @@ function fmtDate($d){ if (!$d) return '-'; $dt = date_create($d); return $dt ? d
     // date validation: valid_until must be same or after date_signed
     const dateSigned = form.querySelector('[name="date_signed"]').value;
     const validUntil = form.querySelector('[name="valid_until"]').value;
-    if (dateSigned && validUntil && (new Date(validUntil) < new Date(dateSigned))) {
-      alert('Valid Until must be the same or after Date Signed.');
+    // require Valid Until to be strictly AFTER Date Signed (no same-day)
+    if (dateSigned && validUntil && (new Date(validUntil) <= new Date(dateSigned))) {
+      alert('Valid Until must be after Date Signed.');
       return;
     }
 

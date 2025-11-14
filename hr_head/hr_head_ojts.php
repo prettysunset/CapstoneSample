@@ -697,7 +697,7 @@ if ($moa_q) {
               </thead>
               <tbody id="late_dtr_tbody">
                 <tr class="empty">
-                  <td colspan="7" style="padding:18px;text-align:center;color:#6b7280">No DTR submissions found.</td>
+                  <td colspan="7" style="padding:18px;text-align:center;color:#6b7280"></td>
                 </tr>
               </tbody>
             </table>
