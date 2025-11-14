@@ -3,6 +3,12 @@ session_start();
 date_default_timezone_set('Asia/Manila');
 require_once __DIR__ . '/../conn.php';
 
+// require login
+if (!isset($_SESSION['user_id'])) {
+    header("Location: ../login.php");
+    exit();
+}
+
 // handle AJAX email send from this page (do NOT change hr_actions.php)
 $raw = @file_get_contents('php://input');
 $inputJson = json_decode($raw, true);
@@ -304,6 +310,13 @@ if ($q3) {
     while ($r = $res3->fetch_assoc()) $ojts[] = $r;
     $q3->close();
 }
+
+// gather unique offices present among the OJTs (for the OJT filter dropdown)
+$ojt_offices = [];
+foreach ($ojts as $zz) {
+    $on = trim($zz['office_name'] ?? '');
+    if ($on !== '' && !in_array($on, $ojt_offices)) $ojt_offices[] = $on;
+}
 ?>
 <!doctype html>
 <html lang="en">
@@ -356,6 +369,12 @@ if ($q3) {
   .top-section{display:flex;justify-content:space-between;gap:20px;margin-bottom:20px}
   .datetime h2{font-size:22px;color:#2f3850;margin:0}
   .datetime p{color:#6d6d6d;margin:0}
+  #filter_status, #filter_office { display:none; margin-left:10px; padding:8px 10px; border:1px solid #ddd; border-radius:8px; background:#fff; color:#2f3850; font-size:14px; }
+  @media(max-width:900px){
+    /* ensure selects wrap nicely on small screens */
+    #filter_status, #filter_office{ display:block; width:100%; margin:8px 0 0 0; }
+    .controls{flex-direction:column;align-items:flex-start}
+  }
 </style>
 </head>
 <body>
@@ -427,15 +446,15 @@ if ($q3) {
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 17h5l-1.405-1.405A2.032 2.032 0 0 1 18 14.158V11a6 6 0 1 0-12 0v3.159c0 .538-.214 1.055-.595 1.436L4 17h5"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
         </a>
 
-        <!-- calendar icon (display only) - placed to the right of Notifications to match MOA/DTR -->
-        <div title="Calendar (display only)" style="display:inline-flex;align-items:center;justify-content:center;width=40px;height=40px;border-radius:8px;color:#2f3459;background:transparent;pointer-events:none;">
+        <!-- calendar icon (display only) - placed to the right of Notifications to match DTR -->
+        <div title="Calendar (display only)" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;background:transparent;pointer-events:none;">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
         </div>
 
         <a href="settings.php" title="Settings" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06A2 2 0 1 1 2.28 16.8l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09c.7 0 1.3-.4 1.51-1A1.65 1.65 0 0 0 4.27 6.3L4.2 6.23A2 2 0 1 1 6 3.4l.06.06c.5.5 1.2.7 1.82.33.7-.4 1.51-.4 2.21 0 .62.37 1.32.17 1.82-.33L12.6 3.4a2 2 0 1 1 1.72 3.82l-.06.06c-.5.5-.7 1.2-.33 1.82.4.7.4 1.51 0 2.21-.37.62-.17 1.32.33 1.82l.06.06A2 2 0 1 1 19.4 15z"></path></svg>
         </a>
-        <a id="top-logout" href="/logout.php" title="Logout" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;">
+        <a id="top-logout" href="../logout.php" title="Logout" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
         </a>
     </div>
@@ -481,7 +500,7 @@ if ($q3) {
       </div>
 
       <div class="controls">
-        <div style="position:relative;width:360px">
+        <div style="position:relative;width:360px;display:flex;align-items:center">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
                style="position:absolute;left:10px;top:50%;transform:translateY(-50%);pointer-events:none;color:#62718a">
             <circle cx="11" cy="11" r="7"></circle>
@@ -491,6 +510,22 @@ if ($q3) {
         </div>
         <div style="flex:1"></div>
         <div style="display:flex;gap:8px;align-items:center">
+          <!-- OJT-only filters moved to the right side, next to action buttons -->
+          <div id="ojt_filters" style="display:flex;gap:8px;align-items:center">
+            <select id="filter_status" title="Filter by status">
+              <option value="">All Status</option>
+              <option value="approved">Approved</option>
+              <option value="ongoing">Ongoing</option>
+              <option value="completed">Completed</option>
+              <option value="inactive">Inactive</option>
+            </select>
+            <select id="filter_office" title="Filter by office">
+              <option value="">All offices</option>
+              <?php foreach ($ojt_offices as $of): ?>
+                <option value="<?= htmlspecialchars(strtolower($of)) ?>"><?= htmlspecialchars($of) ?></option>
+              <?php endforeach; ?>
+            </select>
+          </div>
           <button class="btn btn-add" id="btnAdd">Add Account</button>
           <!-- moved here so it sits on the same row as the search (visibility toggled by JS) -->
           <button id="btnAddHr" class="btn btn-add" style="min-width:140px;padding:8px 14px;display:none">Add HR Staff</button>
@@ -626,7 +661,11 @@ if ($q3) {
                 $address = $o['address'] ?: '';
                 $status = ucwords(strtolower($o['status'] ?? ''));
               ?>
-                <tr data-search="<?= htmlspecialchars(strtolower($name . ' ' . $email . ' ' . $officeName . ' ' . $address . ' ' . $status)) ?>">
+                <tr
+                  data-search="<?= htmlspecialchars(strtolower($name . ' ' . $email . ' ' . $officeName . ' ' . $address . ' ' . $status)) ?>"
+                  data-status="<?= htmlspecialchars(strtolower($o['status'] ?? '')) ?>"
+                  data-office="<?= htmlspecialchars(strtolower($officeName)) ?>"
+                >
                   <td><?= htmlspecialchars($name) ?></td>
                   <td><?= htmlspecialchars($email ?: '—') ?></td>
                   <td><?= htmlspecialchars($officeName ?: '—') ?></td>
@@ -670,8 +709,19 @@ if ($q3) {
   function updateActionButtonsForTab(tab) {
     const topAdd = document.getElementById('btnAdd');      // top Add Account (office head)
     const hrAdd  = document.getElementById('btnAddHr');    // HR panel Add HR Staff (inside HR panel)
+    const statusFilter = document.getElementById('filter_status');
+    const officeFilter = document.getElementById('filter_office');
     if (topAdd) topAdd.style.display = (tab === 'office') ? '' : 'none';
     if (hrAdd)  hrAdd.style.display  = (tab === 'hr') ? '' : 'none';
+    // show OJT filters only on OJTs tab
+    // NOTE: explicit inline display ('inline-block') is required to override the CSS rule that sets display:none
+    if (statusFilter) statusFilter.style.display = (tab === 'ojt') ? 'inline-block' : 'none';
+    if (officeFilter) officeFilter.style.display = (tab === 'ojt') ? 'inline-block' : 'none';
+     // update search placeholder: remove "office" when HR Staffs tab is active
+     const search = document.getElementById('search');
+     if (search) {
+       search.placeholder = (tab === 'hr') ? 'Search name / email' : 'Search name / email / office';
+     }
   }
 
   document.querySelectorAll('.tabs button').forEach(btn=>{
@@ -683,28 +733,50 @@ if ($q3) {
       document.querySelectorAll('.panel').forEach(p => p.style.display = 'none');
       const sel = document.getElementById('panel-' + t);
       if (sel) sel.style.display = 'block';
-      // update Add buttons visibility
+      // update Add buttons visibility and filters
       updateActionButtonsForTab(t);
+      // apply filters immediately when switching tabs
+      applyFilters();
     });
   });
   // initialize visibility based on active tab
   (function(){ const active = document.querySelector('.tabs button.active'); if (active) updateActionButtonsForTab(active.getAttribute('data-tab')); })();
 
-  // search filter
+  // unified filter function (search + status + office)
   const search = document.getElementById('search');
-  search.addEventListener('input', function(){
-    const q = (this.value||'').toLowerCase().trim();
+  const statusFilter = document.getElementById('filter_status');
+  const officeFilter = document.getElementById('filter_office');
+
+  function applyFilters(){
+    const q = (search.value||'').toLowerCase().trim();
+    const statusVal = statusFilter ? (statusFilter.value||'').toLowerCase() : '';
+    const officeVal = officeFilter ? (officeFilter.value||'').toLowerCase() : '';
     document.querySelectorAll('tbody tr[data-search]').forEach(tr=>{
-      tr.style.display = (tr.getAttribute('data-search')||'').indexOf(q) === -1 ? 'none' : '';
+      const ds = (tr.getAttribute('data-search')||'').toLowerCase();
+      const dstatus = (tr.getAttribute('data-status')||'').toLowerCase();
+      const doff = (tr.getAttribute('data-office')||'').toLowerCase();
+
+      // text match
+      const textMatch = q === '' ? true : ds.indexOf(q) !== -1;
+      // status match (only when status filter active)
+      const statusMatch = !statusVal ? true : dstatus === statusVal;
+      // office match (only when office filter active)
+      const officeMatch = !officeVal ? true : doff === officeVal;
+
+      tr.style.display = (textMatch && statusMatch && officeMatch) ? '' : 'none';
     });
-  });
+  }
+
+  // search filter binding
+  if (search) search.addEventListener('input', applyFilters);
+  if (statusFilter) statusFilter.addEventListener('change', applyFilters);
+  if (officeFilter) officeFilter.addEventListener('change', applyFilters);
 
   // open modal instead of navigating
-  document.getElementById('btnAdd').addEventListener('click', ()=> {
-    openAdd();
-  });
+  const btnAddEl = document.getElementById('btnAdd');
+  if (btnAddEl) btnAddEl.addEventListener('click', ()=> { openAdd(); });
 
-})();
+})(); 
 
 function editAccount(userId) {
   // navigate to edit page (implement page separately)
@@ -808,8 +880,11 @@ async function submitAddHr(){
       return;
     }
 
-    // account created — now attempt to send email with credentials
+    // account created — reflect in UI (stay on HR tab). attempt to send email afterwards.
     if (statusEl) { statusEl.style.background = '#fffbe6'; statusEl.style.color = '#333'; statusEl.textContent = 'Sending email to HR staff...'; }
+
+    // try sending email via this page endpoint
+    let mailJson = null;
     try {
       const mailRes = await fetch(window.location.href, {
         method: 'POST',
@@ -823,28 +898,93 @@ async function submitAddHr(){
           last_name: last_name
         })
       });
-      const mailJson = await mailRes.json();
-      if (mailJson && mailJson.success) {
-        if (statusEl) { statusEl.style.background = '#e6f9ee'; statusEl.style.color = '#0b7a3a'; statusEl.textContent = 'HR staff account created and email sent.'; }
-      } else {
-        if (statusEl) {
-          statusEl.style.background = '#fff4e5';
-          statusEl.style.color = '#8a5a00';
-          const mailMsg = mailJson && mailJson.error ? (' — ' + mailJson.error) : ' (email not sent)';
-          statusEl.innerHTML = 'Account created, but email was not sent' + mailMsg +
-            '.<br><strong>Please copy these credentials and send manually:</strong>' +
-            '<div style="margin-top:8px;padding:8px;background:#fff;border-radius:6px;border:1px solid #eee">' +
-            '<div><strong>Username:</strong> ' + escapeHtml(username) + '</div>' +
-            '<div><strong>Password:</strong> ' + escapeHtml(password) + '</div>' +
-            '</div>';
-        }
-      }
+      mailJson = await mailRes.json();
     } catch (err) {
       console.error('mail send failed', err);
-      if (statusEl) { statusEl.style.background = '#fff4e5'; statusEl.style.color = '#8a5a00'; statusEl.textContent = 'Account created, but email send failed.'; }
     }
 
-    setTimeout(()=>{ closeAddHr(); location.reload(); }, 1100);
+    // show status to user
+    if (mailJson && mailJson.success) {
+      if (statusEl) { statusEl.style.background = '#e6f9ee'; statusEl.style.color = '#0b7a3a'; statusEl.textContent = 'HR staff account created and email sent.'; }
+    } else {
+      if (statusEl) {
+        statusEl.style.background = '#fff4e5';
+        statusEl.style.color = '#8a5a00';
+        const mailMsg = mailJson && mailJson.error ? (' — ' + mailJson.error) : ' (email not sent)';
+        statusEl.innerHTML = 'Account created, but email was not sent' + mailMsg +
+          '.<br><strong>Please copy these credentials and send manually:</strong>' +
+          '<div style="margin-top:8px;padding:8px;background:#fff;border-radius:6px;border:1px solid #eee">' +
+          '<div><strong>Username:</strong> ' + escapeHtml(username) + '</div>' +
+          '<div><strong>Password:</strong> ' + escapeHtml(password) + '</div>' +
+          '</div>';
+      }
+    }
+
+    // Update HR table in place and keep HR tab active (no full page reload)
+    try {
+      const tbody = document.querySelector('#tblHR tbody');
+      if (tbody) {
+        // remove empty placeholder row if present
+        const emptyTd = tbody.querySelector('td.empty');
+        if (emptyTd) tbody.innerHTML = '';
+
+        const fullname = (first_name + ' ' + last_name).trim();
+        const newId = j.user_id ? parseInt(j.user_id, 10) : '';
+
+        const tr = document.createElement('tr');
+        tr.setAttribute('data-search', ((fullname + ' ' + email) || '').toLowerCase());
+
+        // action buttons HTML (matching existing buttons markup)
+        const actionsHtml = `
+          <button class="icon-btn" title="Edit" data-action="edit" data-user="${newId}">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+            </svg>
+          </button>
+          <button class="icon-btn" title="Reset Password" data-action="reset" data-user="${newId}">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="7" y="10" width="10" height="6" rx="2"></rect>
+              <path d="M9 10V8a3 3 0 0 1 6 0v2"></path>
+              <path d="M21 12a8.5 8.5 0 1 0-3.1 6.5"></path>
+              <polyline points="21 12 21 7 16 7"></polyline>
+            </svg>
+          </button>
+          <button class="icon-btn" title="Disable/Restrict" data-action="toggle" data-user="${newId}">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"></circle>
+              <line x1="4.93" y1="4.93" x2="19.07" y2="19.07"></line>
+            </svg>
+          </button>
+        `;
+
+        tr.innerHTML = `
+          <td>${escapeHtml(fullname || username)}</td>
+          <td>${escapeHtml(email || username)}</td>
+          <td style="text-align:center" class="actions">${actionsHtml}</td>
+        `;
+        tbody.insertBefore(tr, tbody.firstChild);
+      }
+
+      // ensure HR tab remains active and visible
+      document.querySelectorAll('.tabs button').forEach(b=>b.classList.remove('active'));
+      const hrBtn = document.querySelector('.tabs button[data-tab="hr"]');
+      if (hrBtn) hrBtn.classList.add('active');
+      document.querySelectorAll('.panel').forEach(p => p.style.display = 'none');
+      const panelHr = document.getElementById('panel-hr');
+      if (panelHr) panelHr.style.display = 'block';
+      // show/hide add buttons consistently
+      const topAdd = document.getElementById('btnAdd');
+      const hrAdd  = document.getElementById('btnAddHr');
+      if (topAdd) topAdd.style.display = 'none';
+      if (hrAdd) hrAdd.style.display = '';
+    } catch (domErr) {
+      console.error('Failed to update HR table DOM:', domErr);
+    }
+
+    // close modal after short delay so user sees status message
+    setTimeout(()=>{ closeAddHr(); }, 900);
+
   } catch (err) {
     console.error(err);
     if (statusEl) { statusEl.style.background = '#fff4f4'; statusEl.style.color = '#a00'; statusEl.textContent = 'Request failed.'; }
@@ -975,7 +1115,7 @@ document.getElementById('btnAddHr').addEventListener('click', function(e){
     tags.push(v);
     input.value = '';
     renderTags();
-    input.focus();
+       input.focus();
     hideSuggestions();
   }
 
@@ -1253,5 +1393,20 @@ document.addEventListener('DOMContentLoaded', function(){
   } catch (err) { console.error('binding btnAddHr:', err); }
 });
 </script>
+
+<script>
+  // attach confirm to top logout like hr_head_ojts.php
+  (function(){
+    const logoutBtn = document.getElementById('top-logout');
+    if (!logoutBtn) return;
+    logoutBtn.addEventListener('click', function(e){
+      e.preventDefault();
+      if (confirm('Are you sure you want to logout?')) {
+        window.location.href = this.getAttribute('href');
+      }
+    });
+  })();
+</script>
+
 </body>
 </html>
