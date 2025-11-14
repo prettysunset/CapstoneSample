@@ -114,6 +114,96 @@ if (is_array($inputJson) && (isset($inputJson['action']) && $inputJson['action']
     exit;
 }
 
+// --- ADD: send email for HR Staff accounts (same pattern as office head) ---
+if (is_array($inputJson) && isset($inputJson['action']) && $inputJson['action'] === 'send_hrstaff_email') {
+    header('Content-Type: application/json; charset=utf-8');
+    $to = trim($inputJson['email'] ?? '');
+    $username = trim($inputJson['username'] ?? '');
+    $password = trim($inputJson['password'] ?? '');
+    $first = trim($inputJson['first_name'] ?? '');
+    $last = trim($inputJson['last_name'] ?? '');
+
+    if (!filter_var($to, FILTER_VALIDATE_EMAIL) || !$username || !$password) {
+        echo json_encode(['success'=>false,'message'=>'Invalid payload for HR staff email.']);
+        exit;
+    }
+
+    $autoload = __DIR__ . '/../vendor/autoload.php';
+    if (file_exists($autoload)) require_once $autoload;
+
+    if (!class_exists(\PHPMailer\PHPMailer\PHPMailer::class)) {
+        $pmPath = __DIR__ . '/../PHPMailer/src/';
+        if (file_exists($pmPath . 'PHPMailer.php')) {
+            require_once $pmPath . 'Exception.php';
+            require_once $pmPath . 'PHPMailer.php';
+            require_once $pmPath . 'SMTP.php';
+        } else {
+            echo json_encode(['success'=>false,'message'=>'PHPMailer not available on server.']);
+            exit;
+        }
+    }
+
+    $SMTP_HOST_LOCAL = 'smtp.gmail.com';
+    $SMTP_PORT_LOCAL = 587;
+    $SMTP_USER_LOCAL = 'sample.mail00000000@gmail.com';
+    $SMTP_PASS_LOCAL = 'qitthwgfhtogjczq';
+    $SMTP_FROM_EMAIL_LOCAL = 'sample.mail00000000@gmail.com';
+    $SMTP_FROM_NAME_LOCAL  = 'OJTMS HR';
+
+    $subject = "Your HR Staff account for OJT-MS";
+    $siteName = 'OJT-MS';
+
+    $body = "
+      <html><body>
+      <p>Hello " . htmlspecialchars($first . ' ' . $last) . ",</p>
+      <p>An HR Staff account was created for you on <strong>{$siteName}</strong>. Below are your login details. Please keep these credentials secure.</p>
+      <table cellpadding='6' cellspacing='0' border='0'>
+        <tr><td><strong>Username</strong></td><td>" . htmlspecialchars($username) . "</td></tr>
+        <tr><td><strong>Password</strong></td><td>" . htmlspecialchars($password) . "</td></tr>
+      </table>
+      <p>You can login here: <a href=\"" . (isset($_SERVER['HTTP_HOST']) ? 'http://'.$_SERVER['HTTP_HOST'] : '#') . "/\">{$siteName}</a></p>
+      <p>Regards,<br>HR Department</p>
+      </body></html>
+    ";
+
+    $sent = false;
+    $errorInfo = '';
+
+    try {
+        $mail = new \PHPMailer\PHPMailer\PHPMailer(true);
+        $mail->isSMTP();
+        $mail->Host       = $SMTP_HOST_LOCAL;
+        $mail->SMTPAuth   = true;
+        $mail->Username   = $SMTP_USER_LOCAL;
+        $mail->Password   = $SMTP_PASS_LOCAL;
+        $mail->SMTPSecure = 'tls';
+        $mail->Port       = $SMTP_PORT_LOCAL;
+        $mail->CharSet    = 'UTF-8';
+
+        $mail->setFrom($SMTP_FROM_EMAIL_LOCAL, $SMTP_FROM_NAME_LOCAL);
+        $mail->addAddress($to, $first . ' ' . $last);
+        $mail->isHTML(true);
+        $mail->Subject = $subject;
+        $mail->Body = $body;
+        $mail->send();
+        $sent = true;
+    } catch (\PHPMailer\PHPMailer\Exception $e) {
+        $sent = false;
+        $errorInfo = $mail->ErrorInfo ?? $e->getMessage();
+    }
+
+    if (!$sent) {
+        $headers  = "MIME-Version: 1.0\r\n";
+        $headers .= "Content-type: text/html; charset=utf-8\r\n";
+        $headers .= "From: " . $SMTP_FROM_NAME_LOCAL . " <" . $SMTP_FROM_EMAIL_LOCAL . ">\r\n";
+        $sent = mail($to, $subject, $body, $headers);
+        if (!$sent && !$errorInfo) $errorInfo = 'PHP mail() fallback failed';
+    }
+
+    echo json_encode(['success'=> (bool)$sent, 'email_sent' => (bool)$sent, 'error' => $errorInfo]);
+    exit;
+}
+
 // AJAX: course suggestions for modal (POST JSON { action: 'course_suggest', q: '...' })
 if (is_array($inputJson) && isset($inputJson['action']) && $inputJson['action'] === 'course_suggest') {
     header('Content-Type: application/json; charset=utf-8');
@@ -204,6 +294,16 @@ $q2->execute();
 $res2 = $q2->get_result();
 while ($r = $res2->fetch_assoc()) $hrStaff[] = $r;
 $q2->close();
+
+// fetch OJT accounts with non-active status (inactive, approved, completed, ongoing)
+$ojts = [];
+$q3 = $conn->prepare("SELECT u.user_id, u.username, u.email, u.first_name, u.last_name, u.office_name, u.status, s.address, s.first_name AS s_first, s.last_name AS s_last FROM users u LEFT JOIN students s ON u.user_id = s.user_id WHERE u.role = 'ojt' AND u.status <> 'active' ORDER BY u.first_name, u.last_name");
+if ($q3) {
+    $q3->execute();
+    $res3 = $q3->get_result();
+    while ($r = $res3->fetch_assoc()) $ojts[] = $r;
+    $q3->close();
+}
 ?>
 <!doctype html>
 <html lang="en">
@@ -328,7 +428,7 @@ $q2->close();
         </a>
 
         <!-- calendar icon (display only) - placed to the right of Notifications to match MOA/DTR -->
-        <div title="Calendar (display only)" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;background:transparent;pointer-events:none;">
+        <div title="Calendar (display only)" style="display:inline-flex;align-items:center;justify-content:center;width=40px;height=40px;border-radius:8px;color:#2f3459;background:transparent;pointer-events:none;">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
         </div>
 
@@ -373,6 +473,10 @@ $q2->close();
           style="background:transparent;border:none;padding:10px 14px;border-radius:6px 6px 0 0;cursor:pointer;color:#2f3850;font-weight:600;outline:none;font-size:18px;transition:border-color .15s ease;">
         <span>HR Staffs</span>
           </button>
+          <button class="tab" data-tab="ojt" role="tab" aria-selected="false" aria-controls="panel-ojt"
+          style="background:transparent;border:none;padding:10px 14px;border-radius:6px 6px 0 0;cursor:pointer;color:#2f3850;font-weight:600;outline:none;font-size:18px;transition:border-color .15s ease;">
+        <span>OJTs</span>
+          </button>
         </div>
       </div>
 
@@ -386,7 +490,11 @@ $q2->close();
           <input type="text" id="search" placeholder="Search name / email / office" style="width:100%;padding:10px 10px 10px 36px;border:1px solid #ddd;border-radius:8px" />
         </div>
         <div style="flex:1"></div>
-        <button class="btn btn-add" id="btnAdd">Add Account</button>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button class="btn btn-add" id="btnAdd">Add Account</button>
+          <!-- moved here so it sits on the same row as the search (visibility toggled by JS) -->
+          <button id="btnAddHr" class="btn btn-add" style="min-width:140px;padding:8px 14px;display:none">Add HR Staff</button>
+        </div>
       </div>
 
       <div id="panel-office" class="panel" style="display:block">
@@ -414,9 +522,29 @@ $q2->close();
                   <td><?= htmlspecialchars($email ?: '—') ?></td>
                   <td><?= htmlspecialchars($officeName ?: '—') ?></td>
                   <td style="text-align:center" class="actions">
-                    <button class="icon-btn" title="Edit" onclick="editAccount(<?= (int)$o['user_id'] ?>)">✏️</button>
-                    <button class="icon-btn" title="<?= $status==='active' ? 'Deactivate' : 'Activate' ?>" onclick="toggleStatus(<?= (int)$o['user_id'] ?>, this)"><?= $status==='active' ? '🔓' : '🔒' ?></button>
-                  </td>
+                    <!-- actions temporarily inert: onclick handlers removed so clicks do nothing -->
+                    <button class="icon-btn" title="Edit" data-user="<?= (int)$o['user_id'] ?>">
+                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                         <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                         <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                       </svg>
+                     </button>
+                    <button class="icon-btn" title="Reset Password" data-action="reset" data-user="<?= (int)$o['user_id'] ?>">
+                      <!-- lock + circular arrow (reset) -->
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="7" y="10" width="10" height="6" rx="2"></rect>
+                        <path d="M9 10V8a3 3 0 0 1 6 0v2"></path>
+                        <path d="M21 12a8.5 8.5 0 1 0-3.1 6.5"></path>
+                        <polyline points="21 12 21 7 16 7"></polyline>
+                      </svg>
+                    </button>
+                    <button class="icon-btn" title="Disable/Restrict" data-action="toggle" data-user="<?= (int)$o['user_id'] ?>">
+                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                         <circle cx="12" cy="12" r="10"></circle>
+                         <line x1="4.93" y1="4.93" x2="19.07" y2="19.07"></line>
+                       </svg>
+                     </button>
+                   </td>
                 </tr>
               <?php endforeach; endif; ?>
             </tbody>
@@ -425,6 +553,7 @@ $q2->close();
       </div>
 
       <div id="panel-hr" class="panel" style="display:none">
+        <!-- Add HR Staff button moved to top controls row -->
         <div style="overflow-x:auto">
           <table class="tbl" id="tblHR">
             <thead>
@@ -445,8 +574,86 @@ $q2->close();
                   <td><?= htmlspecialchars($name ?: $email) ?></td>
                   <td><?= htmlspecialchars($email ?: '—') ?></td>
                   <td style="text-align:center" class="actions">
-                    <button class="icon-btn" title="Edit" onclick="editAccount(<?= (int)$h['user_id'] ?>)">✏️</button>
-                    <button class="icon-btn" title="<?= ($h['status']==='active' ? 'Deactivate' : 'Activate') ?>" onclick="toggleStatus(<?= (int)$h['user_id'] ?>, this)"><?= ($h['status']==='active' ? '🔓' : '🔒') ?></button>
+                    <!-- actions inert for now: onclick removed -->
+                    <button class="icon-btn" title="Edit" data-action="edit" data-user="<?= (int)$h['user_id'] ?>">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                      </svg>
+                    </button>
+                    <button class="icon-btn" title="Reset Password" data-action="reset" data-user="<?= (int)$h['user_id'] ?>">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="7" y="10" width="10" height="6" rx="2"></rect>
+                        <path d="M9 10V8a3 3 0 0 1 6 0v2"></path>
+                        <path d="M21 12a8.5 8.5 0 1 0-3.1 6.5"></path>
+                        <polyline points="21 12 21 7 16 7"></polyline>
+                      </svg>
+                    </button>
+                    <button class="icon-btn" title="Disable/Restrict" data-action="toggle" data-user="<?= (int)$h['user_id'] ?>">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <line x1="4.93" y1="4.93" x2="19.07" y2="19.07"></line>
+                      </svg>
+                    </button>
+                  </td>
+                </tr>
+              <?php endforeach; endif; ?>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="panel-ojt" class="panel" style="display:none">
+        <div style="overflow-x:auto">
+          <table class="tbl" id="tblOJTs">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Email</th>
+                <th>Office</th>
+                <th>Address</th>
+                <th style="text-align:center">Status</th>
+                <th style="text-align:center">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <?php if (empty($ojts)): ?>
+                <tr><td colspan="6" class="empty">No OJT accounts with non-active status found.</td></tr>
+              <?php else: foreach ($ojts as $o):
+                $name = trim(($o['s_first'] ?? '') . ' ' . ($o['s_last'] ?? '')) ?: ($o['username'] ?? '');
+                $email = $o['email'] ?: ($o['username'] ?? '');
+                $officeName = $o['office_name'] ?: '';
+                $address = $o['address'] ?: '';
+                $status = ucwords(strtolower($o['status'] ?? ''));
+              ?>
+                <tr data-search="<?= htmlspecialchars(strtolower($name . ' ' . $email . ' ' . $officeName . ' ' . $address . ' ' . $status)) ?>">
+                  <td><?= htmlspecialchars($name) ?></td>
+                  <td><?= htmlspecialchars($email ?: '—') ?></td>
+                  <td><?= htmlspecialchars($officeName ?: '—') ?></td>
+                  <td><?= htmlspecialchars($address ?: '—') ?></td>
+                  <td style="text-align:center"><?= htmlspecialchars($status) ?></td>
+                  <td style="text-align:center" class="actions">
+                    <button class="icon-btn" title="Edit" data-user="<?= (int)$o['user_id'] ?>">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                      </svg>
+                    </button>
+                    <button class="icon-btn" title="Change Password" data-user="<?= (int)$o['user_id'] ?>">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                        <circle cx="12" cy="16" r="1"></circle>
+                        <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                        <path d="M18 8a6 6 0 0 1 0 8"></path>
+                        <path d="M20 10l-2-2-2 2"></path>
+                      </svg>
+                    </button>
+                    <button class="icon-btn" title="Disable/Restrict" data-user="<?= (int)$o['user_id'] ?>">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <line x1="4.93" y1="4.93" x2="19.07" y2="19.07"></line>
+                      </svg>
+                    </button>
                   </td>
                 </tr>
               <?php endforeach; endif; ?>
@@ -459,16 +666,29 @@ $q2->close();
 
 <script>
 (function(){
-  // tab switching
+  // tab switching (works for office, hr, ojt) + toggle Add buttons
+  function updateActionButtonsForTab(tab) {
+    const topAdd = document.getElementById('btnAdd');      // top Add Account (office head)
+    const hrAdd  = document.getElementById('btnAddHr');    // HR panel Add HR Staff (inside HR panel)
+    if (topAdd) topAdd.style.display = (tab === 'office') ? '' : 'none';
+    if (hrAdd)  hrAdd.style.display  = (tab === 'hr') ? '' : 'none';
+  }
+
   document.querySelectorAll('.tabs button').forEach(btn=>{
     btn.addEventListener('click', function(){
       document.querySelectorAll('.tabs button').forEach(b=>b.classList.remove('active'));
       this.classList.add('active');
       const t = this.getAttribute('data-tab');
-      document.getElementById('panel-office').style.display = t === 'office' ? 'block' : 'none';
-      document.getElementById('panel-hr').style.display = t === 'hr' ? 'block' : 'none';
+      // hide all panels then show the selected one
+      document.querySelectorAll('.panel').forEach(p => p.style.display = 'none');
+      const sel = document.getElementById('panel-' + t);
+      if (sel) sel.style.display = 'block';
+      // update Add buttons visibility
+      updateActionButtonsForTab(t);
     });
   });
+  // initialize visibility based on active tab
+  (function(){ const active = document.querySelector('.tabs button.active'); if (active) updateActionButtonsForTab(active.getAttribute('data-tab')); })();
 
   // search filter
   const search = document.getElementById('search');
@@ -489,6 +709,11 @@ $q2->close();
 function editAccount(userId) {
   // navigate to edit page (implement page separately)
   window.location.href = 'account_edit.php?id=' + encodeURIComponent(userId);
+}
+
+function changePassword(userId) {
+  // Placeholder: implement change password functionality
+  alert('Change password functionality not yet implemented for user ID: ' + userId);
 }
 
 async function toggleStatus(userId, btn) {
@@ -532,25 +757,115 @@ function closeAdd(){
   if (window.__hr_modal && window.__hr_modal.reset) window.__hr_modal.reset();
 }
 
-// simple random password generator used by submitAdd()
-function randomPassword(len = 10){
-  const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-  let out = '';
-  for (let i = 0; i < len; i++) out += chars.charAt(Math.floor(Math.random() * chars.length));
-  return out;
+// HR Staff modal: open/close/submit (first name, last name, email only)
+function openAddHr(){
+  const m = document.getElementById('addHrModal');
+  if(!m) return;
+  m.style.display = 'flex';
+}
+function closeAddHr(){
+  const m = document.getElementById('addHrModal');
+  if(!m) return;
+  m.style.display = 'none';
+  ['hr_first','hr_last','hr_email'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  const st = document.getElementById('addHrModalStatus'); if (st) st.style.display = 'none';
 }
 
-// close modal when clicking backdrop
-document.addEventListener('click', function(e){
-  const m = document.getElementById('addModal');
-  if (!m || m.style.display !== 'flex') return;
-  // if clicked directly on backdrop (not the modal card)
-  if (e.target === m) closeAdd();
-});
+async function submitAddHr(){
+  const first_name = (document.getElementById('hr_first').value || '').trim();
+  const last_name  = (document.getElementById('hr_last').value || '').trim();
+  const email      = (document.getElementById('hr_email').value || '').trim();
+  const statusEl = document.getElementById('addHrModalStatus');
 
-// allow ESC to close modal
-document.addEventListener('keydown', function(e){
-  if (e.key === 'Escape') closeAdd();
+  if (!first_name || !last_name || !email) { alert('Please fill First name, Last name and Email.'); return; }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { alert('Please enter a valid email address.'); return; }
+
+  if (statusEl) { statusEl.style.display = 'block'; statusEl.style.background = '#fffbe6'; statusEl.style.color = '#333'; statusEl.textContent = 'Creating account...'; }
+
+  const unameBase = (first_name.charAt(0) + last_name).toLowerCase().replace(/[^a-z0-9]/g,'') || 'hr';
+  const username = unameBase + Math.floor(Math.random()*900 + 100);
+  const password = (typeof randomPassword === 'function') ? randomPassword(10) : Math.random().toString(36).slice(-10);
+
+  try {
+    const payload = {
+      action: 'create_account',
+      username: username,
+      password: password,
+      first_name: first_name,
+      last_name: last_name,
+      email: email,
+      role: 'hr_staff',
+      email_notify: false
+    };
+    const res = await fetch('../hr_actions.php', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(payload)
+    });
+    const j = await res.json();
+    if (!j || !j.success) {
+      if (statusEl) { statusEl.style.background = '#fff4f4'; statusEl.style.color = '#a00'; statusEl.textContent = 'Failed: ' + (j?.message || 'Unknown error'); }
+      return;
+    }
+
+    // account created — now attempt to send email with credentials
+    if (statusEl) { statusEl.style.background = '#fffbe6'; statusEl.style.color = '#333'; statusEl.textContent = 'Sending email to HR staff...'; }
+    try {
+      const mailRes = await fetch(window.location.href, {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({
+          action: 'send_hrstaff_email',
+          email: email,
+          username: username,
+          password: password,
+          first_name: first_name,
+          last_name: last_name
+        })
+      });
+      const mailJson = await mailRes.json();
+      if (mailJson && mailJson.success) {
+        if (statusEl) { statusEl.style.background = '#e6f9ee'; statusEl.style.color = '#0b7a3a'; statusEl.textContent = 'HR staff account created and email sent.'; }
+      } else {
+        if (statusEl) {
+          statusEl.style.background = '#fff4e5';
+          statusEl.style.color = '#8a5a00';
+          const mailMsg = mailJson && mailJson.error ? (' — ' + mailJson.error) : ' (email not sent)';
+          statusEl.innerHTML = 'Account created, but email was not sent' + mailMsg +
+            '.<br><strong>Please copy these credentials and send manually:</strong>' +
+            '<div style="margin-top:8px;padding:8px;background:#fff;border-radius:6px;border:1px solid #eee">' +
+            '<div><strong>Username:</strong> ' + escapeHtml(username) + '</div>' +
+            '<div><strong>Password:</strong> ' + escapeHtml(password) + '</div>' +
+            '</div>';
+        }
+      }
+    } catch (err) {
+      console.error('mail send failed', err);
+      if (statusEl) { statusEl.style.background = '#fff4e5'; statusEl.style.color = '#8a5a00'; statusEl.textContent = 'Account created, but email send failed.'; }
+    }
+
+    setTimeout(()=>{ closeAddHr(); location.reload(); }, 1100);
+  } catch (err) {
+    console.error(err);
+    if (statusEl) { statusEl.style.background = '#fff4f4'; statusEl.style.color = '#a00'; statusEl.textContent = 'Request failed.'; }
+  }
+
+  function escapeHtml(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+}
+
+// --- NEW: toggle between Office Heads / HR Staffs panels (AJAX content)
+document.getElementById('btnAddHr').addEventListener('click', function(e){
+  e.preventDefault();
+  const tab = 'hr';
+  // switch to HR Staffs tab
+  document.querySelectorAll('.tabs button').forEach(b=>b.classList.remove('active'));
+  document.querySelector('.tabs button[data-tab="hr"]').classList.add('active');
+  // hide all panels then show the selected one
+  document.querySelectorAll('.panel').forEach(p => p.style.display = 'none');
+  document.getElementById('panel-hr').style.display = 'block';
+  // show Add HR Staff button, hide top Add Account button
+  document.getElementById('btnAdd').style.display = 'none';
+  document.getElementById('btnAddHr').style.display = '';
 });
 </script>
 
@@ -586,6 +901,25 @@ document.addEventListener('keydown', function(e){
     <div id="addModalStatus" style="margin-top:10px;display:none;padding:8px;border-radius:6px"></div>
   </div>
 </div>
+<!-- end of existing Add Account Modal -->
+
+<!-- Add HR Staff Modal (only first, last, email) -->
+<div id="addHrModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.35);align-items:center;justify-content:center;z-index:9999">
+  <div style="background:#fff;padding:18px;border-radius:10px;width:420px;max-width:94%;box-shadow:0 12px 30px rgba(0,0,0,0.15)">
+    <h3 style="margin:0 0 12px">Create HR Staff Account</h3>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
+      <input id="hr_first" placeholder="First name" style="padding:10px;border:1px solid #ddd;border-radius:8px" />
+      <input id="hr_last" placeholder="Last name" style="padding:10px;border:1px solid #ddd;border-radius:8px" />
+      <input id="hr_email" placeholder="Email" style="padding:10px;border:1px solid #ddd;border-radius:8px;grid-column:span 2" />
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button onclick="closeAddHr()" class="btn" type="button">Cancel</button>
+      <button id="btnCreateHr" class="btn btn-add" type="button">Create</button>
+    </div>
+    <div id="addHrModalStatus" style="margin-top:10px;display:none;padding:8px;border-radius:6px"></div>
+  </div>
+</div>
+<!-- end Add HR Staff Modal -->
 
 <script>
 // course tag helpers with DB-backed suggestions (scoped for the modal)
@@ -895,6 +1229,29 @@ async function submitAdd(){
     console.error('binding btnCreate:', err);
   }
 })();
+</script>
+<script>
+/* Replace the old immediate-invoked binder with DOMContentLoaded to ensure elements exist */
+document.addEventListener('DOMContentLoaded', function(){
+  try {
+    const addHrBtn = document.getElementById('btnAddHr');
+    if (addHrBtn) addHrBtn.addEventListener('click', (e)=> { e.preventDefault(); openAddHr(); });
+
+    const createHrBtn = document.getElementById('btnCreateHr');
+    if (createHrBtn) {
+      createHrBtn.addEventListener('click', function(e){
+        e.preventDefault();
+        if (createHrBtn.disabled) return;
+        createHrBtn.disabled = true;
+        Promise.resolve().then(()=> submitAddHr()).finally(()=> createHrBtn.disabled = false);
+      });
+    }
+
+    // allow Esc to close HR modal and backdrop click
+    document.addEventListener('keydown', function(e){ if (e.key === 'Escape') closeAddHr(); });
+    document.addEventListener('click', function(e){ const m = document.getElementById('addHrModal'); if (!m || m.style.display !== 'flex') return; if (e.target === m) closeAddHr(); });
+  } catch (err) { console.error('binding btnAddHr:', err); }
+});
 </script>
 </body>
 </html>

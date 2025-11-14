@@ -542,7 +542,7 @@ function fmtDate($d){ if (!$d) return '-'; $dt = date_create($d); return $dt ? d
 
     const submitBtn = form.querySelector('button[type="submit"]');
     const originalBtnText = submitBtn ? submitBtn.textContent : 'SEND';
-    if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Sending...'; }
+    if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Adding...'; }
 
     const formData = new FormData(form);
     fetch('', { method: 'POST', body: formData })
