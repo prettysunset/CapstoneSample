@@ -333,15 +333,15 @@ $stmtOff->close();
         + '<th class="center" rowspan="2" style="background:#eceff3">Date</th>'
         + '<th class="center" rowspan="2" style="background:#eceff3">Name</th>'
         + '<th class="center" rowspan="2" style="background:#eceff3">School</th>'
-        + '<th class="center" rowspan="2" style="background:#eceff3">Course</th>'
+        + '<th class="center" rowspan="2" style="background:#eceff3;border-right:2px solid #000">Course</th>'
         + '<th class="center" colspan="2" style="background:#eceff3">A.M.</th>'
         + '<th class="center" colspan="2" style="background:#eceff3">P.M.</th>'
         + '<th class="center" rowspan="2" style="background:#eceff3">Hours</th>'
-        + '<th class="center" rowspan="2" style="background:#eceff3">Minutes</th>'
+        + '<th class="center" rowspan="2" style="background:#eceff3;border-right:2px solid #000">Minutes</th>'
         + '<th class="center" rowspan="2" style="background:#eceff3">Office</th>'
         + '</tr>'
         + '<tr>'
-        + '<th class="center" style="background:#eceff3">Arrival</th><th class="center" style="background:#eceff3">Departure</th><th class="center" style="background:#eceff3">Arrival</th><th class="center" style="background:#eceff3">Departure</th>'
+        + '<th class="center" style="background:#eceff3">Arrival</th><th class="center" style="background:#eceff3;border-right:2px solid #000">Departure</th><th class="center" style="background:#eceff3">Arrival</th><th class="center" style="background:#eceff3;border-right:2px solid #000">Departure</th>'
         + '</tr>'
         + '</thead>';
      }

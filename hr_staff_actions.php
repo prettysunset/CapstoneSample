@@ -73,29 +73,40 @@ if ($action === 'check_capacity') {
     $office1 = isset($input['office1']) ? (int)$input['office1'] : 0;
     $office2 = isset($input['office2']) ? (int)$input['office2'] : 0;
 
-    // helper to get capacity and filled count for an office id
+    // helper: get capacity and filled count for an office id
+    // filled = users with role='ojt' and status IN ('approved','ongoing')
+    // NOTE: normalize office_name comparison to avoid mismatches (trim + lower)
     $getOfficeInfo = function($conn, $officeId) {
         if (!$officeId) return null;
-        // capacity column in schema is current_limit
-        $stmt = $conn->prepare("SELECT office_name, current_limit FROM offices WHERE office_id = ?");
+        $stmt = $conn->prepare("SELECT office_name, current_limit FROM offices WHERE office_id = ? LIMIT 1");
         $stmt->bind_param("i", $officeId);
         $stmt->execute();
         $row = $stmt->get_result()->fetch_assoc();
         $stmt->close();
         if (!$row) return null;
 
+        $officeName = trim($row['office_name']);
+        $officeNameNorm = mb_strtolower($officeName);
+
+        // use normalized comparison on the users table to avoid case/whitespace mismatches
         $stmt2 = $conn->prepare("
-            SELECT COUNT(DISTINCT student_id) AS filled
-            FROM ojt_applications
-            WHERE (office_preference1 = ? OR office_preference2 = ?) AND status = 'approved'
+            SELECT COUNT(*) AS filled
+            FROM users
+            WHERE role = 'ojt' AND status IN ('approved','ongoing') AND LOWER(TRIM(office_name)) = ?
         ");
-        $stmt2->bind_param("ii", $officeId, $officeId);
+        if (!$stmt2) {
+            // defensive fallback: return capacity and assume 0 filled
+            $capacity = is_null($row['current_limit']) ? null : (int)$row['current_limit'];
+            return ['office_name' => $officeName, 'capacity' => $capacity, 'filled' => 0];
+        }
+        $stmt2->bind_param("s", $officeNameNorm);
         $stmt2->execute();
         $countRow = $stmt2->get_result()->fetch_assoc();
         $stmt2->close();
+
         $filled = (int)($countRow['filled'] ?? 0);
         $capacity = is_null($row['current_limit']) ? null : (int)$row['current_limit'];
-        return ['office_name' => $row['office_name'], 'capacity' => $capacity, 'filled' => $filled];
+        return ['office_name' => $officeName, 'capacity' => $capacity, 'filled' => $filled];
     };
 
     $assigned = '';
@@ -188,6 +199,7 @@ if ($action === 'approve_send') {
     $student_name = trim(($res['first_name'] ?? '') . ' ' . ($res['last_name'] ?? ''));
 
     // helper: get office info (name, capacity, filled)
+    // filled = users with role='ojt' and status IN ('approved','ongoing') whose office_name matches this office
     $getOfficeInfo = function($conn, $officeId) {
         if (!$officeId) return null;
         $stmt = $conn->prepare("SELECT office_name, current_limit FROM offices WHERE office_id = ? LIMIT 1");
@@ -197,12 +209,13 @@ if ($action === 'approve_send') {
         $stmt->close();
         if (!$row) return null;
 
+        $officeName = $row['office_name'];
         $stmt2 = $conn->prepare("
-            SELECT COUNT(DISTINCT student_id) AS filled
-            FROM ojt_applications
-            WHERE (office_preference1 = ? OR office_preference2 = ?) AND status = 'approved'
+            SELECT COUNT(*) AS filled
+            FROM users
+            WHERE role = 'ojt' AND status IN ('approved','ongoing') AND office_name = ?
         ");
-        $stmt2->bind_param("ii", $officeId, $officeId);
+        $stmt2->bind_param("s", $officeName);
         $stmt2->execute();
         $cnt = $stmt2->get_result()->fetch_assoc();
         $stmt2->close();
@@ -236,90 +249,112 @@ if ($action === 'approve_send') {
         $pref2_full = true;
     }
 
-    // If both pref1 and pref2 are present and both full -> auto-reject and notify student
-    // Case A: both choices provided and both full -> auto-reject
-    if (($pref1 && $pref2) && $pref1_full && $pref2_full) {
-        $remarks = "Auto-rejected: Full slots in preferred offices.";
-        $u = $conn->prepare("UPDATE ojt_applications SET status = 'rejected', remarks = ?, date_updated = CURDATE() WHERE application_id = ?");
-        $u->bind_param("si", $remarks, $app_id);
-        $ok = $u->execute();
-        $u->close();
+    // --- AUTO-REJECT with re-check using users table availability ---
+    // Use available = capacity - filled (filled counted from users where role='ojt' and status IN ('approved','ongoing'))
+    // Case A: both choices provided and both currently full -> auto-reject
+    if ($pref1 && $pref2) {
+        // re-evaluate availability in case of race conditions
+        $info1 = $getOfficeInfo($conn, $pref1);
+        $info2 = $getOfficeInfo($conn, $pref2);
+        $cap1 = $info1 ? $info1['capacity'] : null; $filled1 = $info1 ? (int)$info1['filled'] : 0;
+        $cap2 = $info2 ? $info2['capacity'] : null; $filled2 = $info2 ? (int)$info2['filled'] : 0;
+        $avail1 = ($cap1 === null) ? PHP_INT_MAX : max(0, $cap1 - $filled1);
+        $avail2 = ($cap2 === null) ? PHP_INT_MAX : max(0, $cap2 - $filled2);
 
-        if (!$ok) respond(['success' => false, 'message' => 'Failed to update application status.']);
+        // if both currently have zero available slots -> auto-reject
+        if ($avail1 <= 0 && $avail2 <= 0) {
+            $remarks = "Auto-rejected: Full slots in preferred offices.";
+            $u = $conn->prepare("UPDATE ojt_applications SET status = 'rejected', remarks = ?, date_updated = CURDATE() WHERE application_id = ?");
+            $u->bind_param("si", $remarks, $app_id);
+            $ok = $u->execute();
+            $u->close();
 
-        // send rejection email (reuse existing rejection template)
-        $mailSent = false;
-        if (filter_var($to, FILTER_VALIDATE_EMAIL)) {
-            try {
-                $mail = new PHPMailer(true);
-                $mail->isSMTP();
-                $mail->Host       = SMTP_HOST;
-                $mail->SMTPAuth   = true;
-                $mail->Username   = SMTP_USER;
-                $mail->Password   = SMTP_PASS;
-                $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
-                $mail->Port       = SMTP_PORT;
-                $mail->CharSet    = 'UTF-8';
-                $mail->setFrom(SMTP_FROM_EMAIL, SMTP_FROM_NAME);
-                $mail->addAddress($to, $student_name);
+            if (!$ok) respond(['success' => false, 'message' => 'Failed to update application status.']);
 
-                $mail->isHTML(true);
-                $mail->Subject = "OJT Application Update";
-                $mail->Body    = "<p>Dear <strong>" . htmlspecialchars($student_name) . "</strong>,</p>"
-                               . "<p>We regret to inform you that your OJT application has been <strong>rejected</strong>.</p>"
-                               . "<p><strong>Reason:</strong> Full slots in preferred offices.</p>"
-                               . "<p>If you have questions, please contact the HR department.</p>"
-                               . "<p>— HR Department</p>";
+            // send rejection email (reuse existing rejection template)
+            $mailSent = false;
+            if (filter_var($to, FILTER_VALIDATE_EMAIL)) {
+                try {
+                    $mail = new PHPMailer(true);
+                    $mail->isSMTP();
+                    $mail->Host       = SMTP_HOST;
+                    $mail->SMTPAuth   = true;
+                    $mail->Username   = SMTP_USER;
+                    $mail->Password   = SMTP_PASS;
+                    $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
+                    $mail->Port       = SMTP_PORT;
+                    $mail->CharSet    = 'UTF-8';
+                    $mail->setFrom(SMTP_FROM_EMAIL, SMTP_FROM_NAME);
+                    $mail->addAddress($to, $student_name);
 
-                $mail->send();
-                $mailSent = true;
-            } catch (Exception $e) {
-                $mailSent = false;
+                    $mail->isHTML(true);
+                    $mail->Subject = "OJT Application Update";
+                    $mail->Body    = "<p>Dear <strong>" . htmlspecialchars($student_name) . "</strong>,</p>"
+                                   . "<p>We regret to inform you that your OJT application has been <strong>rejected</strong>.</p>"
+                                   . "<p><strong>Reason:</strong> Full slots in preferred offices.</p>"
+                                   . "<p>If you have questions, please contact the HR department.</p>"
+                                   . "<p>— HR Department</p>";
+
+                    $mail->send();
+                    $mailSent = true;
+                } catch (Exception $e) {
+                    $mailSent = false;
+                }
             }
-        }
 
-        respond(['success' => true, 'action' => 'auto_reject', 'mail' => $mailSent ? 'sent' : 'failed', 'message' => 'Application auto-rejected due to full slots.']);
+            respond(['success' => true, 'action' => 'auto_reject', 'mail' => $mailSent ? 'sent' : 'failed', 'message' => 'Application auto-rejected due to full slots.']);
+        }
+        // else at least one currently has availability -> do NOT auto-reject, leave pending for HR action
     }
-    // Case B: only first choice provided (pref2 empty) and first is full -> auto-reject
-    if ($pref1 && !$pref2 && $pref1_full) {
-        $remarks = "Auto-rejected: Preferred office has reached capacity.";
-        $u = $conn->prepare("UPDATE ojt_applications SET status = 'rejected', remarks = ?, date_updated = CURDATE() WHERE application_id = ?");
-        $u->bind_param("si", $remarks, $app_id);
-        $ok = $u->execute();
-        $u->close();
-        if (!$ok) respond(['success' => false, 'message' => 'Failed to update application status.']);
 
-        $mailSent = false;
-        if (filter_var($to, FILTER_VALIDATE_EMAIL)) {
-            try {
-                $mail = new PHPMailer(true);
-                $mail->isSMTP();
-                $mail->Host       = SMTP_HOST;
-                $mail->SMTPAuth   = true;
-                $mail->Username   = SMTP_USER;
-                $mail->Password   = SMTP_PASS;
-                $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
-                $mail->Port       = SMTP_PORT;
-                $mail->CharSet    = 'UTF-8';
-                $mail->setFrom(SMTP_FROM_EMAIL, SMTP_FROM_NAME);
-                $mail->addAddress($to, $student_name);
+    // Case B: only first choice provided (pref2 empty) -> re-evaluate pref1 availability before auto-reject
+    if ($pref1 && !$pref2) {
+        $info1 = $getOfficeInfo($conn, $pref1);
+        $cap1 = $info1 ? $info1['capacity'] : null;
+        $filled1 = $info1 ? (int)$info1['filled'] : 0;
+        $avail1 = ($cap1 === null) ? PHP_INT_MAX : max(0, $cap1 - $filled1);
+        // Only auto-reject when no available slots
+        if ($avail1 <= 0) {
+            $remarks = "Auto-rejected: Preferred office has reached capacity and no second choice was provided.";
+            $u = $conn->prepare("UPDATE ojt_applications SET status = 'rejected', remarks = ?, date_updated = CURDATE() WHERE application_id = ?");
+            $u->bind_param("si", $remarks, $app_id);
+            $ok = $u->execute();
+            $u->close();
+            if (!$ok) respond(['success' => false, 'message' => 'Failed to update application status.']);
 
-                $mail->isHTML(true);
-                $mail->Subject = "OJT Application Update";
-                $mail->Body    = "<p>Dear <strong>" . htmlspecialchars($student_name) . "</strong>,</p>"
-                               . "<p>We regret to inform you that your OJT application has been <strong>rejected</strong>.</p>"
-                               . "<p><strong>Reason:</strong> Your preferred office has reached capacity and no second choice was provided.</p>"
-                               . "<p>If you have questions, please contact the HR department.</p>"
-                               . "<p>— HR Department</p>";
+            $mailSent = false;
+            if (filter_var($to, FILTER_VALIDATE_EMAIL)) {
+                try {
+                    $mail = new PHPMailer(true);
+                    $mail->isSMTP();
+                    $mail->Host       = SMTP_HOST;
+                    $mail->SMTPAuth   = true;
+                    $mail->Username   = SMTP_USER;
+                    $mail->Password   = SMTP_PASS;
+                    $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
+                    $mail->Port       = SMTP_PORT;
+                    $mail->CharSet    = 'UTF-8';
+                    $mail->setFrom(SMTP_FROM_EMAIL, SMTP_FROM_NAME);
+                    $mail->addAddress($to, $student_name);
 
-                $mail->send();
-                $mailSent = true;
-            } catch (Exception $e) {
-                $mailSent = false;
+                    $mail->isHTML(true);
+                    $mail->Subject = "OJT Application Update";
+                    $mail->Body    = "<p>Dear <strong>" . htmlspecialchars($student_name) . "</strong>,</p>"
+                                   . "<p>We regret to inform you that your OJT application has been <strong>rejected</strong>.</p>"
+                                   . "<p><strong>Reason:</strong> Your preferred office has reached capacity and no second choice was provided.</p>"
+                                   . "<p>If you have questions, please contact the HR department.</p>"
+                                   . "<p>— HR Department</p>";
+
+                    $mail->send();
+                    $mailSent = true;
+                } catch (Exception $e) {
+                    $mailSent = false;
+                }
             }
-        }
 
-        respond(['success' => true, 'action' => 'auto_reject', 'mail' => $mailSent ? 'sent' : 'failed', 'message' => 'Application auto-rejected: preferred office full and no second choice.']);
+            respond(['success' => true, 'action' => 'auto_reject', 'mail' => $mailSent ? 'sent' : 'failed', 'message' => 'Application auto-rejected: preferred office full and no second choice.']);
+        }
+        // else available -> do not auto-reject
     }
 
     // decide assigned office (same logic as before)
@@ -402,6 +437,7 @@ if ($action === 'approve_send') {
     $chk->close();
 
     if (empty($rowChk['user_id'])) {
+        // --- existing code that creates a new users row ---
         $emailLocal = '';
         if (!empty($to) && strpos($to, '@') !== false) $emailLocal = strtolower(explode('@', $to)[0]);
         $base = $emailLocal ?: strtolower(preg_replace('/[^a-z0-9]/', '', substr($res['first_name'],0,1) . $res['last_name']));
@@ -440,10 +476,28 @@ if ($action === 'approve_send') {
         $ins->close();
     }
 
-    $u2 = $conn->prepare("UPDATE students SET status = 'ongoing' WHERE student_id = ?");
-    $u2->bind_param("i", $student_id);
-    $u2->execute();
-    $u2->close();
+    // --- CHANGED: set user account status = 'approved' (do NOT mark student as ongoing yet)
+    // Find the user_id for this student (either pre-existing or the one we just created)
+    $targetUserId = null;
+    if (!empty($rowChk['user_id'])) {
+        $targetUserId = (int)$rowChk['user_id'];
+    } elseif (!empty($newUserId)) {
+        $targetUserId = (int)$newUserId;
+    }
+
+    if ($targetUserId) {
+        $updUserStatus = $conn->prepare("UPDATE users SET status = 'approved' WHERE user_id = ?");
+        $updUserStatus->bind_param("i", $targetUserId);
+        $updUserStatus->execute();
+        $updUserStatus->close();
+    }
+
+    // Keep student.status as 'pending' after HR approval.
+    // Student will transition to 'ongoing' when the first DTR/time-in entry is created (DTR handler must perform that update).
+    $updStudent = $conn->prepare("UPDATE students SET status = 'pending' WHERE student_id = ?");
+    $updStudent->bind_param("i", $student_id);
+    $updStudent->execute();
+    $updStudent->close();
 
     // prepare email content (HTML) — format orientation date + time + location
     $subject = "OJT Application Approved";
@@ -711,10 +765,18 @@ if ($action === 'get_application') {
         } catch (Exception $e) { $age = null; }
     }
 
+    // sanitize remarks: hide auto-reject messages from the View modal
+    $rawRemarks = $row['remarks'] ?? '';
+    if (preg_match('/^\s*Auto-?reject(ed)?\s*:/i', $rawRemarks)) {
+        $displayRemarks = ''; // do not show auto-reject text in the modal
+    } else {
+        $displayRemarks = $rawRemarks;
+    }
+
     $data = [
         'application_id' => (int)$row['application_id'],
         'status' => $row['status'],
-        'remarks' => $row['remarks'],
+        'remarks' => $displayRemarks,
         'date_submitted' => $row['date_submitted'],
         'date_updated' => $row['date_updated'],
         // include both name and numeric ids so the modal can decide assignment
@@ -765,8 +827,8 @@ if ($action === 'respond_office_request') {
         respond(['success'=>false,'message'=>'Invalid payload']);
     }
 
-    // find latest pending request for this office
-    $rq = $conn->prepare("SELECT request_id, old_limit, new_limit, reason, status FROM office_requests WHERE office_id = ? AND status = 'pending' ORDER BY date_requested DESC LIMIT 1");
+    // find latest pending request for this office (case-insensitive status check)
+    $rq = $conn->prepare("SELECT request_id, old_limit, new_limit, reason, status FROM office_requests WHERE office_id = ? AND LOWER(status) = 'pending' ORDER BY date_requested DESC LIMIT 1");
     $rq->bind_param("i", $office_id);
     $rq->execute();
     $pending = $rq->get_result()->fetch_assoc();
@@ -789,8 +851,8 @@ if ($action === 'respond_office_request') {
             respond(['success'=>false,'message'=>'No pending office request found for this office.']);
         }
 
-        // insert a pending office_requests row
-        $ins = $conn->prepare("INSERT INTO office_requests (office_id, old_limit, new_limit, reason, status, date_requested) VALUES (?, ?, ?, ?, 'pending', CURDATE())");
+        // insert a pending office_requests row (use NOW() for datetime)
+        $ins = $conn->prepare("INSERT INTO office_requests (office_id, old_limit, new_limit, reason, status, date_requested) VALUES (?, ?, ?, ?, 'pending', NOW())");
         if (!$ins) {
             respond(['success'=>false,'message'=>'DB prepare failed for inserting request: '.$conn->error]);
         }
@@ -830,26 +892,28 @@ if ($action === 'respond_office_request') {
     $conn->begin_transaction();
     try {
         if ($response === 'approve') {
-            // update offices: set current_limit= requested, updated_limit, clear requested_limit, set status Approved
-            $upd = $conn->prepare("UPDATE offices SET current_limit = ?, updated_limit = ?, requested_limit = NULL, reason = NULL, status = 'Approved' WHERE office_id = ?");
+            // update offices: set current_limit = requested, clear requested fields, set status = 'approved'
+            $upd = $conn->prepare("UPDATE offices SET current_limit = ?, requested_limit = NULL, reason = NULL, status = 'approved' WHERE office_id = ?");
             $rl = (int)$requested_limit;
-            $upd->bind_param("iii", $rl, $rl, $office_id);
+            $upd->bind_param("ii", $rl, $office_id);
             $upd_ok = $upd->execute();
             $upd->close();
             if (!$upd_ok) throw new Exception('Failed to update offices.');
-            // set corresponding office_requests row status to approved
-            $u2 = $conn->prepare("UPDATE office_requests SET status = 'approved' WHERE request_id = ?");
+
+            // set corresponding office_requests row status to approved and record date_of_action
+            $u2 = $conn->prepare("UPDATE office_requests SET status = 'approved', date_of_action = NOW() WHERE request_id = ?");
             $u2->bind_param("i", $pending['request_id']);
             $u2->execute();
             $u2->close();
         } else { // decline
-            // set offices.status = 'Declined' and keep requested_limit (optional) or clear it - we'll clear requested_limit but keep reason
-            $decl = $conn->prepare("UPDATE offices SET status = 'Declined' WHERE office_id = ?");
+            // clear requested fields and mark office status as 'declined'
+            $decl = $conn->prepare("UPDATE offices SET requested_limit = NULL, reason = NULL, status = 'declined' WHERE office_id = ?");
             $decl->bind_param("i", $office_id);
             $decl->execute();
             $decl->close();
-            // mark office_requests row rejected
-            $u3 = $conn->prepare("UPDATE office_requests SET status = 'rejected' WHERE request_id = ?");
+
+            // mark office_requests row rejected/declined and set date_of_action
+            $u3 = $conn->prepare("UPDATE office_requests SET status = 'rejected', date_of_action = NOW() WHERE request_id = ?");
             $u3->bind_param("i", $pending['request_id']);
             $u3->execute();
             $u3->close();
@@ -961,8 +1025,9 @@ if ($action === 'create_account') {
     $first_name = trim($input['first_name'] ?? '');
     $last_name  = trim($input['last_name'] ?? '');
     $email      = trim($input['email'] ?? '') ?: null;
-    // force role to office_head for this endpoint (ignore any role passed)
-    $role       = 'office_head';
+    // allow caller to request role, but only accept these two values
+    $requestedRole = trim($input['role'] ?? 'office_head');
+    $role = in_array($requestedRole, ['office_head','hr_staff']) ? $requestedRole : 'office_head';
     $office     = trim($input['office'] ?? '') ?: null;
 
     if ($username === '' || $password === '') {
@@ -981,6 +1046,7 @@ if ($action === 'create_account') {
 
     // NOTE: storing plain password per request (INSECURE) - per your request
     $plain = $password;
+    // insert into users table (office_name may be null for hr_staff)
     $ins = $conn->prepare("INSERT INTO users (username, first_name, last_name, password, role, office_name, email, status, date_created) VALUES (?, ?, ?, ?, ?, ?, ?, 'active', NOW())");
     $ins->bind_param("sssssss", $username, $first_name, $last_name, $plain, $role, $office, $email);
     $ok = $ins->execute();
@@ -991,96 +1057,99 @@ if ($action === 'create_account') {
     $newId = $conn->insert_id;
     $ins->close();
 
-    // --- NEW: resolve or create office row and get office_id ---
-    $office_id = null;
-    if (!empty($office)) {
-        // try exact case-insensitive match first
-        $so = $conn->prepare("SELECT office_id FROM offices WHERE LOWER(office_name) = LOWER(?) LIMIT 1");
-        $so->bind_param("s", $office);
-        $so->execute();
-        $or = $so->get_result()->fetch_assoc();
-        $so->close();
-        if ($or && !empty($or['office_id'])) {
-            $office_id = (int)$or['office_id'];
-        } else {
-            // try LIKE fallback (handles small variations)
-            $like = '%' . strtolower($office) . '%';
-            $sl = $conn->prepare("SELECT office_id FROM offices WHERE LOWER(office_name) LIKE ? LIMIT 1");
-            $sl->bind_param("s", $like);
-            $sl->execute();
-            $orl = $sl->get_result()->fetch_assoc();
-            $sl->close();
-            if ($orl && !empty($orl['office_id'])) {
-                $office_id = (int)$orl['office_id'];
+    // Only run office-specific logic (resolve/create office, office_heads row, courses mapping) when creating office_head
+    if ($role === 'office_head') {
+        // --- NEW: resolve or create office row and get office_id ---
+        $office_id = null;
+        if (!empty($office)) {
+            // try exact case-insensitive match first
+            $so = $conn->prepare("SELECT office_id FROM offices WHERE LOWER(office_name) = LOWER(?) LIMIT 1");
+            $so->bind_param("s", $office);
+            $so->execute();
+            $or = $so->get_result()->fetch_assoc();
+            $so->close();
+            if ($or && !empty($or['office_id'])) {
+                $office_id = (int)$or['office_id'];
             } else {
-                // create new office record with provided initial limit (if any)
-                $insOff = $conn->prepare("INSERT INTO offices (office_name, current_limit, status) VALUES (?, ?, 'Approved')");
-                $curLimit = (int)($input['initial_limit'] ?? 0);
-                $insOff->bind_param("si", $office, $curLimit);
-                $insOff->execute();
-                $office_id = $insOff->insert_id ?: null;
-                $insOff->close();
-            }
-        }
-    }
-
-    // only attempt office_heads row creation if table exists (existing behavior)
-    $tblCheck = $conn->query("SHOW TABLES LIKE 'office_heads'");
-    if ($tblCheck && $tblCheck->num_rows > 0) {
-        $fullname = trim($first_name . ' ' . $last_name);
-        $oh = $conn->prepare("INSERT INTO office_heads (user_id, full_name, email, office_id) VALUES (?, ?, ?, ?)");
-        if ($oh) {
-            $officeParam = $office_id === null ? null : $office_id;
-            $oh->bind_param("issi", $newId, $fullname, $email, $officeParam);
-            $oh->execute();
-            $oh->close();
-        }
-    }
-
-    // --- NEW: store courses and map to office ---
-    $accept_courses = trim($input['accept_courses'] ?? '');
-    if ($accept_courses !== '') {
-        $courseNames = array_filter(array_map('trim', explode(',', $accept_courses)));
-        foreach ($courseNames as $cname) {
-            if ($cname === '') continue;
-            // try case-insensitive match first
-            $stmt = $conn->prepare("SELECT course_id FROM courses WHERE LOWER(course_name) = LOWER(?) OR (course_code IS NOT NULL AND LOWER(course_code) = LOWER(?)) LIMIT 1");
-            if ($stmt) {
-                $stmt->bind_param('ss', $cname, $cname);
-                $stmt->execute();
-                $row = $stmt->get_result()->fetch_assoc();
-                $stmt->close();
-            } else {
-                $row = null;
-            }
-
-            if ($row && !empty($row['course_id'])) {
-                $course_id = (int)$row['course_id'];
-            } else {
-                $insC = $conn->prepare("INSERT INTO courses (course_name) VALUES (?)");
-                if ($insC) {
-                    $insC->bind_param('s', $cname);
-                    $insC->execute();
-                    $course_id = (int)$insC->insert_id;
-                    $insC->close();
+                // try LIKE fallback (handles small variations)
+                $like = '%' . strtolower($office) . '%';
+                $sl = $conn->prepare("SELECT office_id FROM offices WHERE LOWER(office_name) LIKE ? LIMIT 1");
+                $sl->bind_param("s", $like);
+                $sl->execute();
+                $orl = $sl->get_result()->fetch_assoc();
+                $sl->close();
+                if ($orl && !empty($orl['office_id'])) {
+                    $office_id = (int)$orl['office_id'];
                 } else {
-                    // skip on failure
-                    continue;
-                }
-            }
-
-            // map to office if we resolved/created one
-            if (!empty($office_id) && !empty($course_id)) {
-                $map = $conn->prepare("INSERT IGNORE INTO office_courses (office_id, course_id) VALUES (?, ?)");
-                if ($map) {
-                    $map->bind_param('ii', $office_id, $course_id);
-                    $map->execute();
-                    $map->close();
+                    // create new office record with provided initial limit (if any)
+                    $insOff = $conn->prepare("INSERT INTO offices (office_name, current_limit, status) VALUES (?, ?, 'Approved')");
+                    $curLimit = (int)($input['initial_limit'] ?? 0);
+                    $insOff->bind_param("si", $office, $curLimit);
+                    $insOff->execute();
+                    $office_id = $insOff->insert_id ?: null;
+                    $insOff->close();
                 }
             }
         }
-    }
-    // --- end new courses handling ---
+
+        // only attempt office_heads row creation if table exists (existing behavior)
+        $tblCheck = $conn->query("SHOW TABLES LIKE 'office_heads'");
+        if ($tblCheck && $tblCheck->num_rows > 0) {
+            $fullname = trim($first_name . ' ' . $last_name);
+            $oh = $conn->prepare("INSERT INTO office_heads (user_id, full_name, email, office_id) VALUES (?, ?, ?, ?)");
+            if ($oh) {
+                $officeParam = $office_id === null ? null : $office_id;
+                $oh->bind_param("issi", $newId, $fullname, $email, $officeParam);
+                $oh->execute();
+                $oh->close();
+            }
+        }
+
+        // --- NEW: store courses and map to office ---
+        $accept_courses = trim($input['accept_courses'] ?? '');
+        if ($accept_courses !== '') {
+            $courseNames = array_filter(array_map('trim', explode(',', $accept_courses)));
+            foreach ($courseNames as $cname) {
+                if ($cname === '') continue;
+                // try case-insensitive match first
+                $stmt = $conn->prepare("SELECT course_id FROM courses WHERE LOWER(course_name) = LOWER(?) OR (course_code IS NOT NULL AND LOWER(course_code) = LOWER(?)) LIMIT 1");
+                if ($stmt) {
+                    $stmt->bind_param('ss', $cname, $cname);
+                    $stmt->execute();
+                    $row = $stmt->get_result()->fetch_assoc();
+                    $stmt->close();
+                } else {
+                    $row = null;
+                }
+
+                if ($row && !empty($row['course_id'])) {
+                    $course_id = (int)$row['course_id'];
+                } else {
+                    $insC = $conn->prepare("INSERT INTO courses (course_name) VALUES (?)");
+                    if ($insC) {
+                        $insC->bind_param('s', $cname);
+                        $insC->execute();
+                        $course_id = (int)$insC->insert_id;
+                        $insC->close();
+                    } else {
+                        // skip on failure
+                        continue;
+                    }
+                }
+
+                // map to office if we resolved/created one
+                if (!empty($office_id) && !empty($course_id)) {
+                    $map = $conn->prepare("INSERT IGNORE INTO office_courses (office_id, course_id) VALUES (?, ?)");
+                    if ($map) {
+                        $map->bind_param('ii', $office_id, $course_id);
+                        $map->execute();
+                        $map->close();
+                    }
+                }
+            }
+        }
+        // --- end new courses handling ---
+    } // end office_head-only section
 
     // return credentials so frontend can display (do NOT expose in logs)
     respond(['success'=>true,'user_id'=>$newId,'username'=>$username,'password'=>$plain]);

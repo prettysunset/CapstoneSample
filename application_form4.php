@@ -9,6 +9,8 @@ session_start();
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <link rel="stylesheet" href="styles.css">
   <style>
+    /* remove page scrollbar */
+    html, body { height: 100%; overflow: hidden; }
     body { 
       opacity: 0; 
       transition: opacity 0.45s ease; 

@@ -243,69 +243,9 @@ if ($student_id) {
     .progress-circle { width: 88px; height: 88px; border-radius: 50%; background: conic-gradient(#4b6cb7 <?php echo $percent; ?>%, #d6d6d6 0); display: flex; align-items: center; justify-content: center; font-weight: bold; color: #333; font-size: 18px; margin-right: 18px; }
     .progress-details { font-size: 14px; }
 
-    .datetime { text-align: center; margin-bottom: 6px; }
-    .datetime h1 { font-size: 20px; font-weight: 500; margin-bottom: 6px; }
-    .datetime h2 { font-size: 28px; font-weight: 700; }
-
-    .buttons { display: flex; justify-content: center; gap: 16px; }
-    .buttons button { width: 140px; padding: 12px 0; border: none; border-radius: 20px; font-size: 15px; cursor: pointer; color: white; transition: opacity .12s ease, transform .06s ease, background .12s ease; }
-    /* enabled appearance (both buttons look the same when enabled) */
-    .timein, .timeout { background: #5b5f89; color: #fff; box-shadow: 0 4px 10px rgba(90,95,140,0.12); }
-
-    /* disabled visual state - uniform for both buttons */
-    .buttons button[disabled], .buttons button.btn-disabled {
-      background: #c3c3c3 !important;
-      color: #333 !important;
-      opacity: 0.9;
-      filter: none;
-      cursor: not-allowed;
-      transform: none;
-      pointer-events: none;
-      box-shadow: none;
-    }
-    /* small active feedback for enabled buttons */
-    .buttons button:not([disabled]):active { transform: translateY(1px); }
-
-    /* DTR Section */
-    .dtr-section {
-      flex: 0 0 36%;
-      max-width: 36%;
-      min-width: 300px;
-      background: white;
-      padding: 12px 14px;
-      border-radius: 8px;
-      border: 1px solid #ddd;
-      display: flex;
-      flex-direction: column;
-      justify-content: flex-start;
-      align-items: stretch;
-      overflow: auto; /* allow internal scroll when needed */
-      /* account for increased top padding so DTR doesn't overlap top icons */
-      height: calc(100vh - 84px);
-    }
-    .dtr-section h3 { text-align: center; font-size: 13px; margin-bottom: 6px; }
-    .dtr-section p { font-size: 12px; margin-bottom: 8px; text-align: center; }
-
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 12px;
-      table-layout: fixed;
-    }
-    th, td {
-      border: 1px solid #000;
-      padding: 6px 4px;
-      text-align: center;
-      font-size: 12px;
-      /* allow the full HH:MM / text to show — do not ellipsize time columns */
-    }
-    th { background: #f0f0f0; font-weight: 600; font-size: 12px; }
-    tfoot td { font-weight: bold; text-align: right; padding:8px; }
-
-    @media (max-width: 1100px) {
-      .dtr-section { max-width: 40%; min-width: 260px; }
-      th, td { font-size: 11px; padding:4px 3px; }
-    }
+    .datetime { text-align: left; margin-bottom: 0; }
+    .datetime h1 { font-size: 16px; font-weight: 500; margin-bottom: 2px; }
+    .datetime h2 { font-size: 20px; font-weight: 700; }
   </style>
 </head>
 <body>
@@ -321,6 +261,12 @@ if ($student_id) {
       <a id="btnLogout" href="../logout.php" title="Logout" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
       </a>
+  </div>
+
+  <!-- top-left datetime -->
+  <div class="datetime" style="position:fixed;top:18px;left:248px;z-index:1200;">
+    <h1 id="clock"><?php echo date("h:i A"); ?></h1>
+    <h2><?php echo date("l, F d, Y"); ?></h2>
   </div>
 
   <!-- Sidebar -->
@@ -402,87 +348,6 @@ if ($student_id) {
           Expected End Date: <b><?php echo $end_date; ?></b>
         </div>
       </div>
-
-      <div class="datetime">
-        <h1><?php echo date("F d, Y"); ?></h1>
-        <!-- render initial clock with seconds so client update won't visibly jump -->
-        <h2 id="clock"><?php echo date("h:i:s A"); ?></h2>
-      </div>
-
-      <div class="buttons">
-        <button id="btnTimeIn" class="timein">TIME IN</button>
-        <button id="btnTimeOut" class="timeout" disabled>TIME OUT</button>
-      </div>
-    </div>
-
-    <div class="dtr-section">
-      <h3>DAILY TIME RECORD</h3>
-      <p><b><?php echo htmlspecialchars($name); ?></b><br><?php echo date('F Y'); ?></p>
-
-      <table id="dtrTable">
-        <thead>
-          <tr>
-            <th>DAY</th>
-            <th>AM Arrival</th>
-            <th>AM Departure</th>
-            <th>PM Arrival</th>
-            <th>PM Departure</th>
-            <th>Hours</th>
-            <th>Minutes</th>
-          </tr>
-        </thead>
-        <tbody>
-          <?php
-          $totalHours = 0;
-          // helper inline: format "HH:MM" -> "h:i A" safely
-          function fmt_hm($hm) {
-              if (empty($hm)) return '';
-              $hm = trim($hm);
-              // normalize to "HH:MM" even if input is "HH:MM:SS"
-              if (strpos($hm, ':') !== false) {
-                  $parts = explode(':', $hm);
-                  // take first two segments (hours and minutes)
-                  $hm = sprintf('%02d:%02d', intval($parts[0] ?? 0), intval($parts[1] ?? 0));
-              }
-              $dt = DateTime::createFromFormat('H:i', $hm);
-              // show hour:minute only (no AM/PM)
-              return $dt ? $dt->format('h:i') : htmlspecialchars($hm);
-          }
-
-          for ($d = 1; $d <= $daysInMonth; $d++) {
-            // make sure $row is an array to avoid "offset on null" warnings
-            $row = isset($dtrMap[$d]) && is_array($dtrMap[$d]) ? $dtrMap[$d] : [];
-
-            // use trimmed HH:MM values already stored in $dtrMap
-            $amArrival = fmt_hm($row['am_in'] ?? null);
-            $amDepart  = fmt_hm($row['am_out'] ?? null);
-            $pmArrival = fmt_hm($row['pm_in'] ?? null);
-            $pmDepart  = fmt_hm($row['pm_out'] ?? null);
-
-            $hasRow = !empty($row['dtr_id']);
-            // show persisted hours/minutes (including 0) only when there is a row (time_out should have set these)
-            $hours = $hasRow ? (int)($row['hours'] ?? 0) : '';
-            $minutes = $hasRow ? (int)($row['minutes'] ?? 0) : '';
-
-            // add to total safely
-            $totalHours += isset($row['total_hours']) ? (float)$row['total_hours'] : 0.0;
-
-            echo "<tr data-day=\"$d\">
-                    <td>{$d}</td>
-                    <td class='am-arrival'>".htmlspecialchars($amArrival)."</td>
-                    <td class='am-depart'>".htmlspecialchars($amDepart)."</td>
-                    <td class='pm-arrival'>".htmlspecialchars($pmArrival)."</td>
-                    <td class='pm-depart'>".htmlspecialchars($pmDepart)."</td>
-                    <td class='hours'>".($hours !== '' ? $hours : '')."</td>
-                    <td class='minutes'>".($minutes !== '' ? $minutes : '')."</td>
-                  </tr>";
-          }
-          ?>
-        </tbody>
-        <tfoot>
-          <tr><td colspan="7">TOTAL: <span id="totalHours"><?php echo $totalHours; ?></span> hrs</td></tr>
-        </tfoot>
-      </table>
     </div>
   </div>
 
@@ -490,143 +355,9 @@ if ($student_id) {
     function updateClock() {
       const now = new Date();
       document.getElementById('clock').textContent =
-        now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
+        now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
     }
     setInterval(updateClock, 1000);
-
-    const studentId = <?php echo json_encode($student_id ?: null); ?>;
-    const btnIn = document.getElementById('btnTimeIn');
-    const btnOut = document.getElementById('btnTimeOut');
-
-    function setButtonState(inDisabled, outDisabled) {
-      btnIn.disabled = inDisabled;
-      btnOut.disabled = outDisabled;
-      btnIn.setAttribute('aria-disabled', inDisabled ? 'true' : 'false');
-      btnOut.setAttribute('aria-disabled', outDisabled ? 'true' : 'false');
-    }
-
-    // determine if there is an unmatched IN (am_in without am_out or pm_in without pm_out)
-    function hasUnmatchedIn(row) {
-      if (!row) return false;
-      return (row.am_in && !row.am_out) || (row.pm_in && !row.pm_out);
-    }
-
-    // set initial button state based on today's row
-    function refreshButtonsState(todayRow) {
-      const unmatched = hasUnmatchedIn(todayRow);
-      // when unmatched=true -> TIME IN disabled, TIME OUT enabled
-      setButtonState(unmatched, !unmatched);
-    }
-
-    // fetch today's dtr row to init
-    async function fetchTodayRow() {
-      try {
-        const res = await fetch('./ojt_dtr_action.php', {
-          method: 'POST', headers: {'Content-Type':'application/json'},
-          body: JSON.stringify({ action: 'get_today' })
-        });
-        const j = await res.json();
-        if (j.success) {
-          refreshButtonsState(j.row || null);
-        } else {
-          // default: allow TIME IN, disable TIME OUT
-          setButtonState(false, true);
-        }
-      } catch (e) {
-        console.error(e);
-        // network error: be conservative
-        setButtonState(false, true);
-      }
-    }
-
-    async function handleAction(action) {
-      try {
-        const res = await fetch('./ojt_dtr_action.php', {
-          method: 'POST',
-          headers: {'Content-Type':'application/json'},
-          body: JSON.stringify({ action })
-        });
-        const j = await res.json();
-        if (!j.success) {
-          alert('Error: ' + (j.message || 'Unknown'));
-          // refresh state from server after failure
-          fetchTodayRow();
-          return;
-        }
-        const row = j.row; // { log_date, am_in, am_out, pm_in, pm_out, hours, minutes, total_hours }
-        if (!row) {
-          // nothing to update
-          fetchTodayRow();
-          return;
-        }
-
-        // update table row for the day
-        const d = new Date(row.log_date);
-        const day = d.getDate();
-        const tr = document.querySelector('#dtrTable tbody tr[data-day="'+day+'"]');
-        if (tr) {
-          tr.querySelector('.am-arrival').textContent = row.am_in ? formatTime(row.am_in) : '';
-          tr.querySelector('.am-depart').textContent  = row.am_out ? formatTime(row.am_out) : '';
-          tr.querySelector('.pm-arrival').textContent = row.pm_in ? formatTime(row.pm_in) : '';
-          tr.querySelector('.pm-depart').textContent  = row.pm_out ? formatTime(row.pm_out) : '';
-
-          // ALWAYS show hours/minutes when server returned numeric values (including 0)
-          if (row.hours !== null && row.hours !== undefined) {
-            tr.querySelector('.hours').textContent = String(row.hours);
-          } else {
-            tr.querySelector('.hours').textContent = '';
-          }
-          if (row.minutes !== null && row.minutes !== undefined) {
-            tr.querySelector('.minutes').textContent = String(row.minutes);
-          } else {
-            tr.querySelector('.minutes').textContent = '';
-          }
-        }
-
-        // update total
-        document.getElementById('totalHours').textContent = j.month_total || document.getElementById('totalHours').textContent;
-
-        // update button states according to server row
-        refreshButtonsState(row);
-      } catch (e) {
-        console.error(e);
-        alert('Request failed');
-        // on error, re-fetch to restore correct state
-        fetchTodayRow();
-      }
-    }
-
-    // TIME IN: disable inputs immediately to avoid double clicks, call action, then final state will be set from server response
-    btnIn.onclick = async () => {
-      // prevent clicking when already disabled
-      if (btnIn.disabled) return;
-      setButtonState(true, true);
-      await handleAction('time_in');
-    };
-
-    // TIME OUT: require confirmation, then proceed; disable immediately to avoid double clicks
-    btnOut.onclick = async () => {
-      if (btnOut.disabled) return;
-      const ok = confirm('Are you sure you want to TIME OUT now?');
-      if (!ok) return;
-      setButtonState(true, true);
-      await handleAction('time_out');
-    };
-
-    // init
-    fetchTodayRow();
-
-    // replace formatTime with:
-    function formatTime(timeStr) {
-      if (!timeStr) return '';
-      // accept "HH:MM" or "HH:MM:SS" and use only HH:MM
-      const parts = timeStr.split(':');
-      let hh = parseInt(parts[0], 10) || 0;
-      const mm = (parts[1] || '00').padStart(2, '0');
-      // convert to 12-hour display but without AM/PM
-      hh = ((hh + 11) % 12) + 1;
-      return String(hh).padStart(2,'0') + ':' + mm;
-    }
 
     // confirm logout (both top icon and sidebar) — use replace so back can't restore protected pages
     (function(){

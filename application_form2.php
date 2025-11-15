@@ -299,6 +299,7 @@ $af2 = isset($_SESSION['af2']) ? $_SESSION['af2'] : [];
             </select>
             <select name="year_level" required>
               <option value="" disabled <?= !isset($af2['year_level']) ? 'selected' : '' ?>>Year Level *</option>
+              <option value="3" <?= (isset($af2['year_level']) && $af2['year_level'] == '3') ? 'selected' : '' ?>>2nd Year</option>
               <option value="3" <?= (isset($af2['year_level']) && $af2['year_level'] == '3') ? 'selected' : '' ?>>3rd Year</option>
               <option value="4" <?= (isset($af2['year_level']) && $af2['year_level'] == '4') ? 'selected' : '' ?>>4th Year</option>
               <option value="5" <?= (isset($af2['year_level']) && $af2['year_level'] == '5') ? 'selected' : '' ?>>5th Year</option>

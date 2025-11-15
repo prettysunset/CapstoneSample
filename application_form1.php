@@ -324,9 +324,9 @@ $af1 = isset($_SESSION['af1']) ? $_SESSION['af1'] : [];
           </fieldset>
  
           <div class="form-nav">
-            <button type="button" class="secondary" onclick="window.location='clear_application.php'">Cancel</button>
-            <button type="submit">Next →</button>
-          </div>
+            <button type="button" id="cancelBtn" class="secondary" data-href="clear_application.php">Cancel</button>
+             <button type="submit">Next →</button>
+           </div>
         </form>
       </div>
     </div>
@@ -373,9 +373,91 @@ $af1 = isset($_SESSION['af1']) ? $_SESSION['af1'] : [];
         });
       });
 
+      // -------------------------
+      // Unsaved changes protection
+      // -------------------------
       const form = document.getElementById('ojtForm');
+      let initialState = '';
+      let isDirty = false;
+
+      const serialize = (formEl) => {
+        if (!formEl) return '';
+        const parts = [];
+        Array.from(formEl.elements).forEach(el=>{
+          if (!el.name) return;
+          if (el.type === 'checkbox' || el.type === 'radio') {
+            parts.push(`${el.name}=${el.checked}`);
+          } else {
+            parts.push(`${el.name}=${(el.value||'').toString()}`);
+          }
+        });
+        return parts.join('&');
+      };
+
+      const markDirtyIfChanged = () => {
+        const s = serialize(form);
+        isDirty = (s !== initialState);
+      };
+
       if (form) {
-        form.addEventListener('submit', function(e) {
+        initialState = serialize(form);
+        // on any change mark dirty
+        form.addEventListener('input', markDirtyIfChanged, {capture:true, passive:true});
+        form.addEventListener('change', markDirtyIfChanged, {capture:true, passive:true});
+        // submitting the form clears the dirty flag (we are navigating intentionally)
+        form.addEventListener('submit', function(){ isDirty = false; }, {passive:true});
+      }
+
+      // intercept clicks on links and cancel button
+      const confirmLeave = (href) => {
+        if (!isDirty) { window.location.href = href; return; }
+        if (confirm('You have unsaved changes. Leaving will discard your input. Continue?')) {
+          // allow navigation
+          isDirty = false;
+          window.location.href = href;
+        }
+      };
+
+      // cancel button
+      const cancelBtn = document.getElementById('cancelBtn');
+      if (cancelBtn) {
+        cancelBtn.addEventListener('click', function(e){
+          e.preventDefault();
+          const href = this.dataset.href || 'clear_application.php';
+          confirmLeave(href);
+        }, {passive:true});
+      }
+
+      // delegate anchor clicks site-wide (only when anchor has an href)
+      document.addEventListener('click', function(e){
+        const a = e.target.closest('a');
+        if (!a || !a.getAttribute('href')) return;
+        const href = a.getAttribute('href');
+        // ignore links that open in new tab or are javascript: or mailto:
+        if (a.target === '_blank' || href.startsWith('javascript:') || href.startsWith('mailto:')) return;
+        // allow same-page hash navigation
+        if (href.startsWith('#')) return;
+        // final: confirm if dirty
+        if (isDirty) {
+          e.preventDefault();
+          if (confirm('You have unsaved changes. Leaving will discard your input. Continue?')) {
+            isDirty = false;
+            window.location.href = href;
+          }
+        }
+      }, {capture:true});
+
+      // beforeunload native prompt
+      window.addEventListener('beforeunload', function(e){
+        if (!isDirty) return;
+        e.preventDefault();
+        e.returnValue = '';
+      });
+      // -------------------------
+
+      const formEl = document.getElementById('ojtForm');
+      if (formEl) {
+        formEl.addEventListener('submit', function(e) {
           // 1) Ensure all required fields are filled first
           const reqs = form.querySelectorAll('[required]');
           for (let i = 0; i < reqs.length; i++) {
@@ -401,7 +483,7 @@ $af1 = isset($_SESSION['af1']) ? $_SESSION['af1'] : [];
           // 3) Validate contact number length
           const contact = contactInput ? contactInput.value : '';
           if (contact.length !== 11) {
-            alert('Contact number must be exactly 11 digits.');
+            alert('Contact number must be exactly 11 digits.' );
             e.preventDefault();
             return false;
           }

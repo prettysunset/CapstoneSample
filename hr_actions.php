@@ -73,29 +73,40 @@ if ($action === 'check_capacity') {
     $office1 = isset($input['office1']) ? (int)$input['office1'] : 0;
     $office2 = isset($input['office2']) ? (int)$input['office2'] : 0;
 
-    // helper to get capacity and filled count for an office id
+    // helper: get capacity and filled count for an office id
+    // filled = users with role='ojt' and status IN ('approved','ongoing')
+    // NOTE: normalize office_name comparison to avoid mismatches (trim + lower)
     $getOfficeInfo = function($conn, $officeId) {
         if (!$officeId) return null;
-        // capacity column in schema is current_limit
-        $stmt = $conn->prepare("SELECT office_name, current_limit FROM offices WHERE office_id = ?");
+        $stmt = $conn->prepare("SELECT office_name, current_limit FROM offices WHERE office_id = ? LIMIT 1");
         $stmt->bind_param("i", $officeId);
         $stmt->execute();
         $row = $stmt->get_result()->fetch_assoc();
         $stmt->close();
         if (!$row) return null;
 
+        $officeName = trim($row['office_name']);
+        $officeNameNorm = mb_strtolower($officeName);
+
+        // use normalized comparison on the users table to avoid case/whitespace mismatches
         $stmt2 = $conn->prepare("
-            SELECT COUNT(DISTINCT student_id) AS filled
-            FROM ojt_applications
-            WHERE (office_preference1 = ? OR office_preference2 = ?) AND status = 'approved'
+            SELECT COUNT(*) AS filled
+            FROM users
+            WHERE role = 'ojt' AND status IN ('approved','ongoing') AND LOWER(TRIM(office_name)) = ?
         ");
-        $stmt2->bind_param("ii", $officeId, $officeId);
+        if (!$stmt2) {
+            // defensive fallback: return capacity and assume 0 filled
+            $capacity = is_null($row['current_limit']) ? null : (int)$row['current_limit'];
+            return ['office_name' => $officeName, 'capacity' => $capacity, 'filled' => 0];
+        }
+        $stmt2->bind_param("s", $officeNameNorm);
         $stmt2->execute();
         $countRow = $stmt2->get_result()->fetch_assoc();
         $stmt2->close();
+
         $filled = (int)($countRow['filled'] ?? 0);
         $capacity = is_null($row['current_limit']) ? null : (int)$row['current_limit'];
-        return ['office_name' => $row['office_name'], 'capacity' => $capacity, 'filled' => $filled];
+        return ['office_name' => $officeName, 'capacity' => $capacity, 'filled' => $filled];
     };
 
     $assigned = '';
@@ -188,6 +199,7 @@ if ($action === 'approve_send') {
     $student_name = trim(($res['first_name'] ?? '') . ' ' . ($res['last_name'] ?? ''));
 
     // helper: get office info (name, capacity, filled)
+    // filled = users with role='ojt' and status IN ('approved','ongoing') whose office_name matches this office
     $getOfficeInfo = function($conn, $officeId) {
         if (!$officeId) return null;
         $stmt = $conn->prepare("SELECT office_name, current_limit FROM offices WHERE office_id = ? LIMIT 1");
@@ -197,12 +209,13 @@ if ($action === 'approve_send') {
         $stmt->close();
         if (!$row) return null;
 
+        $officeName = $row['office_name'];
         $stmt2 = $conn->prepare("
-            SELECT COUNT(DISTINCT student_id) AS filled
-            FROM ojt_applications
-            WHERE (office_preference1 = ? OR office_preference2 = ?) AND status = 'approved'
+            SELECT COUNT(*) AS filled
+            FROM users
+            WHERE role = 'ojt' AND status IN ('approved','ongoing') AND office_name = ?
         ");
-        $stmt2->bind_param("ii", $officeId, $officeId);
+        $stmt2->bind_param("s", $officeName);
         $stmt2->execute();
         $cnt = $stmt2->get_result()->fetch_assoc();
         $stmt2->close();
@@ -236,90 +249,112 @@ if ($action === 'approve_send') {
         $pref2_full = true;
     }
 
-    // If both pref1 and pref2 are present and both full -> auto-reject and notify student
-    // Case A: both choices provided and both full -> auto-reject
-    if (($pref1 && $pref2) && $pref1_full && $pref2_full) {
-        $remarks = "Auto-rejected: Full slots in preferred offices.";
-        $u = $conn->prepare("UPDATE ojt_applications SET status = 'rejected', remarks = ?, date_updated = CURDATE() WHERE application_id = ?");
-        $u->bind_param("si", $remarks, $app_id);
-        $ok = $u->execute();
-        $u->close();
+    // --- AUTO-REJECT with re-check using users table availability ---
+    // Use available = capacity - filled (filled counted from users where role='ojt' and status IN ('approved','ongoing'))
+    // Case A: both choices provided and both currently full -> auto-reject
+    if ($pref1 && $pref2) {
+        // re-evaluate availability in case of race conditions
+        $info1 = $getOfficeInfo($conn, $pref1);
+        $info2 = $getOfficeInfo($conn, $pref2);
+        $cap1 = $info1 ? $info1['capacity'] : null; $filled1 = $info1 ? (int)$info1['filled'] : 0;
+        $cap2 = $info2 ? $info2['capacity'] : null; $filled2 = $info2 ? (int)$info2['filled'] : 0;
+        $avail1 = ($cap1 === null) ? PHP_INT_MAX : max(0, $cap1 - $filled1);
+        $avail2 = ($cap2 === null) ? PHP_INT_MAX : max(0, $cap2 - $filled2);
 
-        if (!$ok) respond(['success' => false, 'message' => 'Failed to update application status.']);
+        // if both currently have zero available slots -> auto-reject
+        if ($avail1 <= 0 && $avail2 <= 0) {
+            $remarks = "Auto-rejected: Full slots in preferred offices.";
+            $u = $conn->prepare("UPDATE ojt_applications SET status = 'rejected', remarks = ?, date_updated = CURDATE() WHERE application_id = ?");
+            $u->bind_param("si", $remarks, $app_id);
+            $ok = $u->execute();
+            $u->close();
 
-        // send rejection email (reuse existing rejection template)
-        $mailSent = false;
-        if (filter_var($to, FILTER_VALIDATE_EMAIL)) {
-            try {
-                $mail = new PHPMailer(true);
-                $mail->isSMTP();
-                $mail->Host       = SMTP_HOST;
-                $mail->SMTPAuth   = true;
-                $mail->Username   = SMTP_USER;
-                $mail->Password   = SMTP_PASS;
-                $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
-                $mail->Port       = SMTP_PORT;
-                $mail->CharSet    = 'UTF-8';
-                $mail->setFrom(SMTP_FROM_EMAIL, SMTP_FROM_NAME);
-                $mail->addAddress($to, $student_name);
+            if (!$ok) respond(['success' => false, 'message' => 'Failed to update application status.']);
 
-                $mail->isHTML(true);
-                $mail->Subject = "OJT Application Update";
-                $mail->Body    = "<p>Dear <strong>" . htmlspecialchars($student_name) . "</strong>,</p>"
-                               . "<p>We regret to inform you that your OJT application has been <strong>rejected</strong>.</p>"
-                               . "<p><strong>Reason:</strong> Full slots in preferred offices.</p>"
-                               . "<p>If you have questions, please contact the HR department.</p>"
-                               . "<p>— HR Department</p>";
+            // send rejection email (reuse existing rejection template)
+            $mailSent = false;
+            if (filter_var($to, FILTER_VALIDATE_EMAIL)) {
+                try {
+                    $mail = new PHPMailer(true);
+                    $mail->isSMTP();
+                    $mail->Host       = SMTP_HOST;
+                    $mail->SMTPAuth   = true;
+                    $mail->Username   = SMTP_USER;
+                    $mail->Password   = SMTP_PASS;
+                    $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
+                    $mail->Port       = SMTP_PORT;
+                    $mail->CharSet    = 'UTF-8';
+                    $mail->setFrom(SMTP_FROM_EMAIL, SMTP_FROM_NAME);
+                    $mail->addAddress($to, $student_name);
 
-                $mail->send();
-                $mailSent = true;
-            } catch (Exception $e) {
-                $mailSent = false;
+                    $mail->isHTML(true);
+                    $mail->Subject = "OJT Application Update";
+                    $mail->Body    = "<p>Dear <strong>" . htmlspecialchars($student_name) . "</strong>,</p>"
+                                   . "<p>We regret to inform you that your OJT application has been <strong>rejected</strong>.</p>"
+                                   . "<p><strong>Reason:</strong> Full slots in preferred offices.</p>"
+                                   . "<p>If you have questions, please contact the HR department.</p>"
+                                   . "<p>— HR Department</p>";
+
+                    $mail->send();
+                    $mailSent = true;
+                } catch (Exception $e) {
+                    $mailSent = false;
+                }
             }
-        }
 
-        respond(['success' => true, 'action' => 'auto_reject', 'mail' => $mailSent ? 'sent' : 'failed', 'message' => 'Application auto-rejected due to full slots.']);
+            respond(['success' => true, 'action' => 'auto_reject', 'mail' => $mailSent ? 'sent' : 'failed', 'message' => 'Application auto-rejected due to full slots.']);
+        }
+        // else at least one currently has availability -> do NOT auto-reject, leave pending for HR action
     }
-    // Case B: only first choice provided (pref2 empty) and first is full -> auto-reject
-    if ($pref1 && !$pref2 && $pref1_full) {
-        $remarks = "Auto-rejected: Preferred office has reached capacity.";
-        $u = $conn->prepare("UPDATE ojt_applications SET status = 'rejected', remarks = ?, date_updated = CURDATE() WHERE application_id = ?");
-        $u->bind_param("si", $remarks, $app_id);
-        $ok = $u->execute();
-        $u->close();
-        if (!$ok) respond(['success' => false, 'message' => 'Failed to update application status.']);
 
-        $mailSent = false;
-        if (filter_var($to, FILTER_VALIDATE_EMAIL)) {
-            try {
-                $mail = new PHPMailer(true);
-                $mail->isSMTP();
-                $mail->Host       = SMTP_HOST;
-                $mail->SMTPAuth   = true;
-                $mail->Username   = SMTP_USER;
-                $mail->Password   = SMTP_PASS;
-                $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
-                $mail->Port       = SMTP_PORT;
-                $mail->CharSet    = 'UTF-8';
-                $mail->setFrom(SMTP_FROM_EMAIL, SMTP_FROM_NAME);
-                $mail->addAddress($to, $student_name);
+    // Case B: only first choice provided (pref2 empty) -> re-evaluate pref1 availability before auto-reject
+    if ($pref1 && !$pref2) {
+        $info1 = $getOfficeInfo($conn, $pref1);
+        $cap1 = $info1 ? $info1['capacity'] : null;
+        $filled1 = $info1 ? (int)$info1['filled'] : 0;
+        $avail1 = ($cap1 === null) ? PHP_INT_MAX : max(0, $cap1 - $filled1);
+        // Only auto-reject when no available slots
+        if ($avail1 <= 0) {
+            $remarks = "Auto-rejected: Preferred office has reached capacity and no second choice was provided.";
+            $u = $conn->prepare("UPDATE ojt_applications SET status = 'rejected', remarks = ?, date_updated = CURDATE() WHERE application_id = ?");
+            $u->bind_param("si", $remarks, $app_id);
+            $ok = $u->execute();
+            $u->close();
+            if (!$ok) respond(['success' => false, 'message' => 'Failed to update application status.']);
 
-                $mail->isHTML(true);
-                $mail->Subject = "OJT Application Update";
-                $mail->Body    = "<p>Dear <strong>" . htmlspecialchars($student_name) . "</strong>,</p>"
-                               . "<p>We regret to inform you that your OJT application has been <strong>rejected</strong>.</p>"
-                               . "<p><strong>Reason:</strong> Your preferred office has reached capacity and no second choice was provided.</p>"
-                               . "<p>If you have questions, please contact the HR department.</p>"
-                               . "<p>— HR Department</p>";
+            $mailSent = false;
+            if (filter_var($to, FILTER_VALIDATE_EMAIL)) {
+                try {
+                    $mail = new PHPMailer(true);
+                    $mail->isSMTP();
+                    $mail->Host       = SMTP_HOST;
+                    $mail->SMTPAuth   = true;
+                    $mail->Username   = SMTP_USER;
+                    $mail->Password   = SMTP_PASS;
+                    $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
+                    $mail->Port       = SMTP_PORT;
+                    $mail->CharSet    = 'UTF-8';
+                    $mail->setFrom(SMTP_FROM_EMAIL, SMTP_FROM_NAME);
+                    $mail->addAddress($to, $student_name);
 
-                $mail->send();
-                $mailSent = true;
-            } catch (Exception $e) {
-                $mailSent = false;
+                    $mail->isHTML(true);
+                    $mail->Subject = "OJT Application Update";
+                    $mail->Body    = "<p>Dear <strong>" . htmlspecialchars($student_name) . "</strong>,</p>"
+                                   . "<p>We regret to inform you that your OJT application has been <strong>rejected</strong>.</p>"
+                                   . "<p><strong>Reason:</strong> Your preferred office has reached capacity and no second choice was provided.</p>"
+                                   . "<p>If you have questions, please contact the HR department.</p>"
+                                   . "<p>— HR Department</p>";
+
+                    $mail->send();
+                    $mailSent = true;
+                } catch (Exception $e) {
+                    $mailSent = false;
+                }
             }
-        }
 
-        respond(['success' => true, 'action' => 'auto_reject', 'mail' => $mailSent ? 'sent' : 'failed', 'message' => 'Application auto-rejected: preferred office full and no second choice.']);
+            respond(['success' => true, 'action' => 'auto_reject', 'mail' => $mailSent ? 'sent' : 'failed', 'message' => 'Application auto-rejected: preferred office full and no second choice.']);
+        }
+        // else available -> do not auto-reject
     }
 
     // decide assigned office (same logic as before)
@@ -730,10 +765,18 @@ if ($action === 'get_application') {
         } catch (Exception $e) { $age = null; }
     }
 
+    // sanitize remarks: hide auto-reject messages from the View modal
+    $rawRemarks = $row['remarks'] ?? '';
+    if (preg_match('/^\s*Auto-?reject(ed)?\s*:/i', $rawRemarks)) {
+        $displayRemarks = ''; // do not show auto-reject text in the modal
+    } else {
+        $displayRemarks = $rawRemarks;
+    }
+
     $data = [
         'application_id' => (int)$row['application_id'],
         'status' => $row['status'],
-        'remarks' => $row['remarks'],
+        'remarks' => $displayRemarks,
         'date_submitted' => $row['date_submitted'],
         'date_updated' => $row['date_updated'],
         // include both name and numeric ids so the modal can decide assignment

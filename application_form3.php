@@ -498,7 +498,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         border-radius: 15px;
     }
 }
-</style>
+  </style>
 </head>
 <body>
   <nav class="navbar" role="navigation">
@@ -740,6 +740,14 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         return false;
       }
     }
+
+    // FINAL CONFIRMATION: warn user to review entries before submitting
+    const ok = confirm('Please review your entries. Are you sure all information and uploaded files are correct? Submitting will finalize your application.');
+    if (!ok) {
+      e.preventDefault();
+      return false;
+    }
+
     return true;
   });
 })();

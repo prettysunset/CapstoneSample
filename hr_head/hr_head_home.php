@@ -1327,45 +1327,55 @@ if (logoutBtn) {
 /* AUTO-REJECT: move pending -> rejected when pref2 is NULL and pref1 office is Full.
    This runs only when viewing the pending tab to avoid unexpected updates elsewhere. */
 if ($tab === 'pending' && !empty($offices)) {
-    // find capacity column used by offices (already computed as $capacityCol above)
     $capacityCol = $capacityCol ?? null;
 
-    // prepare fill-count stmt (counts approved + active variants)
-    $countStmt = $conn->prepare("
-        SELECT COUNT(DISTINCT student_id) AS filled
-        FROM ojt_applications
-        WHERE (office_preference1 = ? OR office_preference2 = ?)
-          AND status IN ('approved','active','ongoing','in_progress','assigned','started','on_ojt')
-    ");
+    // helper: get office capacity + filled (use users table: role='ojt' status IN ('approved','ongoing'))
+    $getOfficeInfo = function($conn, $officeId) {
+        if (!$officeId) return null;
+        $s = $conn->prepare("SELECT office_name, current_limit FROM offices WHERE office_id = ? LIMIT 1");
+        if (!$s) return null;
+        $s->bind_param("i", $officeId);
+        $s->execute();
+        $r = $s->get_result()->fetch_assoc();
+        $s->close();
+        if (!$r) return null;
+        $officeName = $r['office_name'];
+        $stmt2 = $conn->prepare("
+            SELECT COUNT(*) AS filled
+            FROM users
+            WHERE role = 'ojt' AND status IN ('approved','ongoing') AND office_name = ?
+        ");
+        if (!$stmt2) return ['office_name'=>$officeName,'capacity'=>is_null($r['current_limit'])?null:(int)$r['current_limit'],'filled'=>0];
+        $stmt2->bind_param("s", $officeName);
+        $stmt2->execute();
+        $cnt = $stmt2->get_result()->fetch_assoc();
+        $stmt2->close();
+        return [
+            'office_name' => $officeName,
+            'capacity' => is_null($r['current_limit']) ? null : (int)$r['current_limit'],
+            'filled' => (int)($cnt['filled'] ?? 0)
+        ];
+    };
 
+    // build list of office ids that are "full" (capacity !== null && filled >= capacity)
     $fullOfficeIds = [];
     foreach ($offices as $o) {
         $officeId = (int)($o['office_id'] ?? 0);
         $cap = isset($o['capacity']) ? (int)$o['capacity'] : null;
-        if ($capacityCol === null || $cap === null) continue; // treat as unlimited -> not full
-
-        // get filled
-        $filled = 0;
-        if ($countStmt) {
-            $countStmt->bind_param('ii', $officeId, $officeId);
-            $countStmt->execute();
-            $cntRow = $countStmt->get_result()->fetch_assoc();
-            $countStmt->free_result();
-            $filled = (int)($cntRow['filled'] ?? 0);
-        }
-
+        if ($capacityCol === null || $cap === null) continue; // unlimited -> not full
+        $info = $getOfficeInfo($conn, $officeId);
+        $filled = $info ? (int)$info['filled'] : 0;
         if ($filled >= $cap) $fullOfficeIds[] = $officeId;
     }
-    if ($countStmt) $countStmt->close();
 
     if (!empty($fullOfficeIds)) {
-        // find pending applications:
-        // - case A: pref2 IS NULL/0 and pref1 is full
-        // - case B: both pref1 AND pref2 are full (both provided)
         $n = count($fullOfficeIds);
         $placeholders = implode(',', array_fill(0, $n, '?'));
 
-        $sql = "SELECT oa.application_id, oa.student_id, s.email
+        // fetch pending applications that are candidates for auto-reject:
+        // A) pref2 NULL/0 and pref1 in full list
+        // B) both pref1 AND pref2 in full list (both provided)
+        $sql = "SELECT oa.application_id, oa.student_id, s.email, oa.office_preference1, oa.office_preference2
                 FROM ojt_applications oa
                 JOIN students s ON oa.student_id = s.student_id
                 WHERE oa.status = 'pending'
@@ -1377,29 +1387,62 @@ if ($tab === 'pending' && !empty($offices)) {
 
         $stmtFind = $conn->prepare($sql);
         if ($stmtFind) {
-            // bind types: SQL uses three IN(...) groups -> total placeholders = 3 * $n
+            // bind types for 3 groups of $n integers
             $bindTypes = str_repeat('i', $n * 3);
             $bindParams = [];
             $bindParams[] = &$bindTypes;
-            // first group (first IN)
-            for ($i = 0; $i < $n; $i++) { $bindParams[] = &$fullOfficeIds[$i]; }
-            // second group (second IN)
-            for ($i = 0; $i < $n; $i++) { $bindParams[] = &$fullOfficeIds[$i]; }
-            // third group (third IN)
-            for ($i = 0; $i < $n; $i++) { $bindParams[] = &$fullOfficeIds[$i]; }
+            // first IN
+            for ($i = 0; $i < $n; $i++) $bindParams[] = &$fullOfficeIds[$i];
+            // second IN
+            for ($i = 0; $i < $n; $i++) $bindParams[] = &$fullOfficeIds[$i];
+            // third IN
+            for ($i = 0; $i < $n; $i++) $bindParams[] = &$fullOfficeIds[$i];
             call_user_func_array([$stmtFind, 'bind_param'], $bindParams);
             $stmtFind->execute();
             $resPending = $stmtFind->get_result();
-            $toReject = $resPending->fetch_all(MYSQLI_ASSOC);
+            $candidates = $resPending->fetch_all(MYSQLI_ASSOC);
             $stmtFind->close();
 
-            if (!empty($toReject)) {
+            if (!empty($candidates)) {
                 $u = $conn->prepare("UPDATE ojt_applications SET status = 'rejected', remarks = ?, date_updated = CURDATE() WHERE application_id = ?");
                 $mailHeaders = "MIME-Version: 1.0\r\nContent-type: text/html; charset=utf-8\r\nFrom: OJTMS HR <no-reply@localhost>\r\n";
-                foreach ($toReject as $rj) {
-                    $appId = (int)$rj['application_id'];
-                    $studentEmail = trim($rj['email'] ?? '');
-                    $remarks = 'Auto-rejected: Preferred office(s) have reached capacity.';
+                $toActuallyReject = [];
+
+                foreach ($candidates as $rowCandidate) {
+                    $appId = (int)$rowCandidate['application_id'];
+                    $studentEmail = trim($rowCandidate['email'] ?? '');
+                    $pref1 = isset($rowCandidate['office_preference1']) ? (int)$rowCandidate['office_preference1'] : 0;
+                    $pref2 = isset($rowCandidate['office_preference2']) ? (int)$rowCandidate['office_preference2'] : 0;
+
+                    // CASE: pref2 empty/null => before rejecting, re-check availability of pref1 using users/office capacity
+                    if (($pref2 === 0 || $pref2 === null) && $pref1) {
+                        $info1 = $getOfficeInfo($conn, $pref1);
+                        $cap1 = $info1 ? $info1['capacity'] : null;
+                        $filled1 = $info1 ? (int)$info1['filled'] : 0;
+                        $available1 = ($cap1 === null) ? PHP_INT_MAX : max(0, $cap1 - $filled1);
+                        // if available >= 1 -> do NOT auto-reject this row (skip)
+                        if ($available1 >= 1) {
+                            // skip auto-reject for this candidate
+                            continue;
+                        }
+                        // else fallthrough to reject (no available slot)
+                    }
+
+                    // CASE: both pref1 and pref2 provided and both full -> reject (we already selected candidates with both in full list)
+                    // For safety: if pref1/pref2 present but one has a slot now, skip rejecting accordingly.
+                    if ($pref1 && $pref2) {
+                        $info1 = $getOfficeInfo($conn, $pref1);
+                        $info2 = $getOfficeInfo($conn, $pref2);
+                        $cap1 = $info1 ? $info1['capacity'] : null; $filled1 = $info1 ? (int)$info1['filled'] : 0;
+                        $cap2 = $info2 ? $info2['capacity'] : null; $filled2 = $info2 ? (int)$info2['filled'] : 0;
+                        $avail1 = ($cap1 === null) ? PHP_INT_MAX : max(0, $cap1 - $filled1);
+                        $avail2 = ($cap2 === null) ? PHP_INT_MAX : max(0, $cap2 - $filled2);
+                        // if either now has available slot, skip reject (prefer to leave pending so HR can approve)
+                        if ($avail1 >= 1 || $avail2 >= 1) continue;
+                    }
+
+                    // If reached here, we will auto-reject
+                    $remarks = '';
                     if ($u) {
                         $u->bind_param('si', $remarks, $appId);
                         $u->execute();
@@ -1413,9 +1456,11 @@ if ($tab === 'pending' && !empty($offices)) {
                               . "<p>— HR Department</p>";
                         @mail($studentEmail, $subject, $body, $mailHeaders);
                     }
-                }
+                } // end foreach candidates
+
                 if ($u) $u->close();
-                // refresh $apps so UI immediately reflects the moved rows
+
+                // refresh $apps so UI reflects the moved rows
                 $stmtApps = $conn->prepare($q);
                 if ($stmtApps) {
                     $stmtApps->bind_param("s", $statusFilter);
@@ -1424,10 +1469,10 @@ if ($tab === 'pending' && !empty($offices)) {
                     $apps = $result->fetch_all(MYSQLI_ASSOC);
                     $stmtApps->close();
                 }
-            }
-        }
-     }
-}
+            } // end if candidates
+        } // end if stmtFind
+    } // end if fullOfficeIds not empty
+} // end if tab pending
 ?>
 </body>
 </html>
