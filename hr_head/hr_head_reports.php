@@ -51,21 +51,37 @@ function fetch_offices($conn){
     $rows = [];
     $res = $conn->query("SELECT office_id, office_name, current_limit, requested_limit, reason, status FROM offices ORDER BY office_name");
     if ($res) {
-        $stmtCount = $conn->prepare("
-            SELECT COUNT(DISTINCT oa.student_id) AS filled FROM ojt_applications oa
-            WHERE (oa.office_preference1 = ? OR oa.office_preference2 = ?) AND oa.status = 'approved'
+        // prepare once: count ojts by status from users table (role = 'ojt')
+        $stmtUser = $conn->prepare("
+            SELECT 
+              SUM(status = 'approved') AS approved_count,
+              SUM(status = 'ongoing')  AS ongoing_count,
+              SUM(status = 'completed') AS completed_count
+            FROM users
+            WHERE role = 'ojt' AND office_name = ?
         ");
         while ($r = $res->fetch_assoc()){
-            $id = (int)$r['office_id'];
-            $stmtCount->bind_param("ii",$id,$id);
-            $stmtCount->execute();
-            $cnt = $stmtCount->get_result()->fetch_assoc();
-            $filled = (int)($cnt['filled'] ?? 0);
+            $officeName = $r['office_name'] ?? '';
+            $stmtUser->bind_param("s", $officeName);
+            $stmtUser->execute();
+            $cnt = $stmtUser->get_result()->fetch_assoc() ?: [];
+            $approved = (int)($cnt['approved_count'] ?? 0);
+            $ongoing  = (int)($cnt['ongoing_count'] ?? 0);
+            $completed = (int)($cnt['completed_count'] ?? 0);
+
             $cap = is_null($r['current_limit']) ? null : (int)$r['current_limit'];
-            $available = is_null($cap) ? '—' : max(0, $cap - $filled);
-            $rows[] = array_merge($r, ['filled'=>$filled, 'available'=>$available]);
+            // Available slot = current_limit - (ongoing + approved)
+            $available = is_null($cap) ? '—' : max(0, $cap - ($ongoing + $approved));
+
+            $rows[] = array_merge($r, [
+                'capacity' => $cap,
+                'available' => $available,
+                'approved' => $approved,
+                'ongoing' => $ongoing,
+                'completed' => $completed
+            ]);
         }
-        $stmtCount->close();
+        $stmtUser->close();
         $res->free();
     }
     return $rows;
@@ -222,64 +238,81 @@ $moa = fetch_moa($conn);
     </div>
 
     <div class="card" role="region" aria-label="Reports">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-        <h2 style="margin:0;color:#2f3850">Reports</h2>
-        <div style="display:flex;gap:12px;align-items:center">
-          <div id="globalSearchWrap" style="position:relative">
+        <!-- header: Reports left, export top-right -->
+        <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px;">
+          <h2 style="margin:0;color:#2f3850">Reports</h2>
+
+          <div style="display:flex;align-items:center;gap:12px;flex:0 0 auto;">
+            <button id="exportBtn" style="padding:8px 12px;border-radius:8px;border:1px solid #ddd;background:#3a4163;color:#fff;cursor:pointer">Export</button>
+          </div>
+        </div>
+
+        <!-- Tabs centered below the title (single grey line) -->
+        <div style="display:flex;flex-direction:column;gap:12px;">
+          <style>
+            .tabs { display:flex; justify-content:center; align-items:flex-end; gap:18px; font-size:18px; border-bottom:2px solid #eee; padding-bottom:12px; }
+            .tabs button { background:transparent; border:none; padding:10px 14px; border-radius:6px 6px 0 0; cursor:pointer; color:#2f3850; font-weight:600; outline:none; font-size:18px; }
+            .tabs button span{ display:inline-block; padding-bottom:6px; border-bottom:3px solid transparent; transition:border-color .15s ease; }
+            .tabs button.active span{ border-color: #2f3850; }
+          </style>
+
+          <div class="tabs" role="tablist" aria-label="OJT Tabs">
+            <button class="tab active" data-tab="students" role="tab" aria-selected="true" aria-controls="panel-students">
+              <span>Students (<?= count($students) ?>)</span>
+            </button>
+            <button class="tab" data-tab="offices" role="tab" aria-selected="false" aria-controls="panel-offices">
+              <span>Offices (<?= count($offices) ?>)</span>
+            </button>
+            <button class="tab" data-tab="moa" role="tab" aria-selected="false" aria-controls="panel-moa">
+              <span>MOA (<?= count($moa) ?>)</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Search bar placed under the grey tab line, aligned left -->
+        <div class="card-search" style="padding-top:12px;margin-top:8px;margin-bottom:14px;display:flex;flex-wrap:wrap;justify-content:space-between;gap:12px;align-items:center;">
+          <!-- left: search -->
+          <div id="globalSearchWrap" style="position:relative;flex:1 1 320px;max-width:60%;">
             <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:#6d6d6d;pointer-events:none">
               <circle cx="11" cy="11" r="7"></circle>
               <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
             </svg>
-            <input type="text" id="globalSearch" placeholder="Search" aria-label="Search" style="width:320px;padding:8px 12px 8px 36px;border-radius:8px;border:1px solid #ddd;background:#fff;outline:none">
+            <input type="text" id="globalSearch" placeholder="Search" aria-label="Search" style="width:100%;padding:8px 12px 8px 36px;border-radius:8px;border:1px solid #ddd;background:#fff;outline:none">
           </div>
-          <button id="exportBtn" style="padding:8px 12px;border-radius:8px;border:1px solid #ddd;background:#3a4163;color:#fff;cursor:pointer">Export</button>
+
+          <!-- right: Students-only filters (office & status) -->
+          <div id="studentsFilters" style="display:flex;gap:8px;align-items:center;flex:0 0 auto;">
+            <select id="officeFilter" style="padding:8px;border-radius:8px;border:1px solid #ddd;background:#fff;min-width:180px;">
+              <option value="">All offices</option>
+              <?php foreach ($offices as $o): ?>
+                <option value="<?= htmlspecialchars(strtolower($o['office_name'] ?? '')) ?>"><?= htmlspecialchars($o['office_name'] ?? '') ?></option>
+              <?php endforeach; ?>
+            </select>
+
+            <select id="statusFilter" style="padding:8px;border-radius:8px;border:1px solid #ddd;background:#fff;min-width:160px;">
+              <option value="">All status</option>
+              <option value="pending">Pending</option>
+              <option value="approved">Approved</option>
+              <option value="ongoing">Ongoing</option>
+              <option value="completed">Completed</option>
+              <option value="rejected">Rejected</option>
+              <option value="deactivated">Deactivated</option>
+            </select>
+          </div>
+
+          <!-- right (offices) filters - shown only when Offices tab active -->
+          <div id="officesFilters" style="display:none;gap:8px;align-items:center;flex:0 0 auto;">
+            <select id="officesSortColumn" style="padding:8px;border-radius:8px;border:1px solid #ddd;background:#fff;min-width:220px;">
+              <option value="">None</option>
+              <option value="capacity">Capacity</option>
+              <option value="available">Available Slot</option>
+              <option value="approved">Approved OJTs</option>
+              <option value="ongoing">Ongoing OJTs</option>
+              <option value="completed">Completed OJTs</option>
+            </select>
+            <button id="officesSortDirBtn" data-dir="asc" title="Toggle sort direction" style="padding:8px 12px;border-radius:8px;border:1px solid #ddd;background:#fff;cursor:pointer">Asc</button>
+          </div>
         </div>
-      </div>
-
-      <div style="display:flex;flex-direction:column;gap:12px;">
-        <div class="tabs" role="tablist" aria-label="OJT Tabs" style="display:flex;justify-content:center;align-items:flex-end;gap:24px;font-size:18px;border-bottom:2px solid #eee;padding-bottom:12px;position:relative;">
-          <button class="tab active" data-tab="students" role="tab" aria-selected="true" aria-controls="panel-students" style="background:transparent;border:none;padding:10px 14px;border-radius:6px;cursor:pointer;color:#2f3850;font-weight:600;outline:none;font-size:18px;">
-        Students (<?= count($students) ?>)
-          </button>
-          <button class="tab" data-tab="offices" role="tab" aria-selected="false" aria-controls="panel-offices" style="background:transparent;border:none;padding:10px 14px;border-radius:6px;cursor:pointer;color:#2f3850;font-weight:600;outline:none;font-size:18px;">
-        Offices (<?= count($offices) ?>)
-          </button>
-          <button class="tab" data-tab="moa" role="tab" aria-selected="false" aria-controls="panel-moa" style="background:transparent;border:none;padding:10px 14px;border-radius:6px;cursor:pointer;color:#2f3850;font-weight:600;outline:none;font-size:18px;">
-        MOA (<?= count($moa) ?>)
-          </button>
-
-          <!-- underline indicating the selected tab -->
-          <div class="tab-underline" aria-hidden="true" style="position:absolute;bottom:0;height:3px;background:#2f3850;border-radius:3px;transition:left .18s ease,width .18s ease;left:0;width:0;"></div>
-        </div>
-      </div>
-
-    <script>
-    (function(){
-      // helper to position the underline under the active tab
-      function updateTabUnderline(){
-        const tabs = document.querySelector('.tabs');
-        if (!tabs) return;
-        const active = tabs.querySelector('button.active');
-        const line = tabs.querySelector('.tab-underline');
-        if (!active || !line) return;
-        const aRect = active.getBoundingClientRect();
-        const tRect = tabs.getBoundingClientRect();
-        line.style.left = (aRect.left - tRect.left) + 'px';
-        line.style.width = aRect.width + 'px';
-      }
-      // initialize and bind events
-      window.addEventListener('load', updateTabUnderline);
-      window.addEventListener('resize', updateTabUnderline);
-      document.querySelectorAll('.tabs button').forEach(btn=>{
-        btn.addEventListener('click', function(){
-      // small delay to allow other click handlers (existing script) to toggle active class first
-      setTimeout(updateTabUnderline, 30);
-        });
-      });
-      // in case the page already has an active tab
-      setTimeout(updateTabUnderline,50);
-    })();
-    </script>
 
       <div id="panel-students" class="panel" style="display:block">
         <div style="overflow-x:auto">
@@ -325,20 +358,26 @@ $moa = fetch_moa($conn);
         <div style="overflow-x:auto">
           <table class="tbl" id="tblOffices">
             <thead>
-              <tr><th>Office</th><th style="text-align:center">Capacity</th><th style="text-align:center">Active OJTs</th><th style="text-align:center">Available</th><th>Requested Limit</th><th>Reason</th><th>Status</th></tr>
+              <tr>
+                <th>Office Name</th>
+                <th style="text-align:center">Capacity</th>
+                <th style="text-align:center">Available Slot</th>
+                <th style="text-align:center">Approved OJTs</th>
+                <th style="text-align:center">Ongoing OJTs</th>
+                <th style="text-align:center">Completed OJTs</th>
+              </tr>
             </thead>
             <tbody>
               <?php if (empty($offices)): ?>
-                <tr><td colspan="7" class="empty">No offices found.</td></tr>
+                <tr><td colspan="6" class="empty">No offices found.</td></tr>
               <?php else: foreach ($offices as $o): ?>
                 <tr data-search="<?= htmlspecialchars(strtolower($o['office_name'])) ?>">
                   <td><?= htmlspecialchars($o['office_name']) ?></td>
-                  <td style="text-align:center"><?= is_null($o['current_limit']) ? '—' : (int)$o['current_limit'] ?></td>
-                  <td style="text-align:center"><?= (int)$o['filled'] ?></td>
-                  <td style="text-align:center"><?= htmlspecialchars((string)$o['available']) ?></td>
-                  <td style="text-align:center"><?= $o['requested_limit'] === null ? '—' : (int)$o['requested_limit'] ?></td>
-                  <td><?= htmlspecialchars($o['reason'] ?: '—') ?></td>
-                  <td><?= htmlspecialchars($o['status'] ?: '—') ?></td>
+                  <td style="text-align:center"><?= is_null($o['capacity']) ? '—' : (int)$o['capacity'] ?></td>
+                  <td style="text-align:center"><?= is_string($o['available']) ? htmlspecialchars($o['available']) : (int)$o['available'] ?></td>
+                  <td style="text-align:center"><?= (int)($o['approved'] ?? 0) ?></td>
+                  <td style="text-align:center"><?= (int)($o['ongoing'] ?? 0) ?></td>
+                  <td style="text-align:center"><?= (int)($o['completed'] ?? 0) ?></td>
                 </tr>
               <?php endforeach; endif; ?>
             </tbody>
@@ -378,48 +417,168 @@ $moa = fetch_moa($conn);
 
 <script>
 (function(){
-  // tab switching
-  document.querySelectorAll('.tabs button').forEach(btn=>{
-    btn.addEventListener('click', function(){
-      document.querySelectorAll('.tabs button').forEach(b=>b.classList.remove('active'));
-      this.classList.add('active');
-      const tab = this.getAttribute('data-tab');
-      document.getElementById('panel-students').style.display = tab==='students' ? 'block' : 'none';
-      document.getElementById('panel-offices').style.display = tab==='offices' ? 'block' : 'none';
-      document.getElementById('panel-moa').style.display = tab==='moa' ? 'block' : 'none';
-      document.getElementById('globalSearch').value = '';
-    });
-  });
-
-  // global search applies to visible panel
-  document.getElementById('globalSearch').addEventListener('input', function(){
-    const q = (this.value||'').toLowerCase().trim();
+  // helper: apply current search + filters to visible panel
+  function applyFilters() {
+    const q = (document.getElementById('globalSearch')?.value || '').toLowerCase().trim();
     const visible = document.querySelector('.panel[style*="display:block"]');
     if (!visible) return;
-    visible.querySelectorAll('tbody tr[data-search]').forEach(tr=>{
-      tr.style.display = (tr.getAttribute('data-search')||'').indexOf(q)===-1 ? 'none' : '';
+
+    const isStudents = visible.id === 'panel-students';
+    const officeVal = (document.getElementById('officeFilter')?.value || '').toLowerCase().trim();
+    const statusVal = (document.getElementById('statusFilter')?.value || '').toLowerCase().trim();
+
+    // normalize helper
+    const norm = txt => (txt || '').toString().toLowerCase().trim();
+
+    visible.querySelectorAll('tbody tr').forEach(tr=>{
+      // placeholder rows have no data-search attribute
+      const ds = norm(tr.getAttribute('data-search'));
+      const visibleBySearch = q === '' ? true : ds.indexOf(q) !== -1;
+
+      let visibleByOffice = true;
+      let visibleByStatus = true;
+
+      if (isStudents) {
+        const tds = tr.querySelectorAll('td');
+        const officeText = norm(tds[1]?.textContent || '');
+        const statusText = norm(tds[8]?.textContent || '');
+ 
+        // substring matching (more tolerant) so partial names work
+        if (officeVal) visibleByOffice = officeText.indexOf(officeVal) !== -1;
+        if (statusVal) visibleByStatus = statusText.indexOf(statusVal) !== -1;
+      } else {
+        // offices or other panels: no extra per-column filters here (search only)
+        visibleByOffice = true;
+        visibleByStatus = true;
+      }
+
+      tr.style.display = (visibleBySearch && visibleByOffice && visibleByStatus) ? '' : 'none';
     });
+  }
+ 
+ // tab switching (simple CSS-based underline on active tab)
+   document.querySelectorAll('.tabs button').forEach(btn=>{
+     btn.addEventListener('click', function(){
+       document.querySelectorAll('.tabs button').forEach(b=>b.classList.remove('active'));
+       this.classList.add('active');
+ 
+       const tab = this.getAttribute('data-tab');
+       document.getElementById('panel-students').style.display = tab==='students' ? 'block' : 'none';
+       document.getElementById('panel-offices').style.display = tab==='offices' ? 'block' : 'none';
+       document.getElementById('panel-moa').style.display = tab==='moa' ? 'block' : 'none';
+ 
+       // show/hide students-only filters
+       const sf = document.getElementById('studentsFilters');
+       if (sf) sf.style.display = tab==='students' ? 'flex' : 'none';
+       // show/hide offices-only filters
+       const of = document.getElementById('officesFilters');
+       if (of) of.style.display = tab==='offices' ? 'flex' : 'none';
+ 
+       // reset search and filters on tab change
+       const gs = document.getElementById('globalSearch');
+       if (gs) gs.value = '';
+       const ofilter = document.getElementById('officeFilter');
+       if (ofilter) ofilter.value = '';
+       const st = document.getElementById('statusFilter');
+       if (st) st.value = '';
+       const capFilter = document.getElementById('capacityFilter');
+       if (capFilter) capFilter.value = '';
+       const availFilter = document.getElementById('availableFilter');
+       if (availFilter) availFilter.value = '';
+       const apprFilter = document.getElementById('approvedFilter');
+       if (apprFilter) apprFilter.value = '';
+       const ongFilter = document.getElementById('ongoingFilter');
+       if (ongFilter) ongFilter.value = '';
+       const compFilter = document.getElementById('completedFilter');
+       if (compFilter) compFilter.value = '';
+ 
+       // apply filters to refresh visibility
+       applyFilters();
+     });
+   });
+ 
+   // wire search + filter inputs
+   const globalSearchEl = document.getElementById('globalSearch');
+   if (globalSearchEl) globalSearchEl.addEventListener('input', applyFilters);
+   const officeFilterEl = document.getElementById('officeFilter');
+   if (officeFilterEl) officeFilterEl.addEventListener('change', applyFilters);
+   const statusFilterEl = document.getElementById('statusFilter');
+   if (statusFilterEl) statusFilterEl.addEventListener('change', applyFilters);
+  // offices sort control (single dropdown + direction button)
+  const officesSortCol = document.getElementById('officesSortColumn');
+  const officesSortDirBtn = document.getElementById('officesSortDirBtn');
+
+  function sortOfficesTable(key, dir){
+    const tbl = document.getElementById('tblOffices');
+    if (!tbl) return;
+    const tbody = tbl.tBodies[0];
+    if (!tbody) return;
+    const idxMap = { capacity:1, available:2, approved:3, ongoing:4, completed:5 };
+    const idx = idxMap[key];
+    if (!idx) return;
+    const rows = Array.from(tbody.querySelectorAll('tr')).filter(r=>r.querySelectorAll('td').length > 0);
+    const getNumeric = (row) => {
+      const txt = (row.cells[idx]?.textContent || '').trim();
+      if (txt === '—') return null;
+      const n = parseFloat(txt.replace(/[^0-9.-]/g,'')); return isNaN(n) ? null : n;
+    };
+    rows.sort((a,b)=>{
+      const A = getNumeric(a), B = getNumeric(b);
+      if (A === null && B === null) return 0;
+      if (A === null) return 1;
+      if (B === null) return -1;
+      return dir === 'asc' ? A - B : B - A;
+    });
+    rows.forEach(r=>tbody.appendChild(r));
+  }
+
+  if (officesSortCol) officesSortCol.addEventListener('change', function(){
+    const key = this.value;
+    const dir = officesSortDirBtn?.dataset.dir || 'asc';
+    if (!key) return;
+    sortOfficesTable(key, dir);
+  });
+  if (officesSortDirBtn) officesSortDirBtn.addEventListener('click', function(){
+    const newDir = this.dataset.dir === 'asc' ? 'desc' : 'asc';
+    this.dataset.dir = newDir;
+    this.textContent = newDir === 'asc' ? 'Asc' : 'Desc';
+    const key = officesSortCol?.value || '';
+    if (!key) return;
+    sortOfficesTable(key, newDir);
   });
 
+   // initialize students filters visibility based on default active tab
+   (function initFilterVisibility(){
+     const active = document.querySelector('.tabs button.active');
+     const sf = document.getElementById('studentsFilters');
+     if (!sf) return;
+     sf.style.display = active && active.getAttribute('data-tab') === 'students' ? 'flex' : 'none';
+     const of = document.getElementById('officesFilters');
+     if (of) of.style.display = active && active.getAttribute('data-tab') === 'offices' ? 'flex' : 'none';
+   })();
+ 
+   // initial filter pass so table reflects any default selection / search
+   applyFilters();
+ 
   // export visible table to CSV
-  document.getElementById('exportBtn').addEventListener('click', function(){
-    const visiblePanel = document.querySelector('.panel[style*="display:block"]');
-    if (!visiblePanel) return alert('No data to export.');
-    const rows = Array.from(visiblePanel.querySelectorAll('tbody tr')).filter(r=>r.style.display!=='none');
-    if (rows.length === 0) return alert('No rows to export.');
-    const cols = Array.from(visiblePanel.querySelectorAll('thead th')).map(th=>th.textContent.trim());
-    const data = [cols.map(c => '"' + c.replace(/"/g,'""') + '"').join(',')];
-    rows.forEach(tr=>{
-      const cells = Array.from(tr.querySelectorAll('td')).map(td => '"' + td.textContent.replace(/"/g,'""').trim() + '"');
-      data.push(cells.join(','));
-    });
-    const csv = data.join('\n');
-    const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a'); a.href = url; a.download = 'reports_export.csv'; document.body.appendChild(a); a.click(); a.remove();
-    URL.revokeObjectURL(url);
-  });
-})();
+   document.getElementById('exportBtn').addEventListener('click', function(){
+     const visiblePanel = document.querySelector('.panel[style*="display:block"]');
+     if (!visiblePanel) return alert('No data to export.');
+     const rows = Array.from(visiblePanel.querySelectorAll('tbody tr')).filter(r=>r.style.display!=='none');
+     if (rows.length === 0) return alert('No rows to export.');
+     const cols = Array.from(visiblePanel.querySelectorAll('thead th')).map(th=>th.textContent.trim());
+     const data = [cols.map(c => '"' + c.replace(/"/g,'""') + '"').join(',')];
+     rows.forEach(tr=>{
+       const cells = Array.from(tr.querySelectorAll('td')).map(td => '"' + td.textContent.replace(/"/g,'""').trim() + '"');
+       data.push(cells.join(','));
+     });
+     const csv = data.join('\n');
+     const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+     const url = URL.createObjectURL(blob);
+     const a = document.createElement('a'); a.href = url; a.download = 'reports_export.csv'; document.body.appendChild(a); a.click(); a.remove();
+     URL.revokeObjectURL(url);
+   });
+ })();
 </script>
 
 <script>
