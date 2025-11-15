@@ -346,7 +346,7 @@ function fmtDate($d){ if (!$d) return '-'; $dt = date_create($d); return $dt ? d
          and stay visible. -->
     <div id="top-icons" style="display:flex;justify-content:flex-end;gap:14px;align-items:center;margin:8px 0 12px 0;z-index:50;">
         <a href="notifications.php" title="Notifications" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 17h5l-1.405-1.405A2.032 2.032 0 0 1 18 14.158V11a6 6 0 1 0-12 0v3.159c0 .538-.214 1.055-.595 1.436L4 17h5"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 17h5l-1.405-1.405A2.032 2.032 0 0 1 18 14.158V11a6 6 0 1 0-12 0v3.159c0 .538-.214 1.055-.595 1.436L4 17h5"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
         </a>
 
         <!-- calendar icon (display only) - placed to the right of Notifications to match DTR -->
@@ -514,6 +514,16 @@ function fmtDate($d){ if (!$d) return '-'; $dt = date_create($d); return $dt ? d
     }
   }
   if (dateSignedInput) dateSignedInput.addEventListener('change', setValidUntilMin);
+
+  // disable future dates for Date Signed (max = today)
+  (function(){
+    const todayISO = new Date().toISOString().slice(0,10);
+    if (dateSignedInput) {
+      dateSignedInput.setAttribute('max', todayISO);
+      // if current value is in future, clamp to today
+      if (dateSignedInput.value && dateSignedInput.value > todayISO) dateSignedInput.value = todayISO;
+    }
+  })();
 
   function showModal(){ backdrop.classList.add('show'); backdrop.setAttribute('aria-hidden','false'); }
   function hideModal(){

@@ -146,6 +146,10 @@ $moa = fetch_moa($conn);
     .actions button{border:none;background:none;cursor:pointer;font-size:16px}
     .approve{color:green} .reject{color:red} .view{color:#0b74de}
     .empty{padding:20px;text-align:center;color:#666}
+
+/* MOA status colors */
+.moa-status.active{ color: #178a34; font-weight:600; } /* green */
+.moa-status.expired{ color: #d32f2f; font-weight:600; } /* red */
 </style>
 </head>
 <body>
@@ -312,6 +316,15 @@ $moa = fetch_moa($conn);
             </select>
             <button id="officesSortDirBtn" data-dir="asc" title="Toggle sort direction" style="padding:8px 12px;border-radius:8px;border:1px solid #ddd;background:#fff;cursor:pointer">Asc</button>
           </div>
+
+          <!-- right (moa) filters - shown only when MOA tab active -->
+          <div id="moaFilters" style="display:none;gap:8px;align-items:center;flex:0 0 auto;">
+            <select id="moaStatusFilter" style="padding:8px;border-radius:8px;border:1px solid #ddd;background:#fff;min-width:160px;">
+              <option value="">All status</option>
+              <option value="active">Active</option>
+              <option value="expired">Expired</option>
+            </select>
+          </div>
         </div>
 
       <div id="panel-students" class="panel" style="display:block">
@@ -359,7 +372,7 @@ $moa = fetch_moa($conn);
           <table class="tbl" id="tblOffices">
             <thead>
               <tr>
-                <th>Office Name</th>
+                <th>Office</th>
                 <th style="text-align:center">Capacity</th>
                 <th style="text-align:center">Available Slot</th>
                 <th style="text-align:center">Approved OJTs</th>
@@ -389,114 +402,140 @@ $moa = fetch_moa($conn);
         <div style="overflow-x:auto">
           <table class="tbl" id="tblMoa">
             <thead>
-              <tr><th>School</th><th style="text-align:center">Students</th><th>MOA File</th><th>Uploaded</th><th>Validity (months)</th></tr>
+              <tr><th>School</th><th style="text-align:center">Students</th><th>MOA File</th><th>Date Signed</th><th>Valid Until</th><th style="text-align:center">Status</th></tr>
             </thead>
             <tbody>
               <?php if (empty($moa)): ?>
-                <tr><td colspan="4" class="empty">No MOA records.</td></tr>
+                <tr><td colspan="6" class="empty">No MOA records.</td></tr>
               <?php else: foreach ($moa as $m): ?>
-                <tr data-search="<?= htmlspecialchars(strtolower($m['school_name'])) ?>">
-                  <td><?= htmlspecialchars($m['school_name']) ?></td>
-                  <td style="text-align:center"><?= (int)($m['student_count'] ?? 0) ?></td>
-                  <td>
-                    <?php if (!empty($m['moa_file'])): ?>
-                      <a href="<?= htmlspecialchars('../' . $m['moa_file']) ?>" target="_blank">View</a>
-                    <?php else: ?>—<?php endif; ?>
-                  </td>
-                  <td><?= htmlspecialchars($m['date_uploaded'] ? date('M j, Y', strtotime($m['date_uploaded'])) : '-') ?></td>
-                  <td style="text-align:center"><?= (int)($m['validity_months'] ?? 0) ?></td>
-                </tr>
-              <?php endforeach; endif; ?>
-            </tbody>
-          </table>
-        </div>
-      </div>
+                 <tr data-search="<?= htmlspecialchars(strtolower($m['school_name'])) ?>">
+                   <td><?= htmlspecialchars($m['school_name']) ?></td>
+                   <td style="text-align:center"><?= (int)($m['student_count'] ?? 0) ?></td>
+                   <td>
+                     <?php if (!empty($m['moa_file'])): ?>
+                       <a href="<?= htmlspecialchars('../' . $m['moa_file']) ?>" target="_blank">View</a>
+                     <?php else: ?>—<?php endif; ?>
+                   </td>
+                  <?php
+                    // Date Signed = date_uploaded (formatted) and compute valid until & status
+                    $date_signed = !empty($m['date_uploaded']) ? date('M j, Y', strtotime($m['date_uploaded'])) : '-';
+                    $valid_until = '-';
+                    $status_label = 'Expired';
+                    if (!empty($m['date_uploaded']) && isset($m['validity_months'])) {
+                      $months = (int)$m['validity_months'];
+                      if ($months > 0) {
+                        $valid_until_ts = strtotime("+{$months} months", strtotime($m['date_uploaded']));
+                        $valid_until = date('M j, Y', $valid_until_ts);
+                        // Active if valid_until is today or in the future
+                        $today_ts = strtotime(date('Y-m-d'));
+                        $status_label = ($valid_until_ts >= $today_ts) ? 'Active' : 'Expired';
+                      } else {
+                        $valid_until = '-';
+                        $status_label = 'Expired';
+                      }
+                    } else {
+                      // no date uploaded => treat as Expired / unknown
+                      $status_label = 'Expired';
+                    }
+                    // css class suffix (lowercase) for client-side filtering
+                    $status_class = strtolower($status_label);
+                  ?>
+                  <td><?= htmlspecialchars($date_signed) ?></td>
+                  <td style="text-align:center"><?= htmlspecialchars($valid_until) ?></td>
+                  <td style="text-align:center"><span class="moa-status <?= htmlspecialchars($status_class) ?>"><?= htmlspecialchars($status_label) ?></span></td>
+                 </tr>
+               <?php endforeach; endif; ?>
+             </tbody>
+           </table>
+         </div>
+       </div>
 
     </div>
   </main>
 
 <script>
 (function(){
-  // helper: apply current search + filters to visible panel
+  // helper: apply current search + filters to all panels (so search reflects immediately even when tab not active)
   function applyFilters() {
     const q = (document.getElementById('globalSearch')?.value || '').toLowerCase().trim();
-    const visible = document.querySelector('.panel[style*="display:block"]');
-    if (!visible) return;
-
-    const isStudents = visible.id === 'panel-students';
     const officeVal = (document.getElementById('officeFilter')?.value || '').toLowerCase().trim();
     const statusVal = (document.getElementById('statusFilter')?.value || '').toLowerCase().trim();
+    const moaStatusVal = (document.getElementById('moaStatusFilter')?.value || '').toLowerCase().trim();
 
-    // normalize helper
     const norm = txt => (txt || '').toString().toLowerCase().trim();
 
-    visible.querySelectorAll('tbody tr').forEach(tr=>{
-      // placeholder rows have no data-search attribute
-      const ds = norm(tr.getAttribute('data-search'));
-      const visibleBySearch = q === '' ? true : ds.indexOf(q) !== -1;
+    // handle every panel so filtering is reflected immediately across tabs
+    document.querySelectorAll('.panel').forEach(visible => {
+      const isStudents = visible.id === 'panel-students';
+      const isOffices  = visible.id === 'panel-offices';
+      const isMoa      = visible.id === 'panel-moa';
 
-      let visibleByOffice = true;
-      let visibleByStatus = true;
+      visible.querySelectorAll('tbody tr').forEach(tr=>{
+        // placeholder rows have no data-search attribute
+        const ds = norm(tr.getAttribute('data-search'));
+        const visibleBySearch = q === '' ? true : ds.indexOf(q) !== -1;
 
-      if (isStudents) {
-        const tds = tr.querySelectorAll('td');
-        const officeText = norm(tds[1]?.textContent || '');
-        const statusText = norm(tds[8]?.textContent || '');
- 
-        // substring matching (more tolerant) so partial names work
-        if (officeVal) visibleByOffice = officeText.indexOf(officeVal) !== -1;
-        if (statusVal) visibleByStatus = statusText.indexOf(statusVal) !== -1;
-      } else {
-        // offices or other panels: no extra per-column filters here (search only)
-        visibleByOffice = true;
-        visibleByStatus = true;
-      }
+        let visibleByOffice = true;
+        let visibleByStatus = true;
 
-      tr.style.display = (visibleBySearch && visibleByOffice && visibleByStatus) ? '' : 'none';
+        if (isStudents) {
+          const tds = tr.querySelectorAll('td');
+          const officeText = norm(tds[1]?.textContent || '');
+          const statusText = norm(tds[8]?.textContent || '');
+
+          if (officeVal) visibleByOffice = officeText.indexOf(officeVal) !== -1;
+          if (statusVal) visibleByStatus = statusText.indexOf(statusVal) !== -1;
+        } else if (isOffices) {
+          // offices: filter by search (data-search is office name). Also allow globalSearch to match other columns if needed.
+          visibleByOffice = true;
+          visibleByStatus = true;
+        } else if (isMoa) {
+          const tds = tr.querySelectorAll('td');
+          // status cell is the last td (index 5)
+          const statusText = norm(tds[5]?.textContent || '');
+          if (moaStatusVal) visibleByStatus = statusText.indexOf(moaStatusVal) !== -1;
+        }
+
+        tr.style.display = (visibleBySearch && visibleByOffice && visibleByStatus) ? '' : 'none';
+      });
     });
   }
- 
+
  // tab switching (simple CSS-based underline on active tab)
    document.querySelectorAll('.tabs button').forEach(btn=>{
      btn.addEventListener('click', function(){
        document.querySelectorAll('.tabs button').forEach(b=>b.classList.remove('active'));
        this.classList.add('active');
- 
+
        const tab = this.getAttribute('data-tab');
        document.getElementById('panel-students').style.display = tab==='students' ? 'block' : 'none';
        document.getElementById('panel-offices').style.display = tab==='offices' ? 'block' : 'none';
        document.getElementById('panel-moa').style.display = tab==='moa' ? 'block' : 'none';
- 
+
        // show/hide students-only filters
        const sf = document.getElementById('studentsFilters');
        if (sf) sf.style.display = tab==='students' ? 'flex' : 'none';
        // show/hide offices-only filters
        const of = document.getElementById('officesFilters');
        if (of) of.style.display = tab==='offices' ? 'flex' : 'none';
- 
-       // reset search and filters on tab change
-       const gs = document.getElementById('globalSearch');
-       if (gs) gs.value = '';
+       // show/hide moa-only filters
+       const mf = document.getElementById('moaFilters');
+       if (mf) mf.style.display = tab==='moa' ? 'flex' : 'none';
+
+       // preserve globalSearch value so typed query still filters other tabs
+       // reset only the per-tab helper filters if you want; currently keep them as-is
        const ofilter = document.getElementById('officeFilter');
-       if (ofilter) ofilter.value = '';
+       if (ofilter) ofilter.value = ofilter.value; // no-op to preserve selection
        const st = document.getElementById('statusFilter');
-       if (st) st.value = '';
-       const capFilter = document.getElementById('capacityFilter');
-       if (capFilter) capFilter.value = '';
-       const availFilter = document.getElementById('availableFilter');
-       if (availFilter) availFilter.value = '';
-       const apprFilter = document.getElementById('approvedFilter');
-       if (apprFilter) apprFilter.value = '';
-       const ongFilter = document.getElementById('ongoingFilter');
-       if (ongFilter) ongFilter.value = '';
-       const compFilter = document.getElementById('completedFilter');
-       if (compFilter) compFilter.value = '';
- 
-       // apply filters to refresh visibility
+       if (st) st.value = st.value;
+       const moaSt = document.getElementById('moaStatusFilter');
+       if (moaSt) moaSt.value = moaSt.value;
+
+       // apply filters to refresh visibility (for all panels)
        applyFilters();
      });
    });
- 
+
    // wire search + filter inputs
    const globalSearchEl = document.getElementById('globalSearch');
    if (globalSearchEl) globalSearchEl.addEventListener('input', applyFilters);
@@ -504,6 +543,8 @@ $moa = fetch_moa($conn);
    if (officeFilterEl) officeFilterEl.addEventListener('change', applyFilters);
    const statusFilterEl = document.getElementById('statusFilter');
    if (statusFilterEl) statusFilterEl.addEventListener('change', applyFilters);
+   const moaStatusFilterEl = document.getElementById('moaStatusFilter');
+   if (moaStatusFilterEl) moaStatusFilterEl.addEventListener('change', applyFilters);
   // offices sort control (single dropdown + direction button)
   const officesSortCol = document.getElementById('officesSortColumn');
   const officesSortDirBtn = document.getElementById('officesSortDirBtn');
@@ -555,6 +596,8 @@ $moa = fetch_moa($conn);
      sf.style.display = active && active.getAttribute('data-tab') === 'students' ? 'flex' : 'none';
      const of = document.getElementById('officesFilters');
      if (of) of.style.display = active && active.getAttribute('data-tab') === 'offices' ? 'flex' : 'none';
+     const mf = document.getElementById('moaFilters');
+     if (mf) mf.style.display = active && active.getAttribute('data-tab') === 'moa' ? 'flex' : 'none';
    })();
  
    // initial filter pass so table reflects any default selection / search

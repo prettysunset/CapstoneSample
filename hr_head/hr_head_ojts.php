@@ -995,7 +995,7 @@ if ($moa_q) {
 
         // prefer server-provided school_moa (if hr_actions returned it)
         if (d.school_moa && !attachments.some(a=>a.file === d.school_moa)) {
-          attachments.push({ label: 'MOA (school)', file: d.school_moa });
+          attachments.push({ label: 'MOA', file: d.school_moa });
         }
 
         // fallback: simple deterministic match against embedded MOA rows (logs for debugging)
@@ -1014,7 +1014,7 @@ if ($moa_q) {
               // direct equality or substring match (both directions)
               if (eNorm === sNorm || eNorm.includes(sNorm) || sNorm.includes(eNorm)) {
                 if (!attachments.some(a=>a.file === entry.moa_file)) {
-                  attachments.push({ label: 'MOA (school)', file: entry.moa_file });
+                  attachments.push({ label: 'MOA', file: entry.moa_file });
                   console.log('MOA matched and added:', entry);
                 }
                 break;
