@@ -53,11 +53,11 @@ $stmtOff->close();
     .datetime h2{font-size:22px;color:#2f3850;margin:0}
     .datetime p{color:#6d6d6d;margin:0}
     .table-container{background:#fff;border-radius:8px;padding:16px;box-shadow:0 2px 8px rgba(0,0,0,0.06)}
-    .table-tabs{display:flex;gap:16px;margin-bottom:12px;border-bottom:2px solid #eee}
+    .table-tabs{display:flex;gap:16px;margin-bottom:12px;border-bottom:2px solid #999}
     .table-tabs a{padding:8px 12px;text-decoration:none;color:#555;border-radius:6px}
     .table-tabs a.active{background:#2f3850;color:#fff}
     table{width:100%;border-collapse:collapse;font-size:14px}
-    th,td{padding:10px;border:1px solid #eee;text-align:left}
+    th,td{padding:10px;border:1px solid #999;text-align:left}
     th{background:#f5f6fa}
     .actions{display:flex;gap:8px;justify-content:center}
     .actions button{border:none;background:none;cursor:pointer;font-size:16px}
@@ -73,7 +73,7 @@ $stmtOff->close();
   .controls{display:flex;gap:12px;align-items:center;margin-bottom:12px}
   input[type=date], input[type=text]{padding:10px;border:1px solid #ddd;border-radius:8px}
   .tbl{width:100%;border-collapse:collapse}
-  .tbl th,.tbl td{padding:10px;border:1px solid #eee}
+  .tbl th,.tbl td{padding:10px;border:1px solid #999}
   .tbl thead th{background:#f4f6fb;font-weight:700;color:#333}
   .tbl thead th.left{ text-align:left }
   .tbl thead th.center{ text-align:center }
@@ -333,15 +333,15 @@ $stmtOff->close();
         + '<th class="center" rowspan="2" style="background:#eceff3">Date</th>'
         + '<th class="center" rowspan="2" style="background:#eceff3">Name</th>'
         + '<th class="center" rowspan="2" style="background:#eceff3">School</th>'
-        + '<th class="center" rowspan="2" style="background:#eceff3;border-right:2px solid #000">Course</th>'
+        + '<th class="center" rowspan="2" style="background:#eceff3">Course</th>'
         + '<th class="center" colspan="2" style="background:#eceff3">A.M.</th>'
         + '<th class="center" colspan="2" style="background:#eceff3">P.M.</th>'
         + '<th class="center" rowspan="2" style="background:#eceff3">Hours</th>'
-        + '<th class="center" rowspan="2" style="background:#eceff3;border-right:2px solid #000">Minutes</th>'
+        + '<th class="center" rowspan="2" style="background:#eceff3">Minutes</th>'
         + '<th class="center" rowspan="2" style="background:#eceff3">Office</th>'
         + '</tr>'
         + '<tr>'
-        + '<th class="center" style="background:#eceff3">Arrival</th><th class="center" style="background:#eceff3;border-right:2px solid #000">Departure</th><th class="center" style="background:#eceff3">Arrival</th><th class="center" style="background:#eceff3;border-right:2px solid #000">Departure</th>'
+        + '<th class="center" style="background:#eceff3">Arrival</th><th class="center" style="background:#eceff3">Departure</th><th class="center" style="background:#eceff3">Arrival</th><th class="center" style="background:#eceff3">Departure</th>'
         + '</tr>'
         + '</thead>';
      }

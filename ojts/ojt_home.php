@@ -173,6 +173,28 @@ if ($student_id) {
     }
     $q->close();
 }
+
+// --- NEW: load personal daily logs for the logged-in student
+$daily_logs = [];
+$start_date = $_GET['start_date'] ?? date('Y-m-d', strtotime('-30 days'));
+$end_date_filter = $_GET['end_date'] ?? date('Y-m-d');
+// ensure start_date <= end_date_filter
+if ($start_date > $end_date_filter) {
+    $temp = $start_date;
+    $start_date = $end_date_filter;
+    $end_date_filter = $temp;
+}
+if (!empty($student_id)) {
+    $query = "SELECT log_date, am_in, am_out, pm_in, pm_out, hours, minutes FROM dtr WHERE student_id = ? AND log_date BETWEEN ? AND ? ORDER BY log_date DESC LIMIT 500";
+    $sld = $conn->prepare($query);
+    $sld->bind_param("iss", $student_id, $start_date, $end_date_filter);
+    $sld->execute();
+    $res_logs = $sld->get_result();
+    while ($lr = $res_logs->fetch_assoc()) {
+        $daily_logs[] = $lr;
+    }
+    $sld->close();
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -223,7 +245,7 @@ if ($student_id) {
       flex-direction: row;
       justify-content: space-between;
       /* increased top padding so main content (including DTR) sits below the top icons */
-      padding: 56px 32px 28px;
+      padding: 100px 32px 28px;
       height: 100vh;
       align-items: stretch;
       gap: 20px;
@@ -239,13 +261,39 @@ if ($student_id) {
       gap: 20px;
       overflow: hidden;
     }
-    .progress-container { background: #e8e9ef; border-radius: 14px; display: flex; align-items: center; padding: 14px; }
+    .progress-container { background: white; border-radius: 14px; display: flex; align-items: center; padding: 14px; }
     .progress-circle { width: 88px; height: 88px; border-radius: 50%; background: conic-gradient(#4b6cb7 <?php echo $percent; ?>%, #d6d6d6 0); display: flex; align-items: center; justify-content: center; font-weight: bold; color: #333; font-size: 18px; margin-right: 18px; }
-    .progress-details { font-size: 14px; }
+    .progress-details { font-size: 16px; }
 
     .datetime { text-align: left; margin-bottom: 0; }
     .datetime h1 { font-size: 16px; font-weight: 500; margin-bottom: 2px; }
     .datetime h2 { font-size: 20px; font-weight: 700; }
+
+    /* Daily logs table */
+    .logs-container {
+      width: 100%;              /* full width of the parent (.left-content) */
+      max-width: none;
+      box-sizing: border-box;   /* include padding in width */
+      background: #fff;
+      border-radius: 12px;
+      padding: 12px;
+      margin-top: 18px;
+      box-shadow: 0 6px 18px rgba(15,23,42,0.06);
+      border: 1px solid #e6e6e6;
+      overflow: auto;
+    }
+    .logs-container h3 { margin:0 0 8px 0; font-size:16px; color:#2f3459; font-weight:700; }
+    .logs-table { width:100%; border-collapse:collapse; font-size:13px; }
+    .logs-table thead th {
+      background:#f1f3f6; color:#2f3459; padding:8px; text-align:center;
+      border:1px solid #999; font-weight:600; font-size:14px;
+    }
+    .logs-table tbody td { padding:8px; border:1px solid #999; text-align:center; color:#333; }
+    .logs-table tbody td.left { text-align:left; padding-left:12px; }
+    .no-logs { padding:16px; text-align:center; color:#666; }
+    @media (max-width:900px){
+      .logs-container { width:100%; margin-left: 8px; margin-right: 8px; }
+    }
   </style>
 </head>
 <body>
@@ -264,7 +312,7 @@ if ($student_id) {
   </div>
 
   <!-- top-left datetime -->
-  <div class="datetime" style="position:fixed;top:18px;left:248px;z-index:1200;">
+  <div class="datetime" style="position:fixed;top:28px;left:248px;z-index:1200;">
     <h1 id="clock"><?php echo date("h:i A"); ?></h1>
     <h2><?php echo date("l, F d, Y"); ?></h2>
   </div>
@@ -348,9 +396,53 @@ if ($student_id) {
           Expected End Date: <b><?php echo $end_date; ?></b>
         </div>
       </div>
+
+      <!-- Daily Logs (shows only logs for the logged-in student) -->
+      <div class="logs-container" aria-live="polite">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <h3 style="margin: 0;">Daily Logs</h3>
+          <form method="GET" style="display: flex; gap: 8px; align-items: center;">
+            <label for="start_date" style="font-size: 14px;">From:</label>
+            <input type="date" id="start_date" name="start_date" value="<?php echo htmlspecialchars($start_date); ?>" onchange="this.form.submit()" style="padding: 4px; border: 1px solid #ccc; border-radius: 4px;">
+            <label for="end_date" style="font-size: 14px;">To:</label>
+            <input type="date" id="end_date" name="end_date" value="<?php echo htmlspecialchars($end_date_filter); ?>" onchange="this.form.submit()" style="padding: 4px; border: 1px solid #ccc; border-radius: 4px;">
+          </form>
+        </div>
+        <?php if (!empty($daily_logs)): ?>
+          <table class="logs-table" role="table" aria-label="Daily logs">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>A.M. In</th>
+                <th>A.M. Out</th>
+                <th>P.M. In</th>
+                <th>P.M. Out</th>
+                <th>Hours</th>
+                <th>Minutes</th>
+              </tr>
+            </thead>
+            <tbody>
+              <?php foreach ($daily_logs as $r): ?>
+                <tr>
+                  <td class="left"><?php echo htmlspecialchars(date('F j, Y', strtotime($r['log_date']))); ?></td>
+                  <td><?php echo htmlspecialchars(($r['am_in'] && $r['am_in'] !== '') ? $r['am_in'] : '-'); ?></td>
+                  <td><?php echo htmlspecialchars(($r['am_out'] && $r['am_out'] !== '') ? $r['am_out'] : '-'); ?></td>
+                  <td><?php echo htmlspecialchars(($r['pm_in'] && $r['pm_in'] !== '') ? $r['pm_in'] : '-'); ?></td>
+                  <td><?php echo htmlspecialchars(($r['pm_out'] && $r['pm_out'] !== '') ? $r['pm_out'] : '-'); ?></td>
+                  <td><?php echo (int)$r['hours']; ?></td>
+                  <td><?php echo (int)$r['minutes']; ?></td>
+                </tr>
+              <?php endforeach; ?>
+            </tbody>
+          </table>
+        <?php else: ?>
+          <div class="no-logs">Wala pang daily log entries.</div>
+        <?php endif; ?>
+      </div>
+
     </div>
   </div>
-
+  
   <script>
     function updateClock() {
       const now = new Date();

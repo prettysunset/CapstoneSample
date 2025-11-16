@@ -118,6 +118,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $dtr = $q->get_result()->fetch_assoc();
         $q->close();
 
+        // check if this is the first time-in ever for this student (no prior DTR records)
+        $isFirstTimeIn = false;
+        $checkFirst = $conn->prepare("SELECT COUNT(*) AS cnt FROM dtr WHERE student_id = ?");
+        $checkFirst->bind_param('i', $student_id);
+        $checkFirst->execute();
+        $firstRes = $checkFirst->get_result()->fetch_assoc();
+        $checkFirst->close();
+        if ($firstRes && (int)$firstRes['cnt'] === 0) {
+            $isFirstTimeIn = true;
+        }
+
         // ---------- Validation rules ----------
         // parse click timestamp (flexible: "H:i:s" or "H:i")
         try {
@@ -299,6 +310,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $ins->execute();
                 $ins->close();
             }
+
+            // if this is the first time-in ever, update statuses to 'ongoing'
+            if ($isFirstTimeIn) {
+                $updUser = $conn->prepare("UPDATE users SET status = 'ongoing' WHERE user_id = ?");
+                $updUser->bind_param('i', $user['user_id']);
+                $updUser->execute();
+                $updUser->close();
+
+                $updStudent = $conn->prepare("UPDATE students SET status = 'ongoing' WHERE student_id = ?");
+                $updStudent->bind_param('i', $student_id);
+                $updStudent->execute();
+                $updStudent->close();
+
+                $updApp = $conn->prepare("UPDATE ojt_applications SET status = 'ongoing' WHERE student_id = ?");
+                $updApp->bind_param('i', $student_id);
+                $updApp->execute();
+                $updApp->close();
+            }
+
             $conn->commit();
             json_resp(['success'=>true,'message'=>'Time in recorded','time'=>$now]);
         }
