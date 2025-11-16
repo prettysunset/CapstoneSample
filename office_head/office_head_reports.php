@@ -93,7 +93,6 @@ $stmt->close();
 <meta charset="utf-8">
 <title>Office Head — Reports</title>
 <style>
-<style>
   body{font-family:'Poppins',sans-serif;margin:0;background:#f5f6fa;color:#2f3459}
   .sidebar{width:220px;background:#2f3459;height:100vh;position:fixed;color:#fff;padding-top:30px}
   .main{margin-left:240px;padding:28px}
@@ -136,8 +135,28 @@ $stmt->close();
   td{padding:14px;border-bottom:1px solid #f0f2f7}
   .date-badge{display:inline-block;padding:6px 10px;border-radius:12px;background:#f4f6fa;font-size:13px;color:#5b606f}
   .small-pill{background:#f0f3ff;color:#2f3850;padding:6px 10px;border-radius:12px;font-weight:700;text-align:center;display:inline-block}
-  .top-icons{position:fixed;top:18px;right:28px;display:flex;gap:12px;z-index:900} /* below sidebar */
+  /* match DTR top icons placement (inside .main, aligned to its right edge) */
+  #top-icons {
+    display: flex;
+    justify-content: flex-end;
+    gap: 14px;
+    align-items: center;
+    margin: 8px 0 12px 0;
+    z-index: 50;
+    width: 100%;
+    box-sizing: border-box;
+  }
   @media(max-width:900px){ .main{padding:16px} .search{width:160px} .sidebar{display:none} .main{margin-left:16px} }
+
+  /* header: raise title a bit and put tabs/controls on next line */
+  .card-header{ display:flex; flex-direction:column; gap:8px; align-items:stretch; }
+  .card-header .title{ align-self:flex-start; transform: translateY(-6px); }
+  .card-header .row{ display:flex; gap:12px; align-items:center; width:100%; }
+  .card-header .row .tabs-row{ flex:1; margin:0; }
+  @media(max-width:700px){
+    .card-header .row{ flex-direction:column; align-items:stretch; }
+    .card-header .title{ transform:none; }
+  }
 </style>
 </head>
 <body>
@@ -207,25 +226,30 @@ $current = basename($_SERVER['SCRIPT_NAME']);
   <div style="position:absolute;bottom:20px;width:100%;text-align:center;font-weight:700;padding-bottom:6px">OJT-MS</div>
 </div>
 
-<div class="top-icons">
-  <a id="btnNotif" href="notifications.php" title="Notifications" style="width:40px;height:40px;display:inline-flex;align-items:center;justify-content:center;border-radius:8px;background:#fff;color:#2f3459;text-decoration:none">🔔</a>
-  <a id="btnSettings" href="settings.php" title="Settings" style="width:40px;height:40px;display:inline-flex;align-items:center;justify-content:center;border-radius:8px;background:#fff;color:#2f3459;text-decoration:none">⚙️</a>
-  <a id="btnLogout" href="../logout.php" title="Logout" style="width:40px;height:40px;display:inline-flex;align-items:center;justify-content:center;border-radius:8px;background:#fff;color:#2f3459;text-decoration:none">⤴️</a>
-</div>
-
 <div class="main">
-  <div class="card">
-    <div style="display:flex;align-items:center;">
-      <div>
-        <h3 style="margin:0">Reports</h3>
-        <div style="color:#6b6f8b;font-size:13px;margin-top:6px">All OJTs under <?= htmlspecialchars($office_display) ?></div>
-      </div>
+  <!-- top-right outline icons: notifications, settings, logout (matched to office_head_dtr.php) -->
+  <div id="top-icons">
+      <a id="btnNotif" href="notifications.php" title="Notifications" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 17h5l-1.405-1.405A2.032 2.032 0 0 1 18 14.158V11a6 6 0 1 0-12 0v3.159c0 .538-.214 1.055-.595 1.436L4 17h5"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
+      </a>
+      <a id="btnSettings" href="settings.php" title="Settings" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82L4.3 4.46a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09c0 .64.38 1.2 1 1.51h.09a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.64.3 1.03.87 1.03 1.51V12c0 .64-.39 1.21-1.03 1.51z"></path></svg>
+      </a>
+      <a id="btnLogout" href="../logout.php" title="Logout" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+      </a>
+  </div>
 
-      <div class="tabs-row">
-        <?php $current = basename($_SERVER['SCRIPT_NAME']); ?>
-        <a class="tab-pill <?= $current === 'office_head_reports.php' ? 'active' : '' ?>" href="office_head_reports.php">ALL OJTS</a>
-        <span class="tab-pill disabled" title="Open DTR page to view daily logs">DTR</span>
-        <span class="tab-pill disabled" title="Open Late DTR page to view late submissions">LATE DTR</span>
+  <div class="card">
+    <div class="card-header">
+      <div class="title"><h3 style="margin:0">Reports</h3></div>
+      <div class="row">
+        <div class="tabs-row" style="flex:1">
+          <!-- tabs are client-side only (no navigation) -->
+          <button class="tab-pill active" data-tab="ojts" type="button">OJTs</button>
+          <button class="tab-pill" data-tab="dtr" type="button">DTR</button>
+          <button class="tab-pill" data-tab="requests" type="button">Office Requests</button>
+        </div>
 
         <div class="controls">
           <input id="searchInput" class="search" placeholder="Search" />
@@ -243,52 +267,98 @@ $current = basename($_SERVER['SCRIPT_NAME']);
       </div>
     </div>
 
-    <div style="overflow:auto">
-      <table id="tblAll">
-        <thead>
-          <tr>
-            <th>NAME</th>
-            <th>SCHOOL</th>
-            <th>COURSE</th>
-            <th>DATE STARTED</th>
-            <th>EXPECTED END DATE</th>
-            <th>HOURS RENDERED</th>
-            <th>REQUIRED HOURS</th>
-            <th>PROGRESS</th>
-            <th>LATE DTR</th>
-          </tr>
-        </thead>
-        <tbody id="allBody">
-          <?php if (empty($ojts)): ?>
-            <tr><td colspan="9" style="text-align:center;color:#8a8f9d;padding:18px">No OJTs found for your office.</td></tr>
-          <?php else: foreach ($ojts as $o): ?>
-            <tr data-name="<?= htmlspecialchars(strtolower(trim($o['first_name'].' '.$o['last_name']))) ?>" data-school="<?= htmlspecialchars(strtolower($o['school'])) ?>" data-course="<?= htmlspecialchars(strtolower($o['course'])) ?>">
-              <td><?= htmlspecialchars(trim($o['first_name'].' '.$o['last_name'])) ?></td>
-              <td><?= htmlspecialchars($o['school'] ?: '-') ?></td>
-              <td><?= htmlspecialchars($o['course'] ?: '-') ?></td>
-              <td><?php echo $o['date_started'] ? '<span class="date-badge">'.date('M d, Y', strtotime($o['date_started'])).'</span>' : '-'; ?></td>
-              <td><?php echo $o['expected_end_date'] ? '<span class="date-badge">'.date('M d, Y', strtotime($o['expected_end_date'])).'</span>' : '-'; ?></td>
-              <td style="text-align:center"><?= (int)$o['hours_rendered'] ?></td>
-              <td style="text-align:center"><?= (int)$o['total_hours_required'] ?></td>
-              <td style="text-align:center"><?= is_numeric($o['progress']) ? (int)$o['progress'].'%' : '-' ?></td>
-              <td style="text-align:center"><span class="small-pill"><?= (int)$o['late_count'] ?></span></td>
+    <!-- PANEL: OJTs (default) -->
+    <div id="panel-ojts" class="panel" style="display:block">
+      <div style="overflow:auto">
+        <table id="tblAll">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>School</th>
+              <th>Course</th>
+              <th>Progress</th>
+              <th>Estimated End Date</th>
             </tr>
-          <?php endforeach; endif; ?>
-        </tbody>
-      </table>
+          </thead>
+          <tbody id="allBody">
+            <?php if (empty($ojts)): ?>
+              <tr><td colspan="5" style="text-align:center;color:#8a8f9d;padding:18px">No OJTs found for your office.</td></tr>
+            <?php else: foreach ($ojts as $o): ?>
+              <tr data-name="<?= htmlspecialchars(strtolower(trim($o['first_name'].' '.$o['last_name']))) ?>" data-school="<?= htmlspecialchars(strtolower($o['school'])) ?>" data-course="<?= htmlspecialchars(strtolower($o['course'])) ?>">
+                <td><?= htmlspecialchars(trim($o['first_name'].' '.$o['last_name'])) ?></td>
+                <td><?= htmlspecialchars($o['school'] ?: '-') ?></td>
+                <td><?= htmlspecialchars($o['course'] ?: '-') ?></td>
+                <td style="text-align:center"><?= is_numeric($o['progress']) ? (int)$o['progress'].'%' : '-' ?></td>
+                <td><?php echo $o['expected_end_date'] ? '<span class="date-badge">'.date('M d, Y', strtotime($o['expected_end_date'])).'</span>' : '-'; ?></td>
+              </tr>
+            <?php endforeach; endif; ?>
+          </tbody>
+        </table>
+      </div>
     </div>
 
+    <!-- PANEL: DTR -->
+    <div id="panel-dtr" class="panel" style="display:none">
+      <div style="overflow:auto">
+        <table id="dailyTable">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Name</th>
+              <th>School</th>
+              <th>Course</th>
+              <th>A.M. Arrival</th>
+              <th>A.M. Departure</th>
+              <th>P.M. Arrival</th>
+              <th>P.M. Departure</th>
+              <th>Hours</th>
+              <th>Minutes</th>
+            </tr>
+          </thead>
+          <tbody id="dtrBody">
+            <tr><td colspan="10" style="text-align:center;color:#8a8f9d;padding:18px">No logs loaded.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- PANEL: Office Requests -->
+    <div id="panel-requests" class="panel" style="display:none">
+      <div style="overflow:auto">
+        <table id="requestsTable">
+          <thead>
+            <tr>
+              <th>Date Requested</th>
+              <th>Requested Limit</th>
+              <th>Reason</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="requestsBody">
+            <tr><td colspan="4" style="text-align:center;color:#8a8f9d;padding:18px">No requests found.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
   </div>
 </div>
 
 <script>
 (function(){
+  // client-side tabs (no navigation)
   const tabs = document.querySelectorAll('.tab-pill');
-  function switchTo(tab){
-    tabs.forEach(t=>t.classList.toggle('active', t.dataset.tab===tab));
-    document.querySelectorAll('.panel').forEach(p=>p.style.display = p.id === 'panel-'+tab ? 'block' : 'none');
+  const panels = {
+    ojts: document.getElementById('panel-ojts'),
+    dtr: document.getElementById('panel-dtr'),
+    requests: document.getElementById('panel-requests')
+  };
+  function switchTab(name){
+    tabs.forEach(t=>t.classList.toggle('active', t.dataset.tab===name));
+    Object.keys(panels).forEach(k=>{
+      panels[k].style.display = k === name ? 'block' : 'none';
+    });
   }
-  tabs.forEach(t=>t.addEventListener('click', ()=>switchTo(t.dataset.tab)));
+  tabs.forEach(t=> t.addEventListener('click', ()=> switchTab(t.dataset.tab)));
 
   // search filter for ALL OJTs table
   const search = document.getElementById('searchInput');
@@ -309,6 +379,8 @@ $current = basename($_SERVER['SCRIPT_NAME']);
     window.location.href = url.toString();
   });
 
+  // DTR search removed (search input was removed from the DTR panel)
+ 
   // export button placeholder
   document.getElementById('btnExport').addEventListener('click', function(){
     alert('Export not implemented — will export current table to CSV when enabled.');

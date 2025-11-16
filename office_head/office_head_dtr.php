@@ -16,6 +16,95 @@ $su->close();
 $display_name = trim(($u['first_name']??'').' '.($u['last_name']??'')) ?: 'Office Head';
 $office_name = $u['office_name'] ?? '';
 $office_display = preg_replace('/\s+Office\s*$/i','',$office_name ?: 'Unknown Office');
+
+// AJAX handler (responds to POST JSON { action: 'get_daily_logs', start_date, end_date })
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $input = json_decode(file_get_contents('php://input'), true) ?? $_POST;
+    if (($input['action'] ?? '') === 'get_daily_logs') {
+        header('Content-Type: application/json; charset=utf-8');
+        $start = $input['start_date'] ?? $input['date'] ?? '';
+        $end   = $input['end_date'] ?? $start;
+        if (!$start) {
+            echo json_encode(['success'=>false,'error'=>'Missing start date']);
+            exit;
+        }
+        $start = date('Y-m-d', strtotime($start));
+        $end   = date('Y-m-d', strtotime($end));
+
+        // Query: dtr.student_id -> users.user_id, join students ON students.user_id = users.user_id to get student details
+        $sql = "
+          SELECT d.dtr_id,
+                 d.log_date,
+                 d.am_in,
+                 d.am_out,
+                 d.pm_in,
+                 d.pm_out,
+                 d.hours,
+                 d.minutes,
+                 u.user_id,
+                 COALESCE(s.first_name, u.first_name, '') AS first_name,
+                 COALESCE(s.last_name,  u.last_name,  '') AS last_name,
+                 COALESCE(s.college,'') AS school,
+                 COALESCE(s.course,'') AS course
+          FROM dtr d
+          JOIN users u ON u.user_id = d.student_id
+          LEFT JOIN students s ON s.user_id = u.user_id
+          WHERE u.role = 'ojt'
+            AND u.office_name LIKE ?
+            AND d.log_date BETWEEN ? AND ?
+          ORDER BY d.log_date DESC, COALESCE(s.last_name,u.last_name), COALESCE(s.first_name,u.first_name)
+        ";
+        $like = '%' . $office_name . '%';
+        $stmt = $conn->prepare($sql);
+        if (!$stmt) {
+            echo json_encode(['success'=>false,'error'=>$conn->error]);
+            exit;
+        }
+        $stmt->bind_param('sss', $like, $start, $end);
+        $stmt->execute();
+        $res = $stmt->get_result();
+        $rows = [];
+
+        // helper: compute minutes between two times on given date (returns 0 if invalid)
+        $minutes_between = function($date, $t1, $t2){
+            $t1 = trim((string)$t1);
+            $t2 = trim((string)$t2);
+            if ($t1 === '' || $t2 === '') return 0;
+            $dt1 = strtotime($date . ' ' . $t1);
+            $dt2 = strtotime($date . ' ' . $t2);
+            if ($dt1 === false || $dt2 === false) return 0;
+            $diff = $dt2 - $dt1;
+            return $diff > 0 ? (int)floor($diff / 60) : 0;
+        };
+
+        while ($r = $res->fetch_assoc()) {
+            // calculate total minutes from AM and PM pairs
+            $date = $r['log_date'] ?? '';
+            $am_min = $minutes_between($date, $r['am_in'] ?? '', $r['am_out'] ?? '');
+            $pm_min = $minutes_between($date, $r['pm_in'] ?? '', $r['pm_out'] ?? '');
+            $total_min = $am_min + $pm_min;
+
+            // cap to 8 hours (480 minutes)
+            if ($total_min > 480) $total_min = 480;
+
+            $hours = intdiv($total_min, 60);
+            $minutes = $total_min % 60;
+
+            // override/normalize fields sent to client
+            $r['hours'] = $hours;
+            $r['minutes'] = $minutes;
+
+            $rows[] = $r;
+        }
+        $stmt->close();
+        echo json_encode(['success'=>true,'data'=>$rows,'start'=>$start,'end'=>$end]);
+        exit;
+    }
+}
+
+// defaults: last 7 days
+$default_end = date('Y-m-d');
+$default_start = date('Y-m-d', strtotime('-6 days', strtotime($default_end)));
 ?>
 <!doctype html>
 <html>
@@ -69,6 +158,8 @@ $office_display = preg_replace('/\s+Office\s*$/i','',$office_name ?: 'Unknown Of
 
   /* table small adjustments used by render */
   .center{text-align:center}
+  input[type="date"]{padding:8px;border:1px solid #e6e9f2;border-radius:8px}
+  .small-note{color:#6b7180;font-size:13px}
 </style>
 </head>
 <body>
@@ -140,7 +231,7 @@ $user_name = $display_name ?? 'Office Head';
   <div class="card">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
       <div style="display:flex;gap:12px;align-items:center">
-        <!-- calendar removed -->
+        <div class="small-note">Showing DTR for OJTs assigned to: <strong><?= htmlspecialchars($office_display) ?></strong></div>
       </div>
     </div>
 
@@ -150,27 +241,33 @@ $user_name = $display_name ?? 'Office Head';
 
     <div id="panel-daily" class="panel" style="display:block">
       <div class="controls" style="margin-bottom:8px">
-        <input id="searchDaily" type="text" placeholder="Search name / school / course" style="flex:1;padding:10px;border-radius:8px;border:1px solid #ddd" />
+        <label for="startDate" class="small-note" style="margin-right:6px">Start</label>
+        <input id="startDate" type="date" value="<?= htmlspecialchars($default_start) ?>" />
+        <label for="endDate" class="small-note" style="margin-left:8px;margin-right:6px">End</label>
+        <input id="endDate" type="date" value="<?= htmlspecialchars($default_end) ?>" />
+
+        <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+          <input id="searchDaily" type="text" placeholder="Search name / school / course" style="padding:10px;border-radius:8px;border:1px solid #ddd" />
+        </div>
       </div>
       <div style="overflow:auto">
         <table id="dailyTable">
           <thead>
             <tr>
-              <th class="center">DATE</th>
-              <th>NAME</th>
-              <th>SCHOOL</th>
-              <th>COURSE</th>
-              <th class="center">A.M. ARRIVAL</th>
-              <th class="center">A.M. DEPARTURE</th>
-              <th class="center">P.M. ARRIVAL</th>
-              <th class="center">P.M. DEPARTURE</th>
-              <th class="center">HOURS</th>
-              <th class="center">MINUTES</th>
-              <th>OFFICE</th>
+              <th class="center">Date</th>
+              <th>Name</th>
+              <th>School</th>
+              <th>Course</th>
+              <th class="center">A.M. Arrival</th>
+              <th class="center">A.M. Departure</th>
+              <th class="center">P.M. Arrival</th>
+              <th class="center">P.M. Departure</th>
+              <th class="center">Hours</th>
+              <th class="center">Minutes</th>
             </tr>
           </thead>
           <tbody id="dtrBody">
-            <tr><td colspan="11" style="text-align:center;color:#8a8f9d;padding:18px">Loading…</td></tr>
+            <tr><td colspan="10" style="text-align:center;color:#8a8f9d;padding:18px">Loading…</td></tr>
           </tbody>
         </table>
       </div>
@@ -181,21 +278,21 @@ $user_name = $display_name ?? 'Office Head';
 
 <script>
 (function(){
-  /* underline removed; no tab animation */
-  const initialDate = '<?= date('Y-m-d') ?>';
-   const dtrBody = document.getElementById('dtrBody');
-   const searchDaily = document.getElementById('searchDaily');
+  const dtrBody = document.getElementById('dtrBody');
+  const searchDaily = document.getElementById('searchDaily');
+  const startDateInp = document.getElementById('startDate');
+  const endDateInp = document.getElementById('endDate');
 
   function renderDaily(rows){
     dtrBody.innerHTML = '';
     if (!rows || rows.length === 0) {
-      dtrBody.innerHTML = '<tr><td colspan="11" style="text-align:center;color:#8a8f9d;padding:18px">No records found.</td></tr>';
+      dtrBody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:#8a8f9d;padding:18px">No records found.</td></tr>';
       return;
     }
     rows.forEach(r=>{
       const tr = document.createElement('tr');
       const name = ((r.first_name||'')+' '+(r.last_name||'')).trim();
-      tr.setAttribute('data-search', ((name)+' '+(r.school||'')+' '+(r.course||'')+' '+(r.office||'')).toLowerCase());
+      tr.setAttribute('data-search', ((name)+' '+(r.school||'')+' '+(r.course||'')).toLowerCase());
       tr.innerHTML = '<td class="center">'+ (r.log_date||'') +'</td>'
                    + '<td>'+ (name||'') +'</td>'
                    + '<td>'+ (r.school||'-') +'</td>'
@@ -204,41 +301,63 @@ $user_name = $display_name ?? 'Office Head';
                    + '<td class="center">'+ (r.am_out||'-') +'</td>'
                    + '<td class="center">'+ (r.pm_in||'-') +'</td>'
                    + '<td class="center">'+ (r.pm_out||'-') +'</td>'
-                   + '<td class="center">'+ (r.hours||'-') +'</td>'
-                   + '<td class="center">'+ (r.minutes||'-') +'</td>'
-                   + '<td>'+ (r.office||'-') +'</td>';
+                   + '<td class="center">'+ (r.hours !== undefined ? r.hours : '-') +'</td>'
+                   + '<td class="center">'+ (r.minutes !== undefined ? r.minutes : '-') +'</td>';
       dtrBody.appendChild(tr);
     });
   }
 
-  async function fetchDaily(date){
-    dtrBody.innerHTML = '<tr><td colspan="11" style="text-align:center;color:#8a8f9d;padding:18px">Loading…</td></tr>';
+  async function fetchDailyRange(start, end){
+    dtrBody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:#8a8f9d;padding:18px">Loading…</td></tr>';
     try {
-      const res = await fetch('office_head_action.php', {
+      const res = await fetch('office_head_dtr.php', {
         method:'POST',
         headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ action: 'get_daily_logs', date: date })
+        body: JSON.stringify({ action: 'get_daily_logs', start_date: start, end_date: end })
       });
       const j = await res.json();
       if (j && j.success) renderDaily(j.data || []); else renderDaily([]);
     } catch(e){ console.error(e); renderDaily([]); }
   }
 
-  // search filter
+  // helper to validate dates and load automatically
+  function loadIfValid() {
+    const s = startDateInp.value;
+    const e = endDateInp.value;
+    if (!s || !e) return;
+    if (s > e) {
+      // show a small client-side alert and do not request
+      alert('Start date must be before or equal to end date');
+      return;
+    }
+    fetchDailyRange(s, e);
+  }
+
+  // auto-load when either date changes (no Load button)
+  startDateInp.addEventListener('change', loadIfValid);
+  endDateInp.addEventListener('change', loadIfValid);
+
+  // search filter (client-side)
   searchDaily.addEventListener('input', function(){
     const q = (this.value||'').toLowerCase().trim();
-    document.querySelectorAll('#dtrBody tr').forEach(r=> r.style.display = (r.getAttribute('data-search')||'').indexOf(q)===-1 ? 'none' : '');
+    document.querySelectorAll('#dtrBody tr').forEach(r=> {
+      const hay = (r.getAttribute('data-search')||'');
+      r.style.display = q === '' || hay.indexOf(q) !== -1 ? '' : 'none';
+    });
   });
 
-  // initial fetch using server date (calendar removed)
-  fetchDaily(initialDate);
+  // initial fetch using defaults rendered by PHP
+  (function init(){
+    const s = startDateInp.value;
+    const e = endDateInp.value;
+    if (s && e) fetchDailyRange(s, e);
+  })();
 
   // confirm logout (top-right)
   (function(){
     const logout = document.getElementById('btnLogout');
     if (!logout) return;
     logout.addEventListener('click', function(e){
-      // allow default navigation; keep simple confirmation
       if (!confirm('Are you sure you want to logout?')) e.preventDefault();
     });
   })();
