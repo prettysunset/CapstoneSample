@@ -68,23 +68,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (!empty($_SERVER['HTTP_X_REQUESTED_
         // count ongoing (status = 'active') and approved (status = 'approved')
         $cntActive = 0;
         $cntApproved = 0;
-
-        $s1 = $conn->prepare("SELECT COUNT(*) AS c FROM users WHERE role = 'ojt' AND office_name = ? AND status = 'active'");
+ 
+        // count ongoing = users.status = 'ongoing' and approved = 'approved'
+        $s1 = $conn->prepare("SELECT COUNT(*) AS c FROM users WHERE role = 'ojt' AND LOWER(TRIM(office_name)) LIKE ? AND status = 'ongoing'");
         if ($s1) {
-            $s1->bind_param('s', $officeName);
+            $like = '%' . mb_strtolower(trim($officeName)) . '%';
+            $s1->bind_param('s', $like);
             $s1->execute();
             $cntActive = (int)($s1->get_result()->fetch_assoc()['c'] ?? 0);
             $s1->close();
         }
-
-        $s2 = $conn->prepare("SELECT COUNT(*) AS c FROM users WHERE role = 'ojt' AND office_name = ? AND status = 'approved'");
+ 
+        $s2 = $conn->prepare("SELECT COUNT(*) AS c FROM users WHERE role = 'ojt' AND LOWER(TRIM(office_name)) LIKE ? AND status = 'approved'");
         if ($s2) {
-            $s2->bind_param('s', $officeName);
+            $s2->bind_param('s', $like);
             $s2->execute();
             $cntApproved = (int)($s2->get_result()->fetch_assoc()['c'] ?? 0);
             $s2->close();
         }
-
+ 
         $occupied = $cntActive + $cntApproved;
         if ($new_limit < $occupied) {
             http_response_code(400);
@@ -233,26 +235,39 @@ $completed_ojts = 0;
 
 $office_name_for_query = $office['office_name'] ?? '';
 if (!empty($office_name_for_query)) {
-    // Approved
-    $s1 = $conn->prepare("SELECT COUNT(*) AS total FROM users WHERE role = 'ojt' AND office_name = ? AND status = 'approved'");
-    $s1->bind_param('s', $office_name_for_query);
-    $s1->execute();
-    $approved_ojts = (int)($s1->get_result()->fetch_assoc()['total'] ?? 0);
-    $s1->close();
+    // resolve a normalized LIKE param for office_name to avoid whitespace/case mismatches
+    $officeNameForQuery = trim((string)($office['office_name'] ?? ''));
+    $officeLike = '%' . mb_strtolower($officeNameForQuery) . '%';
 
-    // Ongoing
-    $s2 = $conn->prepare("SELECT COUNT(*) AS total FROM users WHERE role = 'ojt' AND office_name = ? AND status = 'ongoing'");
-    $s2->bind_param('s', $office_name_for_query);
-    $s2->execute();
-    $ongoing_ojts = (int)($s2->get_result()->fetch_assoc()['total'] ?? 0);
-    $s2->close();
+    // Approved OJTs (users.role = 'ojt' AND users.status = 'approved')
+    $approved_ojts = 0;
+    $s1 = $conn->prepare("SELECT COUNT(*) AS total FROM users WHERE role = 'ojt' AND LOWER(TRIM(office_name)) LIKE ? AND status = 'approved'");
+    if ($s1) {
+        $s1->bind_param('s', $officeLike);
+        $s1->execute();
+        $approved_ojts = (int)($s1->get_result()->fetch_assoc()['total'] ?? 0);
+        $s1->close();
+    }
 
-    // Completed: treat users.status = 'completed' or 'inactive' as completed OJTs
-    $s3 = $conn->prepare("SELECT COUNT(*) AS total FROM users WHERE role = 'ojt' AND office_name = ? AND status IN ('completed','inactive')");
-    $s3->bind_param('s', $office_name_for_query);
-    $s3->execute();
-    $completed_ojts = (int)($s3->get_result()->fetch_assoc()['total'] ?? 0);
-    $s3->close();
+    // Ongoing OJTs (users.role = 'ojt' AND users.status = 'ongoing')
+    $ongoing_ojts = 0;
+    $s2 = $conn->prepare("SELECT COUNT(*) AS total FROM users WHERE role = 'ojt' AND LOWER(TRIM(office_name)) LIKE ? AND status = 'ongoing'");
+    if ($s2) {
+        $s2->bind_param('s', $officeLike);
+        $s2->execute();
+        $ongoing_ojts = (int)($s2->get_result()->fetch_assoc()['total'] ?? 0);
+        $s2->close();
+    }
+
+    // Completed OJTs (treat 'completed' and 'inactive' as completed)
+    $completed_ojts = 0;
+    $s3 = $conn->prepare("SELECT COUNT(*) AS total FROM users WHERE role = 'ojt' AND LOWER(TRIM(office_name)) LIKE ? AND status IN ('completed','inactive')");
+    if ($s3) {
+        $s3->bind_param('s', $officeLike);
+        $s3->execute();
+        $completed_ojts = (int)($s3->get_result()->fetch_assoc()['total'] ?? 0);
+        $s3->close();
+    }
 }
 
 // compute available slots using offices.current_limit minus (ongoing + approved)
@@ -261,24 +276,14 @@ $available_slots = max($curLimit - ($ongoing_ojts + $approved_ojts), 0);
 // --- end replacement ---
 
 // counts (use correct role/status values from your schema)
-$office_name_for_query = $office['office_name'] ?? '';
+// --- REPLACED: remove duplicate queries and use the authoritative counts computed above ---
 
-// Active OJTs - users.role = 'ojt', users.status = 'active'
-$active_ojts = 0;
-$stmt = $conn->prepare("SELECT COUNT(*) AS total FROM users WHERE role = 'ojt' AND status = 'active' AND office_name = ?");
-$stmt->bind_param("s", $office_name_for_query);
-$stmt->execute();
-$active_ojts = (int)$stmt->get_result()->fetch_assoc()['total'];
-$stmt->close();
-
-// Completed OJTs - if you track completed in students table use students.status = 'completed' else users.status
-$completed_ojts = 0;
-$s2 = $conn->prepare("SELECT COUNT(*) AS total FROM users WHERE role = 'ojt' AND status = 'inactive' AND office_name = ?");
-$s2->bind_param("s", $office_name_for_query);
-$s2->execute();
-$completed_ojts = (int)$s2->get_result()->fetch_assoc()['total'];
-$s2->close();
-
+// Use the authoritative counts calculated earlier:
+// ongoing_ojts and approved_ojts were computed using case-insensitive LIKE on office_name
+// expose ongoing as active_ojts for UI consistency
+$active_ojts = $ongoing_ojts;
+// $completed_ojts was already computed above (statuses 'completed','inactive')
+ 
 // Pending student applications: count pending ojt_applications where this office is chosen
 // Rule:
 //  - Always count when this office is the 1st choice.
@@ -592,7 +597,6 @@ $late_dtr_res = $late_dtr->get_result();
                 <th style="padding:8px; background:#f7f7f7; border:1px solid #e0e0e0;">Ongoing OJTs</th>
                 <th style="padding:8px; background:#f7f7f7; border:1px solid #e0e0e0;">Approved</th>
                 <th style="padding:8px; background:#f7f7f7; border:1px solid #e0e0e0;">Available Slots</th>
-      
               </tr>
             </thead>
             <tbody>
@@ -613,21 +617,16 @@ $late_dtr_res = $late_dtr->get_result();
                   ?>
                   <input id="ci_available_slots" type="text" value="<?= $available ?>" readonly style="width:70px;border:0;background:transparent;text-align:center;">
                 </td>
-                <td style="padding:8px; border:1px solid #e0e0e0;">
-                  <input id="ci_requested_limit" type="text" value="<?= htmlspecialchars($office['requested_limit'] ?? '') ?>" readonly style="width:90px;border:0;background:transparent;text-align:center;">
-                </td>
-                <td style="padding:8px; border:1px solid #e0e0e0; max-width:300px;">
-                  <input id="ci_reason" type="text" value="<?= htmlspecialchars($office['reason'] ?? '') ?>" readonly style="width:100%;border:0;background:transparent;text-align:left;">
-                </td>
-                <td style="padding:8px; border:1px solid #e0e0e0;">
-                  <input id="ci_status" type="text" value="<?= htmlspecialchars(ucfirst($office['status'] ?? '')) ?>" readonly style="width:90px;border:0;background:transparent;text-align:center;">
-                </td>
               </tr>
             </tbody>
           </table>
         </div>
 
-        <!-- Edit Modal (unchanged) -->
+        <!-- store display/pending request values so modal can prefill -->
+        <input type="hidden" id="ci_requested_limit" value="<?= htmlspecialchars($display_requested_limit ?? '') ?>">
+        <input type="hidden" id="ci_reason" value="<?= htmlspecialchars($display_reason ?? '') ?>">
+
+        <!-- Edit Modal (updated: include editable Requested Limit + Reason) -->
         <div id="officeModal" style="display:none;position:fixed;left:0;top:0;right:0;bottom:0;background:rgba(0,0,0,0.35);align-items:center;justify-content:center;">
             <div style="background:#fff;padding:18px;border-radius:8px;width:420px;box-shadow:0 8px 30px rgba(0,0,0,0.12);">
                 <h4 style="margin:0 0 8px 0">Request Change - <?= htmlspecialchars($office_display) ?></h4>
@@ -636,8 +635,11 @@ $late_dtr_res = $late_dtr->get_result();
                     <label>Ongoing OJTs <input id="m_active_ojts" readonly style="width:100%;padding:8px;border-radius:6px;border:1px solid #ddd"></label>
                     <label>Approved <input id="m_approved_ojts" readonly style="width:100%;padding:8px;border-radius:6px;border:1px solid #ddd"></label>
                     <label>Available Slots <input id="m_available_slots" readonly style="width:100%;padding:8px;border-radius:6px;border:1px solid #ddd"></label>
-                    <label>Requested Limit <input id="m_requested_limit" type="number" min="0" style="width:100%;padding:8px;border-radius:6px;border:1px solid #ddd"></label>
-                    <label>Reason <textarea id="m_reason" rows="3" style="width:100%;padding:8px;border-radius:6px;border:1px solid #ddd"></textarea></label>
+
+                    <!-- Editable fields required for submitting a request -->
+                    <label>Requested Limit <input id="m_requested_limit" type="number" min="0" style="width:100%;padding:8px;border-radius:6px;border:1px solid #ddd" required></label>
+                    <label>Reason <textarea id="m_reason" rows="3" style="width:100%;padding:8px;border-radius:6px;border:1px solid #ddd" required></textarea></label>
+                    
                     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:6px">
                         <button id="m_cancel" style="padding:8px 10px;border-radius:6px;border:1px solid #ccc;background:#fff;cursor:pointer">Cancel</button>
                         <button id="m_request" style="padding:8px 12px;border-radius:6px;border:none;background:#5b5f89;color:#fff;cursor:pointer">Request</button>

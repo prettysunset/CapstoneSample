@@ -122,7 +122,23 @@ if (!empty($_SESSION['af2']['school'])) {
     }
 }
 
+// <-- Add: load saved AF3 (if any) so we can pre-fill fields on load
+$af3 = $_SESSION['af3'] ?? [];
+
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
+    // If user clicked Previous: save AF3 fields to session and go back to AF2
+    if (isset($_POST['action']) && $_POST['action'] === 'prev') {
+        // Save non-file inputs so they persist when returning to AF3
+        $_SESSION['af3'] = [
+            'first_choice'    => isset($_POST['first_choice']) ? intval($_POST['first_choice']) : null,
+            'second_choice'   => (isset($_POST['second_choice']) && $_POST['second_choice'] !== '') ? intval($_POST['second_choice']) : null,
+            'required_hours'  => isset($_POST['required_hours']) ? intval($_POST['required_hours']) : null
+            // note: file inputs cannot be preserved by PHP across navigation without upload
+        ];
+        header("Location: application_form2.php");
+        exit;
+    }
+
     // Validate required hours
     $required_hours = intval($_POST['required_hours']);
     if ($required_hours <= 0) {
@@ -536,21 +552,25 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
           <fieldset>
             <select id="first_choice" name="first_choice" required>
-              <option value="" disabled selected>1st choice*</option>
+              <option value="" disabled <?= empty($af3['first_choice']) ? 'selected' : '' ?>>1st choice*</option>
               <?php foreach ($offices as $o): ?>
-                <option value="<?= (int)$o['office_id'] ?>"><?= htmlspecialchars($o['office_name']) ?></option>
+                <option value="<?= (int)$o['office_id'] ?>" <?= (isset($af3['first_choice']) && (int)$af3['first_choice'] === (int)$o['office_id']) ? 'selected' : '' ?>>
+                  <?= htmlspecialchars($o['office_name']) ?>
+                </option>
               <?php endforeach; ?>
             </select>
 
             <select id="second_choice" name="second_choice">
-              <option value="">2nd choice (optional)</option>
+              <option value="" <?= empty($af3['second_choice']) ? 'selected' : '' ?>>2nd choice (optional)</option>
               <?php foreach ($offices as $o): ?>
-                <option value="<?= (int)$o['office_id'] ?>"><?= htmlspecialchars($o['office_name']) ?></option>
+                <option value="<?= (int)$o['office_id'] ?>" <?= (isset($af3['second_choice']) && (int)$af3['second_choice'] === (int)$o['office_id']) ? 'selected' : '' ?>>
+                  <?= htmlspecialchars($o['office_name']) ?>
+                </option>
               <?php endforeach; ?>
             </select>
           </fieldset>
 
-          <input type="number" name="required_hours" placeholder="Required Hours *" required min="1">
+          <input type="number" name="required_hours" placeholder="Required Hours *" required min="1" value="<?= isset($af3['required_hours']) ? (int)$af3['required_hours'] : '' ?>">
 
           <h3>UPLOAD REQUIREMENTS</h3>
 
@@ -619,7 +639,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
           </p>
 
           <div class="form-nav">
-            <button type="button" class="secondary" onclick="window.location='application_form2.php'">← Previous</button>
+            <!-- submit with action=prev to save AF3 to session and go back -->
+            <button type="submit" name="action" value="prev" class="secondary">← Previous</button>
             <button type="submit">Submit →</button>
           </div>
         </form>
@@ -677,7 +698,21 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
   const form = document.querySelector('form[method="POST"][enctype="multipart/form-data"]');
   if (!form) return;
   form.id = form.id || 'af3Form';
+
+  // compatibility: flag set when Previous button clicked (for older browsers)
+  let skipValidation = false;
+  const prevBtn = form.querySelector('button[name="action"][value="prev"]');
+  if (prevBtn) {
+    prevBtn.addEventListener('click', function(){ skipValidation = true; });
+  }
+
   form.addEventListener('submit', function(e){
+    // If Previous was clicked, skip all client-side checks
+    if ((e.submitter && e.submitter.name === 'action' && e.submitter.value === 'prev') || skipValidation) {
+      skipValidation = false;
+      return true; // allow submit to go through to server (session save handler)
+    }
+
     // required selects/inputs
     const reqs = form.querySelectorAll('[required]');
     for (let i=0;i<reqs.length;i++){
@@ -724,18 +759,18 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     for (let i=0;i<pdfFields.length;i++){
       const el = form.querySelector('input[name="'+pdfFields[i]+'"]');
       if (!el || !el.files || el.files.length === 0) {
-        alert('Please upload ' + el.previousElementSibling.textContent.replace('*','').trim() + ' (PDF).');
+        alert('Please upload ' + (el ? el.previousElementSibling.textContent.replace('*','').trim() : pdfFields[i]) + ' (PDF).');
         e.preventDefault();
         return false;
       }
       const pf = el.files[0];
       if (pf.type !== 'application/pdf' && !/\.pdf$/i.test(pf.name)) {
-        alert('Only PDF is accepted for ' + el.previousElementSibling.textContent.replace('*','').trim() + '.');
+        alert('Only PDF is accepted for ' + (el ? el.previousElementSibling.textContent.replace('*','').trim() : pdfFields[i]) + '.');
         e.preventDefault();
         return false;
       }
       if (pf.size > 2 * 1024 * 1024) {
-        alert(el.previousElementSibling.textContent.replace('*','').trim() + ' must be 2MB or smaller.');
+        alert((el ? el.previousElementSibling.textContent.replace('*','').trim() : pdfFields[i]) + ' must be 2MB or smaller.');
         e.preventDefault();
         return false;
       }
