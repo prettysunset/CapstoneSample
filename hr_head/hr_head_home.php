@@ -233,6 +233,45 @@ $current_date = date("l, F j, Y");
       color: #6d6d6d;
       font-size: 14px;
     }
+
+    /* Office availability: allow table to grow while keeping a scrollbar
+       when content exceeds a reasonable max height. This shows ALL offices
+       (no hard limit to 5 rows) but still constrains very tall lists. */
+
+    .table-container.office-availability { 
+      padding:8px; 
+      box-sizing: border-box; 
+      height: auto;            /* allow container to size to content */
+      max-height: none; 
+      overflow: visible; 
+    }
+
+    /* Do not force fixed row heights; allow natural row height */
+    #officeBodyTable tbody tr { height: auto; }
+
+    /* Keep head table layout consistent */
+    #officeHeadTable thead th { line-height: normal; padding:6px; box-sizing:border-box; }
+
+    /* The body wrapper will scroll only when content is taller than max-height.
+       Use a viewport-relative max so it fits various screen sizes. */
+    #officeBodyWrap {
+      height: auto;
+      max-height: 60vh; /* adjust as needed (e.g. 50vh/70vh) */
+      overflow-y: auto;
+      overflow-x: hidden;
+      box-sizing: border-box;
+    }
+
+    /* ensure inner tables do not add extra margins */
+    #officeHeadTable, #officeBodyTable { border-collapse: collapse; width:100%; box-sizing:border-box; }
+
+    /* scrollbar visuals */
+    #officeBodyWrap::-webkit-scrollbar { width:8px; }
+    #officeBodyWrap::-webkit-scrollbar-thumb { background:#e0e0e0; border-radius:8px; }
+
+    /* status badges */
+    .status-open{ color:#0b7a3a; font-weight:700; background:#e6f9ee; padding:6px 10px; border-radius:12px; display:inline-block; }
+    .status-full{ color:#b22222; font-weight:700; background:#fff4f4; padding:6px 10px; border-radius:12px; display:inline-block; }
 </style>
 </head>
 <body>
@@ -519,53 +558,38 @@ $stmtApproved->close();
 $stmtActive->close();
 ?>
 <style>
-/* keep table stable and limit visible rows to 5 (scroll if more)
-   header (th) is NOT counted in the 5-row height */
-:root {
-  --office-row-h: 48px;   /* row height — adjust if you want larger/smaller rows */
-  --office-head-h: 48px;  /* header height */
-  --office-rows-visible: 5;
-  --office-card-vertical-padding: 16px; /* matches .table-container padding:8px (top+bottom) */
+/* Office availability — show all office rows; allow tbody to scroll when very tall */
+.table-container.office-availability { 
+  padding:8px; 
+  box-sizing: border-box; 
+  height: auto;            /* allow container to size to content */
+  max-height: none; 
+  overflow: visible;
 }
 
-/* ensure padding included in sizing */
-.table-container.office-availability { padding:8px; box-sizing: border-box; }
+/* Allow natural row height (do not force fixed row height) */
+#officeBodyTable tbody tr { height: auto; }
 
-/* force each table body row to a fixed height so calc is exact */
-#officeBodyTable tbody tr { height: var(--office-row-h); }
+/* Keep header layout stable */
+#officeHeadTable thead th { line-height: normal; padding:6px; box-sizing:border-box; }
 
-/* header row fixed height and consistent line-height to avoid extra height */
-#officeHeadTable thead th { height: var(--office-head-h); line-height: var(--office-head-h); padding:0 6px; box-sizing:border-box; }
-
-/* card keeps fixed height: header + visible rows + card padding so card won't shrink
-   use box-sizing so padding doesn't add extra outside height */
-.table-container.office-availability {
-  height: calc(var(--office-head-h) + (var(--office-row-h) * var(--office-rows-visible)) + var(--office-card-vertical-padding));
-  max-height: calc(var(--office-head-h) + (var(--office-row-h) * var(--office-rows-visible)) + var(--office-card-vertical-padding));
-  overflow: hidden; /* prevent visual overflow */
-  box-sizing: border-box;
-}
-
-/* header/table box sizing */
-#officeHeadTable, #officeBodyTable { box-sizing:border-box; margin:0; }
-
-/* body wrapper shows exactly 5 rows tall, scroll if more */
+/* Body wrapper scrolls only when content exceeds max-height */
 #officeBodyWrap {
-  height: calc(var(--office-row-h) * var(--office-rows-visible));
-  min-height: calc(var(--office-row-h) * var,--office-rows-visible);
+  height: auto;
+  max-height: 60vh; /* adjust if you want more/less vertical space */
   overflow-y: auto;
   overflow-x: hidden;
   box-sizing: border-box;
 }
 
-/* ensure inner tables do not add extra margins */
-#officeHeadTable, #officeBodyTable { border-collapse: collapse; }
+/* Ensure inner tables don't add extra margins */
+#officeHeadTable, #officeBodyTable { border-collapse: collapse; width:100%; box-sizing:border-box; }
 
 /* scrollbar visuals */
 #officeBodyWrap::-webkit-scrollbar { width:8px; }
 #officeBodyWrap::-webkit-scrollbar-thumb { background:#e0e0e0; border-radius:8px; }
 
-/* keep status badges */
+/* status badges (kept same) */
 .status-open{ color:#0b7a3a; font-weight:700; background:#e6f9ee; padding:6px 10px; border-radius:12px; display:inline-block; }
 .status-full{ color:#b22222; font-weight:700; background:#fff4f4; padding:6px 10px; border-radius:12px; display:inline-block; }
 </style>
@@ -1474,5 +1498,3 @@ if ($tab === 'pending' && !empty($offices)) {
     } // end if fullOfficeIds not empty
 } // end if tab pending
 ?>
-</body>
-</html>

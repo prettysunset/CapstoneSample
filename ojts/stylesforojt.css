@@ -36,3 +36,13 @@
     .sidebar a.active {
         background-color: #b3b7d6;
     }
+    /* ensure tabs are always clickable (above overlays) */
+    .tab-btn {
+      position: relative;
+      z-index: 2000;
+      pointer-events: auto;
+    }
+    .tab-panel {
+      position: relative;
+      z-index: 1900;
+    }

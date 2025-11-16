@@ -1252,12 +1252,23 @@ async function submitAdd(){
 
   try {
     // server-side check: office existence
-    const chk = await fetch(window.location.href, {
+    const chkRes = await fetch(window.location.href, {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ action: 'check_office', office: office })
     });
-    const chkJson = await chk.json();
+
+    if (!chkRes.ok) {
+      const txt = await chkRes.text().catch(()=>chkRes.statusText);
+      throw new Error('Office-check failed: ' + chkRes.status + ' ' + txt);
+    }
+
+    let chkJson;
+    try { chkJson = await chkRes.json(); } catch (e) {
+      const txt = await chkRes.text().catch(()=>null);
+      throw new Error('Office-check returned invalid JSON: ' + (txt || e.message));
+    }
+
     if (chkJson && chkJson.exists) {
       statusEl.style.background = '#fff4f4';
       statusEl.style.color = '#a00';
@@ -1292,12 +1303,20 @@ async function submitAdd(){
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify(payload)
     });
-    const j = await res.json();
+
+    if (!res.ok) {
+      const txt = await res.text().catch(()=>res.statusText);
+      throw new Error('Create account failed: ' + res.status + ' ' + txt);
+    }
+
+    let j;
+    try { j = await res.json(); } catch (e) {
+      const txt = await res.text().catch(()=>null);
+      throw new Error('Create account returned invalid JSON: ' + (txt || e.message));
+    }
+
     if (!j || !j.success) {
-      statusEl.style.background = '#fff4f4';
-      statusEl.style.color = '#a00';
-      statusEl.textContent = 'Failed: ' + (j?.message || 'Unknown error');
-      return;
+      throw new Error(j?.message || 'Server returned failure creating account.');
     }
 
     // 2) now request this page to send the actual email (server-side send implemented above)
@@ -1317,7 +1336,14 @@ async function submitAdd(){
         accept_courses: accept_courses
       })
     });
-    const mailJson = await mailRes.json();
+
+    let mailJson = null;
+    if (mailRes.ok) {
+      try { mailJson = await mailRes.json(); } catch(e){ mailJson = null; }
+    } else {
+      const txt = await mailRes.text().catch(()=>mailRes.statusText);
+      console.warn('send_officehead_email responded non-OK:', mailRes.status, txt);
+    }
 
     if (mailJson && mailJson.success) {
       statusEl.style.background = '#e6f9ee';
@@ -1341,10 +1367,10 @@ async function submitAdd(){
     if (window.__hr_modal) window.__hr_modal.reset();
     setTimeout(()=>{ closeAdd(); location.reload(); }, 1400);
   } catch (err) {
-    console.error(err);
+    console.error('submitAdd error:', err);
     statusEl.style.background = '#fff4f4';
     statusEl.style.color = '#a00';
-    statusEl.textContent = 'Request failed.';
+    statusEl.textContent = 'Request failed: ' + (err.message || 'Unknown error');
   }
 
   function escapeHtml(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
@@ -1406,6 +1432,32 @@ document.addEventListener('DOMContentLoaded', function(){
       }
     });
   })();
+</script>
+
+<script>
+/* Utility: generate a readable random password used by submitAdd/submitAddHr */
+function randomPassword(len){
+  len = parseInt(len || 10, 10);
+  const upper = "ABCDEFGHJKLMNPQRSTUVWXYZ"; // avoid confusing I/O
+  const lower = "abcdefghijkmnpqrstuvwxyz"; // avoid confusing l
+  const digits = "23456789"; // avoid 0/1
+  const specials = "!@#$%&*?";
+  const all = upper + lower + digits + specials;
+
+  // ensure at least one of each required category
+  let pwd = '';
+  pwd += upper.charAt(Math.floor(Math.random()*upper.length));
+  pwd += lower.charAt(Math.floor(Math.random()*lower.length));
+  pwd += digits.charAt(Math.floor(Math.random()*digits.length));
+  pwd += specials.charAt(Math.floor(Math.random()*specials.length));
+
+  for (let i = pwd.length; i < len; i++){
+    pwd += all.charAt(Math.floor(Math.random()*all.length));
+  }
+
+  // shuffle characters
+  return pwd.split('').sort(()=>0.5 - Math.random()).join('');
+}
 </script>
 
 </body>

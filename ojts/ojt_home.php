@@ -32,6 +32,19 @@ if ($user_id) {
 }
 if (empty($name)) $name = "Jasmine Santiago";
 
+// fetch profile picture from ojt_applications
+$picture = null;
+if (!empty($student_id)) {
+    $p = $conn->prepare("SELECT picture FROM ojt_applications WHERE student_id = ? LIMIT 1");
+    $p->bind_param("i", $student_id);
+    $p->execute();
+    $pr = $p->get_result()->fetch_assoc();
+    $p->close();
+    if ($pr && !empty($pr['picture'])) {
+        $picture = $pr['picture'];
+    }
+}
+
 // determine office for this logged-in user and show in sidebar as "OJT - <Office>"
 $office_display = '';
 if (!empty($user_id)) {
@@ -331,7 +344,11 @@ if (!empty($student_id)) {
       <div>
         <div style="text-align:center; padding: 8px 12px 20px;">
           <div style="width:76px;height:76px;margin:0 auto 8px;border-radius:50%;background:#ffffff22;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:24px;overflow:hidden;">
-            <?php echo htmlspecialchars($initials ?: 'JS'); ?>
+            <?php if ($picture): ?>
+              <img src="<?php echo htmlspecialchars('../' . ltrim($picture, '/\\')); ?>" alt="Profile Picture" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">
+            <?php else: ?>
+              <?php echo htmlspecialchars($initials ?: 'JS'); ?>
+            <?php endif; ?>
           </div>
           <h3 style="color:#fff;font-size:16px;margin-bottom:4px;"><?php echo htmlspecialchars($name); ?></h3>
           <p style="color:#d6d9ee;font-size:13px;margin-top:0;"><?php echo htmlspecialchars($role); ?></p>

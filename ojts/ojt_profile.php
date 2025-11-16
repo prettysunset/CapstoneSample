@@ -12,7 +12,8 @@ $user_id = $_SESSION['user_id'] ?? null;
 
 if ($user_id) {
     // load user
-    $u = $conn->prepare("SELECT username, first_name, middle_name, last_name, role, office_name FROM users WHERE user_id = ? LIMIT 1");
+    // include status so we can display the user's status from `users`
+    $u = $conn->prepare("SELECT username, first_name, middle_name, last_name, role, office_name, status FROM users WHERE user_id = ? LIMIT 1");
     $u->bind_param("i", $user_id);
     $u->execute();
     $ur = $u->get_result()->fetch_assoc();
@@ -26,6 +27,8 @@ if ($user_id) {
         } else {
             $display_role = !empty($ur['role']) ? ucwords(str_replace('_',' ', $ur['role'])) : $display_role;
         }
+        // define $office_display for use in the status line
+        $office_display = preg_replace('/\s+Office\s*$/i', '', trim($ur['office_name'] ?? ''));
     }
 
     // prefer student record linked to user account for profile fields (include student_id)
@@ -207,8 +210,18 @@ if ($user_id) {
               <?php endif; ?>
             </div>
             <div style="flex:0; white-space:nowrap;">
-                <h1 style="margin:0 0 6px 0; font-size:26px; color:#2f3459;"><?php echo $display_name; ?></h1>
-                <p style="margin:0 0 8px 0; color:#6b6f8b; font-size:16px;">Active OJT • Mayor's Office</p>
+                <h1 style="margin:0 0 6px 0; font-size:26px; color:#2f3459;"><?php echo htmlspecialchars($display_name); ?></h1>
+                <p style="margin:0 0 8px 0; color:#6b6f8b; font-size:16px;">
+                    <?php
+                    // Fetch the status from the `users` table and format it in title case
+                    $status_display = ucwords(strtolower($ur['status'] ?? 'active'));
+                    ?>
+                    <?php echo htmlspecialchars($status_display . ' OJT • ' . $office_display); ?>
+                </p>
+                <?php
+                  // prefer status from users table (title-cased). fallback to 'active'.
+                  $status_display = ucwords(strtolower($ur['status'] ?? 'active'));
+                ?>
                 <div style="display:flex; gap:12px; align-items:center; margin-top:6px;">
                     <button style="padding:12px 16px; border-radius:10px; border:0; background:#2f3459; color:#fff; cursor:pointer; font-size:15px;">Print DTR</button>
                     <button style="padding:12px 16px; border-radius:10px; border:1px solid #e6e9f2; background:transparent; color:#2f3459; cursor:pointer; font-size:15px;">Edit Profile</button>
@@ -243,10 +256,10 @@ if ($user_id) {
 
                             <!-- Tabs -->
                             <div role="tablist" aria-label="Profile tabs" style="display:flex; gap:8px; flex-wrap:wrap;">
-                              <button class="tab-btn active" data-tab="tab-info" aria-selected="true" role="tab">Information</button>
-                              <button class="tab-btn" data-tab="tab-journals" aria-selected="false" role="tab">Weekly Journals</button>
-                              <button class="tab-btn" data-tab="tab-attachments" aria-selected="false" role="tab">Attachments</button>
-                              <button class="tab-btn" data-tab="tab-eval" aria-selected="false" role="tab">Evaluation</button>
+                              <button type="button" class="tab-btn active" data-tab="tab-info" aria-selected="true" role="tab">Information</button>
+                              <button type="button" class="tab-btn" data-tab="tab-journals" aria-selected="false" role="tab">Weekly Journals</button>
+                              <button type="button" class="tab-btn" data-tab="tab-attachments" aria-selected="false" role="tab">Attachments</button>
+                              <button type="button" class="tab-btn" data-tab="tab-eval" aria-selected="false" role="tab">Evaluation</button>
                             </div>
 
                             <!-- Tab panels -->
@@ -514,7 +527,7 @@ if ($user_id) {
                                     <!-- Upload modal (hidden by default) -->
                                     <form id="frm-upload-journal" action="ojt_upload_journal.php" method="post" enctype="multipart/form-data" style="display:none;">
                                         <input type="hidden" name="student_id" value="<?php echo htmlspecialchars($student_id ?? ''); ?>">
-                                        <div id="upload-modal-overlay" style="position:fixed;inset:0;background:rgba(15,20,40,0.5);display:flex;align-items:center;justify-content:center;z-index:9999;">
+                                        <div id="upload-modal-overlay" style="position:fixed;inset:0;background:rgba(15,20,40,0.5);display:none;align-items:center;justify-content:center;z-index:9999;">
                                             <div style="width:360px;background:#fff;border-radius:28px;padding:20px 22px;box-shadow:0 12px 40px rgba(15,20,40,0.35);font-family:Arial,Helvetica,sans-serif;">
                                                 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
                                                     <h3 style="margin:0;font-size:18px;color:#2f3459;">Upload Journal</h3>
@@ -527,12 +540,12 @@ if ($user_id) {
                                                 <div style="margin-bottom:8px;">
                                                     <label style="display:block;font-size:13px;color:#6b6f8b;margin-bottom:6px;">Attach file</label>
                                                     <div style="display:flex;gap:8px;">
-                                                        <input id="modal-file" name="attachment" type="file" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" style="flex:1;">
+                                                        <input id="modal-file" name="attachment" type="file" accept=".doc,.docx,.pdf" style="flex:1;">
                                                     </div>
                                                     <div style="font-size:12px;color:#8a8f9d;margin-top:8px;">
                                                         <strong>Note:</strong>
                                                         <ul style="margin:6px 0 0 18px;padding:0;color:#8a8f9d;">
-                                                            <li>Supported file types: DOCX, PDF, JPG, PNG</li>
+                                                            <li>Supported file types: DOCX, PDF</li>
                                                             <li>Maximum file size per file: 2 MB</li>
                                                         </ul>
                                                     </div>
@@ -743,25 +756,52 @@ if ($user_id) {
 
             <script>
                     (function(){
-                    const tabs = document.querySelectorAll('.tab-btn');
-                    const panels = document.querySelectorAll('.tab-panel');
-                    function activate(targetBtn){
-                            const target = targetBtn.dataset.tab;
-                            tabs.forEach(btn=>{
-                            const isActive = btn === targetBtn;
-                            btn.classList.toggle('active', isActive);
-                            btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
-                            btn.style.background = isActive ? '#2f3459' : 'transparent';
-                            btn.style.color = isActive ? '#fff' : '#2f3459';
-                            btn.style.border = isActive ? '0' : '1px solid #e6e9f2';
-                            });
-                            panels.forEach(p=>{
-                            p.style.display = p.id === target ? 'block' : 'none';
-                            });
-                    }
-                    tabs.forEach(btn => btn.addEventListener('click', ()=> activate(btn)));
-                    })();
-            </script>
+                    // robust tabs: run after DOM ready, ensure pointer-events and keyboard nav
+                    document.addEventListener('DOMContentLoaded', function(){
+                      (function(){
+                        const tabs = Array.from(document.querySelectorAll('.tab-btn'));
+                        const panels = Array.from(document.querySelectorAll('.tab-panel'));
+                        if (!tabs.length || !panels.length) return;
+
+                        // ensure tab buttons are clickable
+                        tabs.forEach(t => { t.style.pointerEvents = 'auto'; t.tabIndex = 0; });
+
+                        function activate(btn){
+                          const target = btn && btn.dataset && btn.dataset.tab;
+                          if (!target) return;
+                          tabs.forEach(b=>{
+                            const active = b === btn;
+                            b.classList.toggle('active', active);
+                            b.setAttribute('aria-selected', active ? 'true' : 'false');
+                            b.style.background = active ? '#2f3459' : 'transparent';
+                            b.style.color = active ? '#fff' : '#2f3459';
+                            b.style.border = active ? '0' : '1px solid #e6e9f2';
+                          });
+                          panels.forEach(p => p.style.display = (p.id === target) ? 'block' : 'none');
+                        }
+
+                        // initial state
+                        const initial = tabs.find(t=>t.classList.contains('active')) || tabs[0];
+                        if (initial) activate(initial);
+
+                        tabs.forEach((btn, idx) => {
+                          btn.addEventListener('click', function(e){ e.preventDefault(); activate(btn); });
+                          btn.addEventListener('keydown', function(e){
+                            if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); tabs[(idx+1)%tabs.length].focus(); tabs[(idx+1)%tabs.length].click(); }
+                            if (e.key === 'ArrowLeft'  || e.key === 'ArrowUp')   { e.preventDefault(); tabs[(idx-1+tabs.length)%tabs.length].focus(); tabs[(idx-1+tabs.length)%tabs.length].click(); }
+                            if (e.key === 'Home') { e.preventDefault(); tabs[0].focus(); tabs[0].click(); }
+                            if (e.key === 'End')  { e.preventDefault(); tabs[tabs.length-1].focus(); tabs[tabs.length-1].click(); }
+                          });
+                        });
+
+                        // defensive: if some overlay element blocks clicks, make it non-intercepting
+                        try {
+                          const overlays = document.querySelectorAll('#upload-modal-overlay, .overlay, [data-overlay]');
+                          overlays.forEach(o => { if (o && getComputedStyle(o).display === 'none') return; o.style.pointerEvents = 'none'; });
+                        } catch(e){}
+                      })();
+                    });
+                     </script>
             </div>
     </div>
 
