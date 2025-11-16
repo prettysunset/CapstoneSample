@@ -2,6 +2,117 @@
 session_start();
 date_default_timezone_set('Asia/Manila');
 
+// handle AJAX POST from modal (insert into office_requests) - no new file needed
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest')) {
+    require_once __DIR__ . '/../conn.php';
+    header('Content-Type: application/json; charset=utf-8');
+
+    if (!isset($_SESSION['user_id'])) {
+        http_response_code(401);
+        echo json_encode(['success' => false, 'message' => 'Not authenticated']);
+        exit;
+    }
+
+    $input = json_decode(file_get_contents('php://input'), true);
+    if (!is_array($input)) $input = $_POST;
+
+    $office_id = isset($input['office_id']) ? (int)$input['office_id'] : 0;
+    $new_limit = isset($input['new_limit']) ? (int)$input['new_limit'] : null;
+    $reason = isset($input['reason']) ? trim($input['reason']) : '';
+
+    if ($office_id <= 0 || $new_limit === null || $new_limit < 0 || $reason === '') {
+        http_response_code(400);
+        echo json_encode(['success' => false, 'message' => 'Invalid input']);
+        exit;
+    }
+
+    $user_id = (int)$_SESSION['user_id'];
+    // optional: verify authorization via office_heads table if exists
+    $authorized = false;
+    $tblCheck = $conn->query("SHOW TABLES LIKE 'office_heads'");
+    if ($tblCheck && $tblCheck->num_rows > 0) {
+        $chk = $conn->prepare("SELECT 1 FROM office_heads WHERE user_id = ? AND office_id = ? LIMIT 1");
+        $chk->bind_param('ii', $user_id, $office_id);
+        $chk->execute();
+        $r = $chk->get_result()->fetch_assoc();
+        $chk->close();
+        if ($r) $authorized = true;
+    } else {
+        // permissive fallback: allow if office exists
+        $q = $conn->prepare("SELECT 1 FROM offices WHERE office_id = ? LIMIT 1");
+        $q->bind_param('i', $office_id);
+        $q->execute();
+        $found = $q->get_result()->fetch_assoc();
+        $q->close();
+        if ($found) $authorized = true;
+    }
+
+    if (!$authorized) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'message' => 'Not authorized for this office']);
+        exit;
+    }
+
+    // --- NEW: server-side check to prevent requesting less than current occupied OJTs (ongoing + approved) ---
+    $officeName = '';
+    $q = $conn->prepare("SELECT office_name FROM offices WHERE office_id = ? LIMIT 1");
+    if ($q) {
+        $q->bind_param('i', $office_id);
+        $q->execute();
+        $orow = $q->get_result()->fetch_assoc();
+        $q->close();
+        $officeName = $orow['office_name'] ?? '';
+    }
+
+    if (!empty($officeName)) {
+        // count ongoing (status = 'active') and approved (status = 'approved')
+        $cntActive = 0;
+        $cntApproved = 0;
+
+        $s1 = $conn->prepare("SELECT COUNT(*) AS c FROM users WHERE role = 'ojt' AND office_name = ? AND status = 'active'");
+        if ($s1) {
+            $s1->bind_param('s', $officeName);
+            $s1->execute();
+            $cntActive = (int)($s1->get_result()->fetch_assoc()['c'] ?? 0);
+            $s1->close();
+        }
+
+        $s2 = $conn->prepare("SELECT COUNT(*) AS c FROM users WHERE role = 'ojt' AND office_name = ? AND status = 'approved'");
+        if ($s2) {
+            $s2->bind_param('s', $officeName);
+            $s2->execute();
+            $cntApproved = (int)($s2->get_result()->fetch_assoc()['c'] ?? 0);
+            $s2->close();
+        }
+
+        $occupied = $cntActive + $cntApproved;
+        if ($new_limit < $occupied) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'message' => 'Requested limit cannot be less than current number of OJTs ('.$occupied.').']);
+            exit;
+        }
+    }
+    // --- end server-side check ---
+
+    $ins = $conn->prepare("INSERT INTO office_requests (office_id, new_limit, reason, status, date_requested) VALUES (?, ?, ?, 'pending', NOW())");
+    if (!$ins) {
+        http_response_code(500);
+        echo json_encode(['success' => false, 'message' => 'DB prepare failed']);
+        exit;
+    }
+    $ins->bind_param('iis', $office_id, $new_limit, $reason);
+    $ok = $ins->execute();
+    $ins->close();
+
+    if ($ok) {
+        echo json_encode(['success' => true, 'message' => 'Request created']);
+    } else {
+        http_response_code(500);
+        echo json_encode(['success' => false, 'message' => 'Failed to create request']);
+    }
+    exit;
+}
+
 // require DB connection (conn.php used elsewhere in project)
 require_once __DIR__ . '/../conn.php';
 
@@ -467,7 +578,7 @@ $late_dtr_res = $late_dtr->get_result();
             <?php if ((int)$pending_office > 0): ?>
               <button id="btnEditOffice" disabled style="padding:6px 10px;border-radius:6px;border:1px solid #ccc;background:#f0f0f0;color:#666;cursor:not-allowed">Request Pending</button>
             <?php else: ?>
-              <button id="btnEditOffice" style="padding:6px 10px;border-radius:6px;border:1px solid #ccc;background:#fff;cursor:pointer">Edit</button>
+              <button id="btnEditOffice" style="padding:6px 10px;border-radius:6px;border:1px solid #ccc;background:#fff;cursor:pointer">Request</button>
             <?php endif; ?>
         </div>
         <input type="hidden" id="oh_has_pending" value="<?= (int)$pending_office ?>">
@@ -481,9 +592,7 @@ $late_dtr_res = $late_dtr->get_result();
                 <th style="padding:8px; background:#f7f7f7; border:1px solid #e0e0e0;">Ongoing OJTs</th>
                 <th style="padding:8px; background:#f7f7f7; border:1px solid #e0e0e0;">Approved</th>
                 <th style="padding:8px; background:#f7f7f7; border:1px solid #e0e0e0;">Available Slots</th>
-                <th style="padding:8px; background:#f7f7f7; border:1px solid #e0e0e0;">Requested Limit</th>
-                <th style="padding:8px; background:#f7f7f7; border:1px solid #e0e0e0;">Reason</th>
-                <th style="padding:8px; background:#f7f7f7; border:1px solid #e0e0e0;">Status</th>
+      
               </tr>
             </thead>
             <tbody>
@@ -686,6 +795,136 @@ $late_dtr_res = $late_dtr->get_result();
       }
     });
   })();
+</script>
+
+<script>
+(function(){
+  const btnEdit = document.getElementById('btnEditOffice');
+  const modal = document.getElementById('officeModal');
+  if (!btnEdit || !modal) return;
+
+  const fldCurrent = document.getElementById('ci_current_limit');
+  const fldActive = document.getElementById('ci_active_ojts');
+  const fldApproved = document.getElementById('ci_approved_ojts');
+  const fldAvailable = document.getElementById('ci_available_slots');
+  const fldRequested = document.getElementById('ci_requested_limit');
+  const fldReason = document.getElementById('ci_reason');
+
+  // modal inputs
+  const mCurrent = document.getElementById('m_current_limit');
+  const mActive = document.getElementById('m_active_ojts');
+  const mApproved = document.getElementById('m_approved_ojts');
+  const mAvailable = document.getElementById('m_available_slots');
+  const mRequested = document.getElementById('m_requested_limit');
+  const mReason = document.getElementById('m_reason');
+  const mCancel = document.getElementById('m_cancel');
+  const mRequest = document.getElementById('m_request');
+
+  // open modal and populate
+  btnEdit.addEventListener('click', function(e){
+    e.preventDefault();
+    // if button disabled do nothing
+    if (btnEdit.disabled) return;
+
+    // populate modal fields from visible inputs
+    if (mCurrent) mCurrent.value = fldCurrent ? fldCurrent.value : '';
+    if (mActive) mActive.value = fldActive ? fldActive.value : '';
+    if (mApproved) mApproved.value = fldApproved ? fldApproved.value : '';
+    if (mAvailable) mAvailable.value = fldAvailable ? fldAvailable.value : '';
+    if (mRequested) mRequested.value = fldRequested ? fldRequested.value : '';
+    if (mReason) mReason.value = fldReason ? fldReason.value : '';
+
+    modal.style.display = 'flex';
+    modal.setAttribute('aria-hidden','false');
+    // focus first input
+    (mRequested || mReason).focus();
+  });
+
+  // cancel/hide modal
+  mCancel && mCancel.addEventListener('click', function(e){
+    e.preventDefault();
+    modal.style.display = 'none';
+    modal.setAttribute('aria-hidden','true');
+  });
+
+  // client validation + submit (simple fetch to office_requests endpoint if exists)
+  mRequest && mRequest.addEventListener('click', function(e){
+    e.preventDefault();
+    const officeId = Number(document.getElementById('oh_office_id').value || 0);
+    const requestedRaw = (mRequested.value || '').trim();
+    if (requestedRaw === '') {
+      alert('Requested limit is required.');
+      mRequested.focus();
+      return;
+    }
+    const requested = Number(requestedRaw);
+    const reason = (mReason.value || '').trim();
+
+    if (isNaN(requested) || requested < 0) {
+      alert('Please enter a valid requested limit (0 or greater).');
+      mRequested.focus();
+      return;
+    }
+    if (reason.length === 0) {
+      alert('Please provide a reason for the request.');
+      mReason.focus();
+      return;
+    }
+
+    // additional validations reinstated
+    const current = Number((mCurrent && mCurrent.value) || 0);
+    const active = Number((mActive && mActive.value) || 0);
+    const approved = Number((mApproved && mApproved.value) || 0);
+    const occupied = active + approved;
+
+    // prevent requesting a limit lower than existing people (active + approved)
+    if (requested < occupied) {
+      alert('Requested limit cannot be less than the current number of OJTs (' + occupied + ').');
+      mRequested.focus();
+      return;
+    }
+
+    // no-op check: if same as current ask confirm
+    if (requested === current) {
+      if (!confirm('Requested limit is the same as current limit. Do you still want to submit?')) {
+        return;
+      }
+    }
+
+    // disable button to prevent duplicate clicks
+    mRequest.disabled = true;
+
+    // Post to server endpoint (same-page AJAX handler)
+    fetch(window.location.pathname, {
+       method: 'POST',
+       headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+       body: JSON.stringify({ office_id: officeId, new_limit: requested, reason: reason })
+    })
+    .then(r => r.json())
+    .then(j => {
+      if (j && j.success) {
+        alert('Request submitted.');
+        location.reload();
+      } else {
+        alert('Request failed: ' + (j && j.message ? j.message : 'Unknown error'));
+        mRequest.disabled = false;
+      }
+    })
+    .catch(err => {
+      console.error(err);
+      alert('Request failed. Check console for details.');
+      mRequest.disabled = false;
+    });
+  });
+
+  // close modal when clicking outside content
+  modal.addEventListener('click', function(ev){
+    if (ev.target === modal) {
+      modal.style.display = 'none';
+      modal.setAttribute('aria-hidden','true');
+    }
+  });
+})();
 </script>
 </body>
 </html>

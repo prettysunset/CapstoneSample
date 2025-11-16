@@ -647,8 +647,10 @@ if ($action === 'reject' || $action === 'approve') {
     // Get student info for email if rejecting
     $student_email = '';
     $student_name = '';
+    $student_id = 0;
     if ($action === 'reject') {
-        $stmt = $conn->prepare("SELECT s.email, s.first_name, s.last_name
+        // include student_id so we can store the reason into students table
+        $stmt = $conn->prepare("SELECT s.student_id, s.email, s.first_name, s.last_name
                                 FROM ojt_applications oa
                                 JOIN students s ON oa.student_id = s.student_id
                                 WHERE oa.application_id = ?");
@@ -657,6 +659,7 @@ if ($action === 'reject' || $action === 'approve') {
         $row = $stmt->get_result()->fetch_assoc();
         $stmt->close();
         if ($row) {
+            $student_id = (int)($row['student_id'] ?? 0);
             $student_email = $row['email'];
             $student_name = trim(($row['first_name'] ?? '') . ' ' . ($row['last_name'] ?? ''));
         }
@@ -672,6 +675,16 @@ if ($action === 'reject' || $action === 'approve') {
     }
     $ok = $stmt->execute();
     $stmt->close();
+
+    // store reject reason into students.reason when manual reject
+    if ($action === 'reject' && $ok && $student_id) {
+        $up = $conn->prepare("UPDATE students SET reason = ? WHERE student_id = ?");
+        if ($up) {
+            $up->bind_param("si", $remarks, $student_id);
+            $up->execute();
+            $up->close();
+        }
+    }
 
     // Send rejection email if needed
     $mailSent = null;

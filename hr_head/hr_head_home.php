@@ -57,18 +57,18 @@ $stmt->bind_result($rejected_count);
 $stmt->fetch();
 $stmt->close();
 
-// fetch applications for current tab (include student email)
+// fetch applications for current tab (include student email and remarks for rejected)
 $statusFilter = $tab === 'rejected' ? 'rejected' : 'pending';
-$q = "SELECT oa.application_id, oa.date_submitted, oa.status,
+$q = "SELECT oa.application_id, oa.date_submitted, oa.status, oa.remarks,
              s.student_id, s.first_name AS s_first, s.last_name AS s_last, s.address AS s_address, s.email AS s_email,
              oa.office_preference1, oa.office_preference2,
              o1.office_name AS opt1, o2.office_name AS opt2
       FROM ojt_applications oa
-      LEFT JOIN students s ON oa.student_id = s.student_id
-      LEFT JOIN offices o1 ON oa.office_preference1 = o1.office_id
-      LEFT JOIN offices o2 ON oa.office_preference2 = o2.office_id
-      WHERE oa.status = ?
-      ORDER BY oa.date_submitted DESC, oa.application_id DESC";
+       LEFT JOIN students s ON oa.student_id = s.student_id
+       LEFT JOIN offices o1 ON oa.office_preference1 = o1.office_id
+       LEFT JOIN offices o2 ON oa.office_preference2 = o2.office_id
+       WHERE oa.status = ?
+       ORDER BY oa.date_submitted DESC, oa.application_id DESC";
 $stmtApps = $conn->prepare($q);
 $stmtApps->bind_param("s", $statusFilter);
 $stmtApps->execute();
@@ -349,7 +349,8 @@ $current_date = date("l, F j, Y");
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
       </div>
        <a id="btnSettings" href="settings.php" title="Settings" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;">
-           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06A2 2 0 1 1 2.28 16.8l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09c.7 0 1.3-.4 1.51-1A1.65 1.65 0 0 0 4.27 6.3L4.2 6.23A2 2 0 1 1 6 3.4l.06.06c.5.5 1.2.7 1.82.33.7-.4 1.51-.4 2.21 0 .62.37 1.32.17 1.82-.33L12.6 3.4a2 2 0 1 1 1.72 3.82l-.06.06c-.5.5-.7 1.2-.33 1.82.4.7.4 1.51 0 2.21-.37.62-.17 1.32.33 1.82l.06.06A2 2 0 1 1 19.4 15z"></path></svg>
+           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06A2 2 0 1 1 2.28 16.8l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09c.7 0 1.3-.4 1.51-1A1.65 1.65 0 0 0 4.27 6.3L4.2 6.23A2 2 0 1 1 6 3.4l.06.06c.5.5 1.2.7 1.82.33.7-.4 1.51-.4 2.21 0 .62.37 1.32.17 1.82-.33L12.6 3.4a2 2 0 1 1 1.72 3.82l-.06.06c-.5.5-.7 1.2-.33 1.82.4.7.4 1.51 0 2.21-.37.62-.17 1.32.33 1.82l.06.06A2 2 0 1 1 19.4 15z"></path>
+        </svg>
        </a>
        <a id="btnLogout" href="../logout.php" title="Logout" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
@@ -756,6 +757,9 @@ $stmtActive->close();
                     <th>Address</th>
                     <th>1st Option</th>
                     <th>2nd Option</th>
+                    <?php if ($tab === 'rejected'): ?>
+                        <th>Reason</th>
+                    <?php endif; ?>
                     <?php if ($tab !== 'rejected'): ?>
                         <th style="text-align:center">Action</th>
                     <?php endif; ?>
@@ -769,6 +773,9 @@ $stmtActive->close();
                     <td><?php echo htmlspecialchars($row['s_address'] ?: 'N/A'); ?></td>
                     <td><?php echo htmlspecialchars($row['opt1'] ?: 'N/A'); ?></td>
                     <td><?php echo htmlspecialchars($row['opt2'] ?: 'N/A'); ?></td>
+                    <?php if ($tab === 'rejected'): ?>
+                        <td><?php echo htmlspecialchars(trim($row['remarks'] ?? '') ?: '—'); ?></td>
+                    <?php endif; ?>
                     <?php if ($tab !== 'rejected'): ?>
                     <td class="actions">
                         <button type="button" class="view" title="View" onclick="openViewModal(<?= (int)$row['application_id'] ?>)">👁</button>
@@ -1270,7 +1277,34 @@ async function openViewModal(appId) {
       avatarEl.style.background = '#e9e9e9';
       avatarEl.style.color = '#777';
       avatarEl.style.fontSize = '44px';
-      avatarEl.textContent = (studentName && studentName !== 'N/A') ? studentName.trim().charAt(0).toUpperCase() : '👤';
+      // prefer applicant picture (d.picture) if provided
+      const picRaw = (d.picture || '').trim();
+      if (picRaw) {
+        let picHref;
+        if (/^https?:\/\//i.test(picRaw) || picRaw.startsWith('/')) {
+          picHref = picRaw;
+        } else if (/^uploads[\/\\]/i.test(picRaw)) {
+          picHref = '../' + picRaw.replace(/^\/+/, '');
+        } else {
+          picHref = '../uploads/' + picRaw.replace(/^\/+/, '');
+        }
+        // create image element and insert
+        avatarEl.innerHTML = '';
+        const img = document.createElement('img');
+        img.src = picHref;
+        img.alt = studentName || 'Applicant';
+        img.style.width = '120px';
+        img.style.height = '120px';
+        img.style.objectFit = 'cover';
+        img.style.borderRadius = '50%';
+        // on error fallback to initial
+        img.onerror = function() {
+          avatarEl.innerHTML = (studentName && studentName !== 'N/A') ? studentName.trim().charAt(0).toUpperCase() : '👤';
+        };
+        avatarEl.appendChild(img);
+      } else {
+        avatarEl.innerHTML = (studentName && studentName !== 'N/A') ? studentName.trim().charAt(0).toUpperCase() : '👤';
+      }
     }
 
     // attachments: use any file fields returned by the endpoint
@@ -1282,16 +1316,38 @@ async function openViewModal(appId) {
       fileKeys.forEach(k => { if (d[k]) files.push({ filepath: d[k], original_name: k.replace(/_/g,' ') }); });
       if (files.length) {
         files.forEach(file => {
+          let raw = (file.filepath || '').trim();
+          if (!raw) return; // skip empty
+
+          // Resolve href relative to this script (hr_head/ -> project root is ../)
+          let href;
+          if (/^https?:\/\//i.test(raw) || raw.startsWith('/')) {
+            // already a full URL or absolute path -> use as-is
+            href = raw;
+          } else if (/^uploads[\/\\]/i.test(raw)) {
+            // stored like "uploads/xxx" or "uploads\xxx" -> from hr_head file, prefix one level up
+            href = '../' + raw.replace(/^\/+/, '');
+          } else {
+            // stored as bare filename or relative path without uploads/ -> assume uploads/
+            href = '../uploads/' + raw.replace(/^\/+/, '');
+          }
+
           const a = document.createElement('a');
-          a.href = file.filepath;
+          a.href = href;
           a.target = '_blank';
-          a.textContent = file.original_name || 'Attachment';
+          a.rel = 'noopener noreferrer';
+          const label = (file.original_name && file.original_name !== '') ? file.original_name : (href.split('/').pop() || 'Attachment');
+          a.textContent = label;
           a.style.color = '#0b74de';
           a.style.textDecoration = 'underline';
           a.style.marginTop = '4px';
+          a.style.cursor = 'pointer';
+
+          // DO NOT set download attribute — allow browser to open/view inline (server decides rendering)
           attachmentsEl.appendChild(a);
         });
       } else {
+       
         const noAttach = document.createElement('div');
         noAttach.textContent = 'No attachments found.';
         noAttach.style.color = '#666';
@@ -1304,8 +1360,47 @@ async function openViewModal(appId) {
     const isOpen = (d.status === 'approved' || d.status === 'pending');
     const approveBtn = document.getElementById('view_approve_btn');
     const rejectBtn = document.getElementById('view_reject_btn');
-    if (approveBtn) approveBtn.style.display = isOpen ? 'inline-flex' : 'none';
-    if (rejectBtn)  rejectBtn.style.display = isOpen ? 'inline-flex' : 'none';
+    if (approveBtn) {
+      approveBtn.style.display = isOpen ? 'inline-flex' : 'none';
+      // wire same approve flow as the table action icons:
+      approveBtn.onclick = function(e){
+        // close view modal then open approve modal with same data
+        closeViewModal();
+        const fakeBtn = {
+          getAttribute: (k) => {
+            switch(k) {
+              case 'data-appid': return String(appId);
+              case 'data-name': return studentName;
+              case 'data-email': return st.email || '';
+              case 'data-opt1': return d.office1 || '';
+              case 'data-opt2': return d.office2 || '';
+              case 'data-opt1-id': return String(d.office_preference1 || 0);
+              case 'data-opt2-id': return String(d.office_preference2 || 0);
+            }
+            return null;
+          }
+        };
+        openApproveModal(fakeBtn);
+      };
+    }
+    if (rejectBtn) {
+      rejectBtn.style.display = isOpen ? 'inline-flex' : 'none';
+      // wire same reject flow as the table action icons:
+      rejectBtn.onclick = function(e){
+        closeViewModal();
+        const fakeBtn = {
+          getAttribute: (k) => {
+            switch(k) {
+              case 'data-appid': return String(appId);
+              case 'data-name': return studentName;
+              case 'data-email': return st.email || '';
+            }
+            return null;
+          }
+        };
+        openRejectModal(fakeBtn);
+      };
+    }
 
     // show modal
     if (overlay) {
@@ -1431,6 +1526,8 @@ if ($tab === 'pending' && !empty($offices)) {
                 $u = $conn->prepare("UPDATE ojt_applications SET status = 'rejected', remarks = ?, date_updated = CURDATE() WHERE application_id = ?");
                 $mailHeaders = "MIME-Version: 1.0\r\nContent-type: text/html; charset=utf-8\r\nFrom: OJTMS HR <no-reply@localhost>\r\n";
                 $toActuallyReject = [];
+                // prepare student update stmt once
+                $updStudentStmt = $conn->prepare("UPDATE students SET reason = ? WHERE student_id = ?");
 
                 foreach ($candidates as $rowCandidate) {
                     $appId = (int)$rowCandidate['application_id'];
@@ -1446,8 +1543,8 @@ if ($tab === 'pending' && !empty($offices)) {
                         $available1 = ($cap1 === null) ? PHP_INT_MAX : max(0, $cap1 - $filled1);
                         // if available >= 1 -> do NOT auto-reject this row (skip)
                         if ($available1 >= 1) {
-                            // skip auto-reject for this candidate
-                            continue;
+                          // skip auto-reject for this candidate
+                          continue;
                         }
                         // else fallthrough to reject (no available slot)
                     }
@@ -1466,22 +1563,24 @@ if ($tab === 'pending' && !empty($offices)) {
                     }
 
                     // If reached here, we will auto-reject
-                    $remarks = '';
+                    // provide contextual remark and store into both application and student.reason
+                    if (($pref2 === 0 || $pref2 === null) && $pref1) {
+                        $remarks = "Auto-rejected: Preferred office has reached capacity and no second choice provided.";
+                    } else {
+                        $remarks = "Auto-rejected: Preferred office(s) have reached capacity.";
+                    }
                     if ($u) {
                         $u->bind_param('si', $remarks, $appId);
                         $u->execute();
                     }
-                    if (filter_var($studentEmail, FILTER_VALIDATE_EMAIL)) {
-                        $subject = "OJT Application Rejected";
-                        $body = "<p>Dear Applicant,</p>"
-                              . "<p>We regret to inform you that your OJT application has been <strong>rejected</strong>.</p>"
-                              . "<p><strong>Reason:</strong> Your preferred office(s) have reached capacity.</p>"
-                              . "<p>If you have questions, please contact HR.</p>"
-                              . "<p>— HR Department</p>";
-                        @mail($studentEmail, $subject, $body, $mailHeaders);
+                    // update students.reason for this applicant if possible
+                    $sid = isset($rowCandidate['student_id']) ? (int)$rowCandidate['student_id'] : 0;
+                    if ($sid && $updStudentStmt) {
+                        $updStudentStmt->bind_param('si', $remarks, $sid);
+                        $updStudentStmt->execute();
                     }
                 } // end foreach candidates
-
+                if ($updStudentStmt) $updStudentStmt->close();
                 if ($u) $u->close();
 
                 // refresh $apps so UI reflects the moved rows
@@ -1493,8 +1592,8 @@ if ($tab === 'pending' && !empty($offices)) {
                     $apps = $result->fetch_all(MYSQLI_ASSOC);
                     $stmtApps->close();
                 }
-            } // end if candidates
-        } // end if stmtFind
-    } // end if fullOfficeIds not empty
-} // end if tab pending
+            } // end if (!empty($candidates))
+        } // end if ($stmtFind)
+    } // end if (!empty($fullOfficeIds))
+} // end if ($tab === 'pending' && !empty($offices))
 ?>

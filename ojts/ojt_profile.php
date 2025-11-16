@@ -2,6 +2,12 @@
 session_start();
 require_once __DIR__ . '/../conn.php';
 
+// require login
+if (!isset($_SESSION['user_id'])) {
+    header("Location: ../login.php");
+    exit();
+}
+
 $display_name = 'User Name';
 $display_role = 'Role';
 $initials = 'UN';
@@ -798,18 +804,29 @@ if ($user_id) {
             </div>
     </div>
 
+      // confirm logout (both top icon and sidebar) — use replace so back can't restore protected pages
     <script>
-      // confirm logout (profile top icon)
-      (function(){
-        var el = document.getElementById('top-logout');
+    (function(){
+      function attachConfirm(id){
+        var el = document.getElementById(id);
         if (!el) return;
         el.addEventListener('click', function(e){
           e.preventDefault();
           if (confirm('Log out?')) {
-            window.location.href = el.getAttribute('href');
+            // replace history entry so back button won't return to protected page
+            window.location.replace(el.getAttribute('href') || '../logout.php');
           }
         });
-      })();
+      }
+      attachConfirm('btnLogout');
+      attachConfirm('sidebar-logout');
+      // keep small handlers for notif/settings
+      var n = document.getElementById('btnNotif');
+      if (n) n.addEventListener('click', function(e){ e.preventDefault(); alert('Walang bagong notification ngayon.'); });
+      var s = document.getElementById('btnSettings');
+      if (s) s.addEventListener('click', function(e){ e.preventDefault(); window.location.href = 'settings.php'; });
+    })();
+  
     </script>
 </body>
 </html>
