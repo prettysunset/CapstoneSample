@@ -402,7 +402,7 @@ if (!empty($student_id)) {
         <div class="progress-details">
           <b><?php echo "$hours_completed out of $total_hours hours"; ?></b><br>
           Date Started: <b><?php echo $date_started; ?></b><br>
-          Expected End Date: <b><?php echo $end_date; ?></b>
+          Estimated End Date: <b><?php echo $end_date; ?></b>
         </div>
       </div>
 

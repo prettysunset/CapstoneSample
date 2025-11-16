@@ -10,6 +10,13 @@ $app_picture = ''; // NEW: path to picture from application (relative)
 $app_picture_url = ''; // ensure defined
 $user_id = $_SESSION['user_id'] ?? null;
 
+$student_id = null; // ensure defined for later
+$total_required = 500;
+$hours_rendered = 0;
+$percent = 0;
+$expected_end_date = 'N/A';
+$weeks = [];
+
 if ($user_id) {
     // load user
     $u = $conn->prepare("SELECT username, first_name, middle_name, last_name, role, office_name FROM users WHERE user_id = ? LIMIT 1");
@@ -28,8 +35,8 @@ if ($user_id) {
         }
     }
 
-    // prefer student record linked to user account for profile fields (include student_id)
-    $s = $conn->prepare("SELECT student_id, first_name, last_name, college, course, year_level, email FROM students WHERE user_id = ? LIMIT 1");
+    // prefer student record linked to user account for profile fields (include student_id + hours)
+    $s = $conn->prepare("SELECT student_id, first_name, last_name, college, course, year_level, email, total_hours_required, hours_rendered FROM students WHERE user_id = ? LIMIT 1");
     $s->bind_param("i", $user_id);
     $s->execute();
     $sr = $s->get_result()->fetch_assoc();
@@ -41,6 +48,9 @@ if ($user_id) {
         $student_college = $sr['college'] ?? '';
         $student_course = $sr['course'] ?? '';
         $student_year = $sr['year_level'] ?? '';
+        $total_required = (int)($sr['total_hours_required'] ?? 500);
+        $hours_rendered = (int)($sr['hours_rendered'] ?? 0);
+
         // get latest application picture for this student (if any)
         if ($student_id) {
             $ap = $conn->prepare("SELECT picture FROM ojt_applications WHERE student_id = ? AND COALESCE(picture,'') <> '' ORDER BY date_submitted DESC, application_id DESC LIMIT 1");
@@ -80,7 +90,132 @@ if ($user_id) {
         foreach (explode(' ', $display_name) as $p) if ($p !== '') $initials .= strtoupper($p[0]);
         $initials = substr($initials ?: 'UN', 0, 2);
     } // <-- close if ($sr)
-} // <-- close if ($user_id)
+
+    /* REPLACE the existing progress / expected end calculation block with this */
+$hours_rendered = 0.0;
+$percent = 0;
+$expected_end_date = 'N/A';
+
+if (!empty($student_id)) {
+    // find earliest time-in as start date (same logic as ojt_home.php)
+    $startDateSql = null;
+    $qf = $conn->prepare("SELECT log_date FROM dtr WHERE student_id = ? AND ((am_in IS NOT NULL AND am_in<>'') OR (pm_in IS NOT NULL AND pm_in<>'')) ORDER BY log_date ASC LIMIT 1");
+    $qf->bind_param('i', $student_id);
+    $qf->execute();
+    $fr = $qf->get_result()->fetch_assoc();
+    $qf->close();
+    if ($fr && !empty($fr['log_date'])) {
+        $startDateSql = $fr['log_date'];
+    } else {
+        // fallback: try parse Orientation/Start from latest application remarks
+        $qa = $conn->prepare("SELECT remarks FROM ojt_applications WHERE student_id = ? ORDER BY date_updated DESC, application_id DESC LIMIT 1");
+        $qa->bind_param('i', $student_id);
+        $qa->execute();
+        $ar = $qa->get_result()->fetch_assoc();
+        $qa->close();
+        if ($ar && !empty($ar['remarks'])) {
+            $r = $ar['remarks'];
+            if (preg_match('/Orientation\/Start:\s*([0-9]{4}-[0-9]{2}-[0-9]{2})/i', $r, $m)) {
+                $startDateSql = $m[1];
+            } elseif (preg_match('/Orientation\/Start:\s*([0-9]{4}\/[0-9]{2}\/[0-9]{2})/i', $r, $m2)) {
+                $startDateSql = str_replace('/', '-', $m2[1]);
+            } elseif (preg_match('/Orientation\/Start:\s*([A-Za-z0-9\-\s,]+)/i', $r, $m3)) {
+                $try = trim($m3[1]);
+                $ts = strtotime($try);
+                if ($ts !== false) $startDateSql = date('Y-m-d', $ts);
+            }
+        }
+    }
+
+    // sum hours + minutes/60 from dtr (optionally from startDate)
+    if ($startDateSql) {
+        $q = $conn->prepare("SELECT IFNULL(SUM(hours + minutes/60),0) AS total FROM dtr WHERE student_id = ? AND log_date >= ?");
+        $q->bind_param("is", $student_id, $startDateSql);
+    } else {
+        $q = $conn->prepare("SELECT IFNULL(SUM(hours + minutes/60),0) AS total FROM dtr WHERE student_id = ?");
+        $q->bind_param("i", $student_id);
+    }
+    $q->execute();
+    $tr = $q->get_result()->fetch_assoc();
+    $q->close();
+
+    $hours_rendered = isset($tr['total']) ? (float)$tr['total'] : 0.0;
+
+    // percent and expected end date (8 hrs/day, count weekdays)
+    $percent = ($total_required > 0) ? round(($hours_rendered / $total_required) * 100) : 0;
+    $remaining = max(0, $total_required - $hours_rendered);
+
+    if ($remaining <= 0) {
+        $expected_end_date = 'Completed';
+    } elseif ($startDateSql) {
+        $daysNeeded = (int)ceil($remaining / 8); // 8 hrs/day
+        $dt = new DateTime($startDateSql);
+        $added = 0;
+        while ($added < $daysNeeded) {
+            $dt->modify('+1 day');
+            $dow = (int)$dt->format('N'); // 1..7
+            if ($dow < 6) $added++;
+        }
+        $expected_end_date = $dt->format('F j, Y');
+    } else {
+        // no start date known — estimate by today + daysNeeded (count weekdays)
+        $daysNeeded = (int)ceil($remaining / 8);
+        $dt = new DateTime(); // today
+        $added = 0;
+        while ($added < $daysNeeded) {
+            $dt->modify('+1 day');
+            $dow = (int)$dt->format('N');
+            if ($dow < 6) $added++;
+        }
+        $expected_end_date = $dt->format('F j, Y');
+    }
+}
+
+    // fetch last 3 weekly summaries (group by ISO week) if student_id present
+    if ($student_id) {
+        $q = "
+          SELECT YEARWEEK(log_date,1) AS yw,
+                 MIN(log_date) AS start_date,
+                 MAX(log_date) AS end_date,
+                 COUNT(DISTINCT log_date) AS days,
+                 COALESCE(SUM(hours),0) AS hours
+          FROM dtr
+          WHERE student_id = ?
+          GROUP BY yw
+          ORDER BY start_date DESC
+          LIMIT 3
+        ";
+        $s2 = $conn->prepare($q);
+        $s2->bind_param("i", $student_id);
+        $s2->execute();
+        $res = $s2->get_result();
+        while ($r = $res->fetch_assoc()) {
+            $start = $r['start_date'];
+            $end = $r['end_date'];
+            if (date('M', strtotime($start)) === date('M', strtotime($end))) {
+                $range = date('M j', strtotime($start)) . '-' . date('j, Y', strtotime($end));
+            } else {
+                $range = date('M j', strtotime($start)) . ' - ' . date('M j, Y', strtotime($end));
+            }
+            $weeks[] = [
+                'coverage' => $range,
+                'days' => (int)$r['days'],
+                'hours' => (int)$r['hours'],
+                'progress' => $total_required > 0 ? round(($r['hours'] / $total_required) * 100) : 0
+            ];
+        }
+        $s2->close();
+    }
+}
+
+// fallback sample rows if none found (to match image)
+if (empty($weeks)) {
+    $weeks = [
+        ['coverage'=>'Sep 22-27, 2025','days'=>3,'hours'=>24,'progress'=>4],
+        ['coverage'=>'Sep 15-19, 2025','days'=>5,'hours'=>32,'progress'=>6],
+        ['coverage'=>'Sep 8-12, 2025','days'=>4,'hours'=>28,'progress'=>5],
+    ];
+}
 ?>
 <html>
 <head>
@@ -123,6 +258,12 @@ if ($user_id) {
     .sidebar a.active {
         background-color: #b3b7d6;
     }
+        /* keep reports tab header visible so user can always click back */
+        .reports-card { background:#fff;border-radius:10px;padding:0;box-shadow:0 6px 18px rgba(0,0,0,0.04); overflow:hidden; }
+        .reports-header { position: sticky; top: 0; background: #fff; padding:12px; display:flex; align-items:center; gap:8px; border-bottom:1px solid #eee; z-index:40; }
+        .reports-body { padding:12px; max-height: calc(100vh - 260px); overflow:auto; } /* keep header visible while scrolling body */
+        .tab-btn.active { background:#fff;border:1px solid #ddd;padding:8px 12px;border-radius:8px;font-weight:600; }
+        .tab-btn { background:transparent;border:0;padding:8px 12px;border-radius:8px;cursor:pointer; }
     </style>
 </head>
 <body>
@@ -170,7 +311,7 @@ if ($user_id) {
           <path d="M3 11.5L12 4l9 7.5"></path>
           <path d="M5 12v7a1 1 0 0 0 1 1h3v-5h6v5h3a1 1 0 0 0 1-1v-7"></path>
         </svg>
-        <span style="font-weight:600;">Home</span>
+        <span>Home</span>
         </a>
 
         <a href="ojt_profile.php"
@@ -179,19 +320,10 @@ if ($user_id) {
           <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
           <circle cx="12" cy="7" r="4"></circle>
         </svg>
-        <span style="font-weight:600;">Profile</span>
+        <span>Profile</span>
         </a>
 
-        <a href="ojt_dtr.php"
-         style="display:flex;align-items:center;gap:10px;padding:10px 12px;margin:8px 0;border-radius:12px;text-decoration:none;color:#fff;background:transparent;">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex:0 0 18px;">
-          <rect x="3" y="4" width="18" height="18" rx="2"></rect>
-          <line x1="16" y1="2" x2="16" y2="6"></line>
-          <line x1="8" y1="2" x2="8" y2="6"></line>
-          <line x1="3" y1="10" x2="21" y2="10"></line>
-        </svg>
-        <span style="font-weight:600;">DTR</span>
-        </a>
+        
 
         <a href="ojt_reports.php" class="active" aria-current="page"
          style="display:flex;align-items:center;gap:10px;padding:10px 12px;margin:8px 0;border-radius:12px;text-decoration:none;color:#2f3459;background:#fff;box-shadow:0 4px 10px rgba(0,0,0,0.04);">
@@ -224,6 +356,160 @@ if ($user_id) {
     </div>
   </div>
 
-    <div class="bottom-title">OJT-MS</div>
-</body>
-</html>
+  <!-- MAIN CONTENT: top cards + reports (inserted so sidebar/top-icons remain unchanged) -->
+  <main style="margin-left:220px;width:calc(100% - 220px);box-sizing:border-box;padding:84px 36px 48px;">
+    <!-- top summary cards -->
+    <div style="display:flex;gap:20px;align-items:stretch;margin-bottom:18px">
+      <div style="background:#d6d8ee;border-radius:18px;padding:18px 22px;flex:0 0 220px;display:flex;flex-direction:column;align-items:center;justify-content:center">
+        <div style="width:84px;height:84px;border-radius:50%;background:linear-gradient(180deg,#fff,#eef);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:18px;color:#2f3459">
+          <?php echo htmlspecialchars($percent); ?>%
+        </div>
+        <div style="height:8px"></div>
+        <div style="font-size:13px;color:#3a3f65;font-weight:600">Your Progress</div>
+      </div>
+
+      <div style="background:#d6d8ee;border-radius:18px;padding:18px 22px;flex:0 0 260px;display:flex;flex-direction:column;align-items:center;justify-content:center">
+        <div style="font-size:13px;color:#3a3f65;font-weight:600">Hours Rendered</div>
+        <div style="font-weight:800;color:#111;font-size:28px"><?php echo (int)$hours_rendered; ?></div>
+      </div>
+
+      <div style="background:#d6d8ee;border-radius:18px;padding:18px 22px;flex:1;display:flex;flex-direction:column;align-items:flex-start;justify-content:center">
+        <div style="font-size:14px;color:#3a3f65">Estimated End Date:</div>
+        <div style="font-weight:800;color:#111;font-size:20px"><?php echo htmlspecialchars($expected_end_date); ?></div>
+      </div>
+    </div>
+
+    <!-- reports card (header is sticky) -->
+    <div class="reports-card">
+      <div class="reports-header" role="tablist" aria-label="Reports tabs">
+        <div style="display:flex;gap:8px">
+          <!-- reduced tabs: only Daily Time Record and Journals -->
+          <button class="tab-btn active" data-panel="dtr" type="button">Daily Time Record</button>
+          <button class="tab-btn" data-panel="journals" type="button">Journals</button>
+        </div>
+
+        <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+          <button onclick="window.print()" style="background:#fff;border:1px solid #e0e0e0;padding:8px 10px;border-radius:8px;cursor:pointer">⤓ Export</button>
+          <select style="padding:8px;border-radius:8px;border:1px solid #e6e6e6;background:#fff">
+            <option>Sort by</option>
+            <option value="date">Date</option>
+            <option value="hours">Hours</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="reports-body" id="panels">
+        <!-- DTR (default active) -->
+        <div data-panel="dtr" style="display:block">
+          <table style="width:100%;border-collapse:collapse;background:#fff;border-radius:6px;overflow:hidden">
+            <thead>
+              <tr style="background:#fbfbfe;font-weight:700;color:#333">
+                <th style="padding:10px 14px">Date</th>
+                <th style="padding:10px 14px">AM In</th>
+                <th style="padding:10px 14px">AM Out</th>
+                <th style="padding:10px 14px">PM In</th>
+                <th style="padding:10px 14px">PM Out</th>
+                <th style="padding:10px 14px">Hours</th>
+              </tr>
+            </thead>
+            <tbody>
+<?php
+if (!empty($student_id)) {
+    $stmt = $conn->prepare("SELECT log_date, am_in, am_out, pm_in, pm_out, hours FROM dtr WHERE student_id = ? ORDER BY log_date DESC LIMIT 30");
+    if ($stmt) {
+        $stmt->bind_param("i", $student_id);
+        if ($stmt->execute()) {
+            $res = $stmt->get_result();
+            if ($res && $res->num_rows) {
+                while ($r = $res->fetch_assoc()) {
+                    echo '<tr>';
+                    echo '<td style="padding:10px 14px">'.htmlspecialchars($r['log_date']).'</td>';
+                    echo '<td style="padding:10px 14px">'.htmlspecialchars($r['am_in'] ?: '—').'</td>';
+                    echo '<td style="padding:10px 14px">'.htmlspecialchars($r['am_out'] ?: '—').'</td>';
+                    echo '<td style="padding:10px 14px">'.htmlspecialchars($r['pm_in'] ?: '—').'</td>';
+                    echo '<td style="padding:10px 14px">'.htmlspecialchars($r['pm_out'] ?: '—').'</td>';
+                    echo '<td style="padding:10px 14px">'.((int)$r['hours']).'h</td>';
+                    echo '</tr>';
+                }
+            } else {
+                echo '<tr><td colspan="6" style="padding:12px;color:#666">No records found.</td></tr>';
+            }
+        } else {
+            error_log('ojt_reports: execute failed (dtr): ' . $stmt->error);
+            echo '<tr><td colspan="6" style="padding:12px;color:#666">Unable to load records.</td></tr>';
+        }
+        $stmt->close();
+    } else {
+        error_log('ojt_reports: prepare failed (dtr): ' . $conn->error);
+        echo '<tr><td colspan="6" style="padding:12px;color:#666">Unable to load records.</td></tr>';
+    }
+} else {
+    echo '<tr><td colspan="6" style="padding:12px;color:#666">No records available.</td></tr>';
+}
+?>
+            </tbody>
+          </table>
+        </div>
+ 
+        <!-- Journals -->
+        <div data-panel="journals" style="display:none">
+          <table style="width:100%;border-collapse:collapse;background:#fff;border-radius:6px;overflow:hidden">
+            <thead>
+              <tr style="background:#fbfbfe;font-weight:700;color:#333">
+                <th style="padding:10px 14px">Week Coverage</th>
+                <th style="padding:10px 14px">Date Uploaded</th>
+                <th style="padding:10px 14px">Attachment</th>
+              </tr>
+            </thead>
+            <tbody>
+              <?php
+              if (!empty($student_id)) {
+                $qj = $conn->prepare("SELECT week_coverage, date_uploaded, attachment FROM weekly_journal WHERE user_id = ? ORDER BY date_uploaded DESC LIMIT 20");
+                $qj->bind_param("i", $student_id);
+                $qj->execute();
+                $rj = $qj->get_result();
+                if ($rj->num_rows) {
+                  while ($row = $rj->fetch_assoc()) {
+                    echo '<tr>';
+                    echo '<td style="padding:10px 14px">'.htmlspecialchars($row['week_coverage'] ?: '—').'</td>';
+                    echo '<td style="padding:10px 14px">'.htmlspecialchars($row['date_uploaded']).'</td>';
+                    $att = $row['attachment'] ? '<a href="../'.htmlspecialchars($row['attachment']).'" target="_blank">View</a>' : '—';
+                    echo '<td style="padding:10px 14px">'.$att.'</td>';
+                    echo '</tr>';
+                  }
+                } else {
+                  echo '<tr><td colspan="3" style="padding:12px;color:#666">No journals uploaded.</td></tr>';
+                }
+                $qj->close();
+              } else {
+                echo '<tr><td colspan="3" style="padding:12px;color:#666">No data.</td></tr>';
+              }
+              ?>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    // simple tab switching — only treat panels inside .reports-body so header buttons are never hidden
+    (function(){
+      const tabs = document.querySelectorAll('.tab-btn');
+      const panels = document.querySelectorAll('.reports-body [data-panel]');
+      tabs.forEach(b=>{
+        b.addEventListener('click', ()=>{
+          tabs.forEach(x=>x.classList.remove('active'));
+          b.classList.add('active');
+          const target = b.getAttribute('data-panel');
+          panels.forEach(p=> p.style.display = p.getAttribute('data-panel') === target ? 'block' : 'none');
+        });
+      });
+      const logout = document.getElementById('top-logout');
+      if (logout) logout.addEventListener('click', function(e){ e.preventDefault(); if (confirm('Logout?')) location.href = this.getAttribute('href'); });
+    })();
+  </script>
+
+   
+ </body>
+ </html>
