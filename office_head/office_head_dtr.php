@@ -16,22 +16,6 @@ $su->close();
 $display_name = trim(($u['first_name']??'').' '.($u['last_name']??'')) ?: 'Office Head';
 $office_name = $u['office_name'] ?? '';
 $office_display = preg_replace('/\s+Office\s*$/i','',$office_name ?: 'Unknown Office');
-
-// load students for this office (populate select in modal)
-$students = [];
-$stmt = $conn->prepare("
-    SELECT u.user_id, u.first_name, u.last_name, COALESCE(s.student_id,0) AS student_id
-    FROM users u
-    LEFT JOIN students s ON s.user_id = u.user_id
-    WHERE u.role = 'ojt' AND u.office_name LIKE ?
-    ORDER BY u.last_name, u.first_name
-");
-$like = '%' . ($office_name ?: '') . '%';
-$stmt->bind_param('s', $like);
-$stmt->execute();
-$res = $stmt->get_result();
-while ($r = $res->fetch_assoc()) $students[] = $r;
-$stmt->close();
 ?>
 <!doctype html>
 <html>
@@ -41,30 +25,54 @@ $stmt->close();
 <link rel="stylesheet" href="../ojts/stylesforojt.css">
 <style>
   body{font-family:Poppins, sans-serif;margin:0;background:#f5f6fa}
-  .main{margin-left:240px;padding:20px}
-  .card{background:#fff;border-radius:12px;padding:18px;box-shadow:0 6px 20px rgba(0,0,0,0.05)}
+  /* allow .main to use full available horizontal space (override external limits) */
+  .main{
+    margin-left:240px;
+    padding:20px;
+    width:auto;
+    max-width:none;
+    box-sizing:border-box;
+  }
+  /* make .card span the available workspace (viewport minus sidebar + padding) */
+  .card{
+    background:#fff;
+    border-radius:12px;
+    padding:18px;
+    box-shadow:0 6px 20px rgba(0,0,0,0.05);
+    width: calc(100vw - 240px - 40px); /* viewport width minus sidebar (240) and main horizontal padding (20*2) */
+    max-width:none;
+    box-sizing:border-box;
+    margin:0;
+  }
   .controls{display:flex;gap:12px;align-items:center;margin-bottom:12px}
   .btn{padding:10px 14px;border-radius:20px;border:0;background:#4f4aa6;color:#fff;cursor:pointer}
-  .late-modal-overlay{position:fixed;inset:0;background:rgba(15,15,20,0.45);display:none;align-items:center;justify-content:center;z-index:2200}
-  .late-modal{width:420px;background:#fff;border-radius:12px;padding:16px;box-shadow:0 12px 40px rgba(0,0,0,0.12)}
-  .late-modal label{display:block;font-size:13px;margin:6px 0}
-  .late-modal input[type="date"], .late-modal input[type="time"], .late-modal select{width:100%;padding:8px;border-radius:8px;border:1px solid #e6e9f2;box-sizing:border-box}
-  .late-modal .actions{display:flex;gap:10px;justify-content:flex-end;margin-top:10px}
-  .late-modal .error{color:#a00;font-size:13px;margin-top:6px;display:none}
   .tabs{display:flex;gap:24px;border-bottom:2px solid #eee;padding-bottom:12px;margin-bottom:16px;position:relative}
   .tabs .tab{background:transparent;border:none;padding:10px 12px;border-radius:6px;cursor:pointer;font-weight:600;color:#2f3850}
   .tabs .tab.active{color:#2f3850}
-  .tab-underline{position:absolute;bottom:0;height:3px;background:#2f3850;border-radius:3px;transition:left .18s ease,width .18s ease;left:0;width:0}
+  /* tab underline removed (no purple line) */
   table{width:100%;border-collapse:collapse}
   th,td{padding:12px;text-align:left;border-bottom:1px solid #eef1f6;font-size:14px}
   thead th{background:#f5f7fb;color:#2f3459}
   @media(max-width:900px){ .sidebar{display:none} .main{padding:12px} }
-  
+
+  /* make top-icons full width of .main so icons align to the same right edge as home */
+  #top-icons {
+    display: flex;
+    justify-content: flex-end;
+    gap: 14px;
+    align-items: center;
+    margin: 8px 0 12px 0;
+    z-index: 50;
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  /* table small adjustments used by render */
+  .center{text-align:center}
 </style>
 </head>
 <body>
 <?php
-// ensure we have a display name available
 $user_name = $display_name ?? 'Office Head';
 ?>
 <div class="sidebar">
@@ -116,19 +124,28 @@ $user_name = $display_name ?? 'Office Head';
 </div>
 
 <div class="main">
+  <!-- top-right outline icons: notifications, settings, logout -->
+  <div id="top-icons" style="display:flex;justify-content:flex-end;gap:14px;align-items:center;margin:8px 0 12px 0;z-index:50;">
+      <a id="btnNotif" href="notifications.php" title="Notifications" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 17h5l-1.405-1.405A2.032 2.032 0 0 1 18 14.158V11a6 6 0 1 0-12 0v3.159c0 .538-.214 1.055-.595 1.436L4 17h5"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
+      </a>
+      <a id="btnSettings" href="settings.php" title="Settings" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82L4.3 4.46a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09c0 .64.38 1.2 1 1.51h.09a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.64.3 1.03.87 1.03 1.51V12c0 .64-.39 1.21-1.03 1.51z"></path></svg>
+      </a>
+      <a id="btnLogout" href="../logout.php" title="Logout" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+      </a>
+  </div>
+
   <div class="card">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-      
       <div style="display:flex;gap:12px;align-items:center">
-        <input id="datePicker" type="date" value="<?= date('Y-m-d') ?>" />
-        <button id="btnCreateLate" class="btn">Create Late DTR</button>
+        <!-- calendar removed -->
       </div>
     </div>
 
     <div class="tabs" role="tablist" aria-label="DTR Tabs">
-      <button class="tab active" data-tab="daily" aria-selected="true">Daily Logs</button>
-      <button class="tab" data-tab="late" aria-selected="false">Late DTR Submissions</button>
-      <div class="tab-underline" aria-hidden="true"></div>
+      <div class="tab active" data-tab="daily" aria-selected="true" style="font-weight:600;color:#2f3850">Daily Logs</div>
     </div>
 
     <div id="panel-daily" class="panel" style="display:block">
@@ -139,173 +156,63 @@ $user_name = $display_name ?? 'Office Head';
         <table id="dailyTable">
           <thead>
             <tr>
-              <th>DATE</th>
+              <th class="center">DATE</th>
               <th>NAME</th>
               <th>SCHOOL</th>
               <th>COURSE</th>
-              <th>A.M. ARRIVAL</th>
-              <th>A.M. DEPARTURE</th>
-              <th>P.M. ARRIVAL</th>
-              <th>P.M. DEPARTURE</th>
-              <th>HOURS</th>
-              <th>STATUS</th>
+              <th class="center">A.M. ARRIVAL</th>
+              <th class="center">A.M. DEPARTURE</th>
+              <th class="center">P.M. ARRIVAL</th>
+              <th class="center">P.M. DEPARTURE</th>
+              <th class="center">HOURS</th>
+              <th class="center">MINUTES</th>
+              <th>OFFICE</th>
             </tr>
           </thead>
           <tbody id="dtrBody">
-            <tr><td colspan="10" style="text-align:center;color:#8a8f9d;padding:18px">Loading…</td></tr>
+            <tr><td colspan="11" style="text-align:center;color:#8a8f9d;padding:18px">Loading…</td></tr>
           </tbody>
         </table>
       </div>
     </div>
 
-    <div id="panel-late" class="panel" style="display:none">
-      <div class="controls" style="margin-bottom:8px">
-        <input id="lateSearch" type="text" placeholder="Search late submissions" style="flex:1;padding:10px;border-radius:8px;border:1px solid #ddd" />
-      </div>
-      <div style="overflow:auto">
-        <table id="lateTable">
-          <thead>
-            <tr>
-              <th>Date Filed</th>
-              <th>Name</th>
-              <th>School</th>
-              <th>Course</th>
-              <th>AM In</th>
-              <th>AM Out</th>
-              <th>PM In</th>
-              <th>PM Out</th>
-              <th>Status</th>
-            </tr>
-          </thead>
-          <tbody id="lateBody">
-            <tr><td colspan="9" style="text-align:center;color:#8a8f9d;padding:18px">Loading…</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-
-  </div>
-</div>
-
-<!-- Create Late DTR modal -->
-<div id="lateModalOverlay" class="late-modal-overlay" aria-hidden="true">
-  <div class="late-modal" role="dialog" aria-modal="true">
-    <h3 style="margin:0 0 8px">Create Late DTR</h3>
-
-    <label for="late_student">Student</label>
-    <select id="late_student">
-      <option value="">-- select student --</option>
-      <?php foreach ($students as $s): ?>
-        <?php $sid = (int)($s['student_id'] ?: 0); ?>
-        <option value="<?php echo $sid ? $sid : (int)$s['user_id']; ?>"><?php echo htmlspecialchars(trim($s['first_name'].' '.$s['last_name'])); ?></option>
-      <?php endforeach; ?>
-    </select>
-
-    <label for="late_date">Date</label>
-    <input id="late_date" type="date" value="<?= date('Y-m-d') ?>" />
-
-    <label>A.M. Arrival / Departure</label>
-    <input id="late_am_in" type="time" />
-    <input id="late_am_out" type="time" style="margin-top:6px" />
-
-    <label style="margin-top:8px">P.M. Arrival / Departure</label>
-    <input id="late_pm_in" type="time" />
-    <input id="late_pm_out" type="time" style="margin-top:6px" />
-
-    <div class="error" id="lateError"></div>
-
-    <div class="actions">
-      <button id="lateCancel" type="button" style="padding:8px 12px;border-radius:8px;border:0;background:#f2f2f4">Cancel</button>
-      <button id="lateUpload" type="button" class="btn">Save</button>
-    </div>
   </div>
 </div>
 
 <script>
 (function(){
-  // tabs underline and switching
-  const tabs = Array.from(document.querySelectorAll('.tabs .tab'));
-  const underline = document.querySelector('.tab-underline');
-  function updateUnderline(){
-    const active = document.querySelector('.tabs .tab.active') || tabs[0];
-    if(!active || !underline) return;
-    const parentRect = document.querySelector('.tabs').getBoundingClientRect();
-    const rect = active.getBoundingClientRect();
-    underline.style.left = (rect.left - parentRect.left) + 'px';
-    underline.style.width = rect.width + 'px';
-  }
-  tabs.forEach(t=>{
-    t.addEventListener('click', ()=>{
-      tabs.forEach(x=>x.classList.remove('active'));
-      t.classList.add('active');
-      const tab = t.getAttribute('data-tab');
-      document.querySelectorAll('.panel').forEach(p=>p.style.display = p.id === 'panel-'+tab ? 'block' : 'none');
-      updateUnderline();
-    });
-  });
-  window.addEventListener('load', updateUnderline);
-  window.addEventListener('resize', updateUnderline);
-
-  // elements
-  const datePicker = document.getElementById('datePicker');
-  const dtrBody = document.getElementById('dtrBody');
-  const lateBody = document.getElementById('lateBody');
-  const searchDaily = document.getElementById('searchDaily');
-  const lateSearch = document.getElementById('lateSearch');
-
-  const overlay = document.getElementById('lateModalOverlay');
-  const btnCreate = document.getElementById('btnCreateLate');
-  const btnCancel = document.getElementById('lateCancel');
-  const btnSave = document.getElementById('lateUpload');
-  const errEl = document.getElementById('lateError');
+  /* underline removed; no tab animation */
+  const initialDate = '<?= date('Y-m-d') ?>';
+   const dtrBody = document.getElementById('dtrBody');
+   const searchDaily = document.getElementById('searchDaily');
 
   function renderDaily(rows){
     dtrBody.innerHTML = '';
     if (!rows || rows.length === 0) {
-      dtrBody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:#8a8f9d;padding:18px">No records found.</td></tr>';
+      dtrBody.innerHTML = '<tr><td colspan="11" style="text-align:center;color:#8a8f9d;padding:18px">No records found.</td></tr>';
       return;
     }
     rows.forEach(r=>{
       const tr = document.createElement('tr');
-      tr.setAttribute('data-search', ((r.first_name||'')+' '+(r.last_name||'')+' '+(r.school||'')+' '+(r.course||'')).toLowerCase());
-      tr.innerHTML = '<td>'+ (r.log_date||'') +'</td>'
-                   + '<td>'+ (r.first_name||'') + ' ' + (r.last_name||'') +'</td>'
+      const name = ((r.first_name||'')+' '+(r.last_name||'')).trim();
+      tr.setAttribute('data-search', ((name)+' '+(r.school||'')+' '+(r.course||'')+' '+(r.office||'')).toLowerCase());
+      tr.innerHTML = '<td class="center">'+ (r.log_date||'') +'</td>'
+                   + '<td>'+ (name||'') +'</td>'
                    + '<td>'+ (r.school||'-') +'</td>'
                    + '<td>'+ (r.course||'-') +'</td>'
-                   + '<td>'+ (r.am_in||'-') +'</td>'
-                   + '<td>'+ (r.am_out||'-') +'</td>'
-                   + '<td>'+ (r.pm_in||'-') +'</td>'
-                   + '<td>'+ (r.pm_out||'-') +'</td>'
-                   + '<td>'+ (r.hours||'-') +'</td>'
-                   + '<td>'+ (r.status||'-') +'</td>';
+                   + '<td class="center">'+ (r.am_in||'-') +'</td>'
+                   + '<td class="center">'+ (r.am_out||'-') +'</td>'
+                   + '<td class="center">'+ (r.pm_in||'-') +'</td>'
+                   + '<td class="center">'+ (r.pm_out||'-') +'</td>'
+                   + '<td class="center">'+ (r.hours||'-') +'</td>'
+                   + '<td class="center">'+ (r.minutes||'-') +'</td>'
+                   + '<td>'+ (r.office||'-') +'</td>';
       dtrBody.appendChild(tr);
     });
   }
 
-  function renderLate(rows){
-    lateBody.innerHTML = '';
-    if (!rows || rows.length === 0) {
-      lateBody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:#8a8f9d;padding:18px">No records found.</td></tr>';
-      return;
-    }
-    rows.forEach(r=>{
-      const tr = document.createElement('tr');
-      tr.setAttribute('data-search', ((r.first_name||'')+' '+(r.last_name||'')+' '+(r.school||'')+' '+(r.course||'')).toLowerCase());
-      tr.innerHTML = '<td>'+ (r.date_filed||'') +'</td>'
-                   + '<td>'+ (r.first_name||'') + ' ' + (r.last_name||'') +'</td>'
-                   + '<td>'+ (r.school||'-') +'</td>'
-                   + '<td>'+ (r.course||'-') +'</td>'
-                   + '<td>'+ (r.am_in||'-') +'</td>'
-                   + '<td>'+ (r.am_out||'-') +'</td>'
-                   + '<td>'+ (r.pm_in||'-') +'</td>'
-                   + '<td>'+ (r.pm_out||'-') +'</td>'
-                   + '<td>'+ (r.status||'-') +'</td>';
-      lateBody.appendChild(tr);
-    });
-  }
-
   async function fetchDaily(date){
-    dtrBody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:#8a8f9d;padding:18px">Loading…</td></tr>';
+    dtrBody.innerHTML = '<tr><td colspan="11" style="text-align:center;color:#8a8f9d;padding:18px">Loading…</td></tr>';
     try {
       const res = await fetch('office_head_action.php', {
         method:'POST',
@@ -317,87 +224,24 @@ $user_name = $display_name ?? 'Office Head';
     } catch(e){ console.error(e); renderDaily([]); }
   }
 
-  async function fetchLate(date){
-    lateBody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:#8a8f9d;padding:18px">Loading…</td></tr>';
-    try {
-      const res = await fetch('office_head_action.php', {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ action: 'get_late_dtr', date: date })
-      });
-      const j = await res.json();
-      if (j && j.success) renderLate(j.data || []); else renderLate([]);
-    } catch(e){ console.error(e); renderLate([]); }
-  }
-
-  // search filters
+  // search filter
   searchDaily.addEventListener('input', function(){
     const q = (this.value||'').toLowerCase().trim();
     document.querySelectorAll('#dtrBody tr').forEach(r=> r.style.display = (r.getAttribute('data-search')||'').indexOf(q)===-1 ? 'none' : '');
   });
-  lateSearch.addEventListener('input', function(){
-    const q = (this.value||'').toLowerCase().trim();
-    document.querySelectorAll('#lateBody tr').forEach(r=> r.style.display = (r.getAttribute('data-search')||'').indexOf(q)===-1 ? 'none' : '');
-  });
 
-  // init fetch on date change
-  datePicker.addEventListener('change', ()=>{ fetchDaily(datePicker.value); fetchLate(datePicker.value); });
-  // initial
-  fetchDaily(datePicker.value);
-  fetchLate(datePicker.value);
+  // initial fetch using server date (calendar removed)
+  fetchDaily(initialDate);
 
-  // modal logic (same as before)
-  function openModal(){ errEl.style.display='none'; errEl.textContent=''; overlay.style.display='flex'; overlay.setAttribute('aria-hidden','false'); document.getElementById('late_date').value = datePicker.value || new Date().toISOString().slice(0,10); }
-  function closeModal(){ overlay.style.display='none'; overlay.setAttribute('aria-hidden','true'); ['late_student','late_date','late_am_in','late_am_out','late_pm_in','late_pm_out'].forEach(id=>{const el=document.getElementById(id); if(el) el.value='';}); errEl.style.display='none'; errEl.textContent=''; }
-  btnCreate.addEventListener('click', openModal);
-  btnCancel.addEventListener('click', closeModal);
-  overlay.addEventListener('click', function(e){ if (e.target === overlay) closeModal(); });
-
-  function showError(msg){ errEl.style.display='block'; errEl.textContent=msg; }
-
-  btnSave.addEventListener('click', async function(){
-    errEl.style.display='none'; errEl.textContent='';
-    const student = document.getElementById('late_student').value;
-    const date = document.getElementById('late_date').value.trim();
-    const am_in = document.getElementById('late_am_in').value.trim();
-    const am_out = document.getElementById('late_am_out').value.trim();
-    const pm_in = document.getElementById('late_pm_in').value.trim();
-    const pm_out = document.getElementById('late_pm_out').value.trim();
-
-    if (!student) return showError('Select a student.');
-    if (!date) return showError('Select a date.');
-
-    const amFilled = am_in !== '' || am_out !== '';
-    const pmFilled = pm_in !== '' || pm_out !== '';
-    const amComplete = am_in !== '' && am_out !== '';
-    const pmComplete = pm_in !== '' && pm_out !== '';
-
-    if (!amComplete && !pmComplete) {
-      if (amFilled && (!am_in || !am_out)) return showError('If using AM fields, fill both Arrival and Departure.');
-      if (pmFilled && (!pm_in || !pm_out)) return showError('If using PM fields, fill both Arrival and Departure.');
-      return showError('Provide both AM times or both PM times.');
-    }
-
-    btnSave.disabled = true; btnSave.textContent = 'Saving...';
-    try {
-      const res = await fetch('office_head_action.php', {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({
-          action: 'create_late',
-          student_id: student,
-          late_date: date,
-          am_in: amComplete ? am_in : '',
-          am_out: amComplete ? am_out : '',
-          pm_in: pmComplete ? pm_in : '',
-          pm_out: pmComplete ? pm_out : ''
-        })
-      });
-      const j = await res.json();
-      if (j && j.success) { closeModal(); fetchDaily(datePicker.value); fetchLate(datePicker.value); }
-      else { showError(j.message || 'Save failed.'); btnSave.disabled=false; btnSave.textContent='Save'; }
-    } catch(e){ console.error(e); showError('Request failed.'); btnSave.disabled=false; btnSave.textContent='Save'; }
-  });
+  // confirm logout (top-right)
+  (function(){
+    const logout = document.getElementById('btnLogout');
+    if (!logout) return;
+    logout.addEventListener('click', function(e){
+      // allow default navigation; keep simple confirmation
+      if (!confirm('Are you sure you want to logout?')) e.preventDefault();
+    });
+  })();
 
 })();
 </script>

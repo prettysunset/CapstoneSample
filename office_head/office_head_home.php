@@ -539,242 +539,146 @@ $late_dtr_res = $late_dtr->get_result();
         <input type="hidden" id="oh_office_id" value="<?= (int)$office['office_id'] ?>">
     </div>
 
+    <!-- REPLACE Late DTR Submissions section with Office Requests table -->
     <div class="table-section">
         <div style="display:flex;align-items:center;justify-content:space-between">
-            <h3>Late DTR Submissions</h3>
+            <h3>Office Requests</h3>
             <div style="display:flex;align-items:center;gap:8px">
-                <!-- date picker (native calendar icon used by browser) -->
-                <input id="lateDate" type="date" value="<?= date('Y-m-d') ?>" style="padding:6px;border-radius:6px;border:1px solid #ddd;">
+                <button id="refreshRequests" style="padding:6px 10px;border-radius:6px;border:1px solid #ccc;background:#fff;cursor:pointer">Refresh</button>
             </div>
         </div>
 
-        <!-- add explicit id's so JS updates only this table -->
-        <table id="lateDtrTable">
+        <div style="margin-top:12px; overflow-x:auto;">
+          <?php
+            $officeId = (int)($office['office_id'] ?? 0);
+            $reqs = [];
+            if ($officeId > 0) {
+                $qr = $conn->prepare("SELECT new_limit, reason, status, date_requested FROM office_requests WHERE office_id = ? ORDER BY date_requested DESC LIMIT 100");
+                if ($qr) {
+                    $qr->bind_param('i', $officeId);
+                    $qr->execute();
+                    $resr = $qr->get_result();
+                    while ($row = $resr->fetch_assoc()) $reqs[] = $row;
+                    $qr->close();
+                }
+            }
+          ?>
+          <table id="officeRequestsTable" style="width:100%; border-collapse:collapse; text-align:left;">
             <thead>
               <tr>
-                <th>NAME</th>
-                <th colspan="2">A.M.</th>
-                <th colspan="2">P.M.</th>
-                <th>HOURS</th>
-                <th>STATUS</th>
-              </tr>
-              <tr>
-                <th></th>
-                <th>ARRIVAL</th>
-                <th>DEPARTURE</th>
-                <th>ARRIVAL</th>
-                <th>DEPARTURE</th>
-                <th></th>
-                <th></th>
+                <th style="padding:8px; background:#f7f7f7; border:1px solid #e0e0e0;">Date Requested</th>
+                <th style="padding:8px; background:#f7f7f7; border:1px solid #e0e0e0;">Requested Limit</th>
+                <th style="padding:8px; background:#f7f7f7; border:1px solid #e0e0e0;">Reason</th>
+                <th style="padding:8px; background:#f7f7f7; border:1px solid #e0e0e0;">Status</th>
               </tr>
             </thead>
-            <tbody id="lateDtrTbody">
-            <?php while ($row = $late_dtr_res->fetch_assoc()): ?>
-            <tr>
-                <td><?= htmlspecialchars($row['first_name'] . ' ' . $row['last_name']) ?></td>
-                <td><?= $row['am_in'] ? htmlspecialchars(date('H:i', strtotime($row['am_in']))) : '' ?></td>
-                <td><?= $row['am_out'] ? htmlspecialchars(date('H:i', strtotime($row['am_out']))) : '' ?></td>
-                <td><?= $row['pm_in'] ? htmlspecialchars(date('H:i', strtotime($row['pm_in']))) : '' ?></td>
-                <td><?= $row['pm_out'] ? htmlspecialchars(date('H:i', strtotime($row['pm_out']))) : '' ?></td>
-                <td><?= htmlspecialchars($row['hours']) ?></td>
-                <td><?= (!empty($row['hours']) ? 'Validated' : '') ?></td>
-            </tr>
-            <?php endwhile; ?>
+            <tbody>
+              <?php if (empty($reqs)): ?>
+                <tr><td colspan="4" style="padding:12px;color:#666;text-align:center">No office requests found.</td></tr>
+              <?php else: ?>
+                <?php foreach ($reqs as $r): ?>
+                  <tr>
+                    <td style="padding:8px; border:1px solid #e0e0e0;"><?php echo htmlspecialchars($r['date_requested']); ?></td>
+                    <td style="padding:8px; border:1px solid #e0e0e0;"><?php echo htmlspecialchars($r['new_limit']); ?></td>
+                    <td style="padding:8px; border:1px solid #e0e0e0; max-width:360px;"><?php echo htmlspecialchars($r['reason']); ?></td>
+                    <td style="padding:8px; border:1px solid #e0e0e0;"><?php echo htmlspecialchars(ucfirst($r['status'])); ?></td>
+                  </tr>
+                <?php endforeach; ?>
+              <?php endif; ?>
             </tbody>
-        </table>
+          </table>
+        </div>
+
+        <input type="hidden" id="oh_office_id" value="<?= (int)$office['office_id'] ?>">
     </div>
 
     <script>
     (function(){
-      const btn = document.getElementById('btnEditOffice');
-      const modal = document.getElementById('officeModal');
-      const cancel = document.getElementById('m_cancel');
-      const requestBtn = document.getElementById('m_request');
-      const officeId = document.getElementById('oh_office_id').value;
+      const officeId = Number(document.getElementById('oh_office_id').value || 0);
+      const refreshBtn = document.getElementById('refreshRequests');
 
-      function openModal(){
-        document.getElementById('m_current_limit').value = document.getElementById('ci_current_limit').value;
-        document.getElementById('m_active_ojts').value = document.getElementById('ci_active_ojts').value;
-        document.getElementById('m_approved_ojts').value = document.getElementById('ci_approved_ojts').value;
-        document.getElementById('m_available_slots').value = document.getElementById('ci_available_slots').value;
-        document.getElementById('m_requested_limit').value = document.getElementById('ci_requested_limit').value || '';
-        document.getElementById('m_reason').value = document.getElementById('ci_reason').value || '';
-        modal.style.display = 'flex';
-      }
-      function closeModal(){ modal.style.display = 'none'; }
+      function updateRowStatus(id, status, processedAt) {
+        const tr = document.querySelector('tr[data-req-id="'+id+'"]');
+        if (!tr) return;
+        const statusEl = tr.querySelector('.req-status');
+        if (statusEl) statusEl.textContent = status.charAt(0).toUpperCase() + status.slice(1);
+        const actionTd = tr.querySelector('td:last-child');
+        if (actionTd) {
+          actionTd.innerHTML = ''; // clear existing buttons
+          if (status === 'pending') {
+            // Add Approve and Deny buttons
+            const approveBtn = document.createElement('button');
+            approveBtn.textContent = 'Approve';
+            approveBtn.className = 'btn-approve';
+            approveBtn.style.cssText = 'padding:6px 8px;border-radius:6px;border:1px solid #2f8f4a;background:#2f8f4a;color:#fff;cursor:pointer;margin-right:6px';
+            approveBtn.onclick = function() { handleRequestAction(id, 'approve'); };
 
-      btn.addEventListener('click', openModal);
-      cancel.addEventListener('click', closeModal);
+            const denyBtn = document.createElement('button');
+            denyBtn.textContent = 'Deny';
+            denyBtn.className = 'btn-deny';
+            denyBtn.style.cssText = 'padding:6px 8px;border-radius:6px;border:1px solid #c03;background:#fff;color:#c03;cursor:pointer';
+            denyBtn.onclick = function() { handleRequestAction(id, 'deny'); };
 
-      requestBtn.addEventListener('click', function(){
-        const reqLimitEl = document.getElementById('m_requested_limit');
-        const reasonEl = document.getElementById('m_reason');
-        const reqLimitRaw = (reqLimitEl.value || '').toString().trim();
-        const reason = (reasonEl.value || '').toString().trim();
-
-        // validation: required fields
-        if (reqLimitRaw === '') {
-          alert('Requested Limit is required.');
-          reqLimitEl.focus();
-          return;
-        }
-        const reqLimitNum = Number(reqLimitRaw);
-        if (!Number.isFinite(reqLimitNum) || isNaN(reqLimitNum) || reqLimitNum < 0) {
-          alert('Requested Limit must be a valid non-negative number.');
-          reqLimitEl.focus();
-          return;
-        }
-        if (reason === '') {
-          alert('Reason is required.');
-          reasonEl.focus();
-          return;
-        }
-
-        // NEW: ensure requested_limit is not less than ongoing + approved
-        // read values from modal inputs (fallback to current display inputs)
-        const ongoingVal = Number(document.getElementById('m_active_ojts')?.value || document.getElementById('ci_active_ojts')?.value || 0);
-        const approvedVal = Number(document.getElementById('m_approved_ojts')?.value || document.getElementById('ci_approved_ojts')?.value || 0);
-        const minAllowed = ongoingVal + approvedVal;
-        if (reqLimitNum < minAllowed) {
-          alert('Requested Limit cannot be less than the sum of Ongoing + Approved OJTs (' + minAllowed + ').');
-          reqLimitEl.focus();
-          return;
-        }
-
-        // disable button during request
-        requestBtn.disabled = true;
-        requestBtn.textContent = 'Sending...';
-
-        fetch('office_head_action.php', {
-          method: 'POST',
-          headers: {'Content-Type':'application/json'},
-          body: JSON.stringify({
-            action: 'request_limit',
-            office_id: parseInt(officeId,10),
-            requested_limit: Math.floor(reqLimitNum),
-            reason
-          })
-        }).then(r => r.json().catch(()=>null))
-          .then(j => {
-            if (!j) {
-              alert('Request failed: invalid server response.');
-              return;
-            }
-            if (!j.success) {
-              // clearer handling for unknown action
-              if (j.message && j.message.toLowerCase().indexOf('unknown action') !== -1) {
-                alert('Server error: Unknown action. Please ensure office_head_action.php implements "request_limit".');
-              } else {
-                alert('Request failed: ' + (j.message || 'unknown error'));
-              }
-              return;
-            }
-            // update UI fields on success
-            if (j.data) {
-              document.getElementById('ci_requested_limit').value = j.data.requested_limit ?? document.getElementById('ci_requested_limit').value;
-              document.getElementById('ci_reason').value = j.data.reason ?? document.getElementById('ci_reason').value;
-              if (j.data.status) {
-                document.getElementById('ci_status').value = (j.data.status.charAt(0).toUpperCase() + j.data.status.slice(1));
-              }
-            }
-            closeModal();
-          }).catch(e=>{
-            console.error(e);
-            alert('Request failed (network or server error).');
-          }).finally(()=>{
-            requestBtn.disabled = false;
-            requestBtn.textContent = 'Request';
-          });
-       });
-    })();
-    </script>
-
-    <script>
-    (function(){
-      const dateInput = document.getElementById('lateDate');
-      const tbody = document.getElementById('lateDtrTbody'); // target the second table explicitly
-      const officeId = document.getElementById('oh_office_id').value;
-
-      function renderRows(rows) {
-        tbody.innerHTML = '';
-        if (!rows || rows.length === 0) {
-          const tr = document.createElement('tr');
-          const td = document.createElement('td');
-          td.colSpan = 7;
-          td.textContent = 'No records found for selected date.';
-          tr.appendChild(td);
-          tbody.appendChild(tr);
-          return;
-        }
-        rows.forEach(r=>{
-          const tr = document.createElement('tr');
-          function td(text){ const el = document.createElement('td'); el.textContent = text || ''; return el; }
-          tr.appendChild(td((r.first_name || '') + ' ' + (r.last_name || '')));
-          tr.appendChild(td(r.am_in ? r.am_in : ''));
-          tr.appendChild(td(r.am_out ? r.am_out : ''));
-          tr.appendChild(td(r.pm_in ? r.pm_in : ''));
-          tr.appendChild(td(r.pm_out ? r.pm_out : ''));
-          tr.appendChild(td(r.hours !== null && r.hours !== undefined ? String(r.hours) : ''));
-          tr.appendChild(td(r.status || (r.hours ? 'Validated' : '')));
-          tbody.appendChild(tr);
-        });
-      }
-
-      function fetchForDate(d) {
-        fetch('office_head_action.php', {
-          method: 'POST',
-          headers: {'Content-Type':'application/json'},
-          body: JSON.stringify({ action: 'get_late_dtr', office_id: parseInt(officeId,10), date: d })
-        }).then(r=>r.json()).then(j=>{
-          if (!j || !j.success) {
-            console.error('Fetch late dtr failed', j);
-            renderRows([]);
-            return;
+            actionTd.appendChild(approveBtn);
+            actionTd.appendChild(denyBtn);
+          } else {
+            // Optionally, show processed date or other info
+            const processedInfo = document.createElement('small');
+            processedInfo.style.color = '#666';
+            processedInfo.textContent = processedAt ? 'Processed on ' + new Date(processedAt).toLocaleString() : '';
+            actionTd.appendChild(processedInfo);
           }
-          renderRows(j.data || []);
-        }).catch(err=>{
-          console.error(err);
-          renderRows([]);
+        }
+      }
+
+      function handleRequestAction(requestId, action) {
+        const url = action === 'approve' ? 'approve_request.php' : 'deny_request.php';
+        const data = new FormData();
+        data.append('request_id', requestId);
+
+        fetch(url, {
+          method: 'POST',
+          body: data,
+          headers: {
+            'X-Requested-With': 'XMLHttpRequest'
+          }
+        })
+        .then(response => response.json())
+        .then(result => {
+          if (result.success) {
+            // Update row status immediately
+            updateRowStatus(requestId, action === 'approve' ? 'approved' : 'denied', result.processed_at);
+            // Optionally, show a success message
+            alert('Request ' + action + 'd successfully.');
+          } else {
+            // Handle error (e.g., show message)
+            alert('Error: ' + (result.message || 'Unknown error'));
+          }
+        })
+        .catch(error => {
+          console.error('Request failed:', error);
+          alert('Request failed. Please try again later.');
         });
       }
 
-      dateInput.addEventListener('change', function(){ fetchForDate(this.value); });
+      // Refresh button handler
+      refreshBtn.addEventListener('click', function() {
+        location.reload(); // simple page reload to refresh data
+      });
 
-      // initial load for today's date
-      fetchForDate(dateInput.value);
+      // Initial row status update (in case there are pending requests)
+      document.querySelectorAll('tr[data-req-id]').forEach(tr => {
+        const id = tr.getAttribute('data-req-id');
+        const status = tr.querySelector('.req-status')?.textContent.trim().toLowerCase();
+        const processedAt = tr.getAttribute('data-processed-at');
+        if (status === 'pending') {
+          updateRowStatus(id, 'pending');
+        } else if (status === 'approved' || status === 'denied') {
+          updateRowStatus(id, status, processedAt);
+        }
+      });
     })();
     </script>
-
-<script>
-document.addEventListener('DOMContentLoaded', function(){
-  const notifBtn = document.getElementById('btnNotif');
-  const settingsBtn = document.getElementById('btnSettings');
-  const logoutBtn = document.getElementById('btnLogout');
-
-  if (notifBtn) {
-    notifBtn.addEventListener('click', function(e){
-      e.preventDefault();
-      alert('Walang bagong notification ngayon.');
-    });
-  }
-
-  if (settingsBtn) {
-    settingsBtn.addEventListener('click', function(e){
-      e.preventDefault();
-      window.location.href = 'settings.php';
-    });
-  }
-
-  if (logoutBtn) {
-    logoutBtn.addEventListener('click', function(e){
-      e.preventDefault();
-      if (!confirm('Log out?')) return;
-      // replace history entry so back button won't return to protected pages
-      window.location.replace(logoutBtn.getAttribute('href') || '../logout.php');
-    }, { passive: true });
-  }
-});
-</script>
 </div>
 
 </body>

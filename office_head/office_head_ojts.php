@@ -58,7 +58,9 @@ $office_display = preg_replace('/\s+Office\s*$/i', '', trim($office['office_name
 // fetch OJTs for this office (include students.status and hours columns)
 $ojts = [];
 $stmt = $conn->prepare("
-    SELECT u.user_id, u.first_name, u.last_name,
+    SELECT u.user_id,
+           COALESCE(NULLIF(u.first_name, ''), NULLIF(s.first_name, ''), '') AS first_name,
+           COALESCE(NULLIF(u.last_name, ''), NULLIF(s.last_name, ''), '') AS last_name,
            COALESCE(s.college, '') AS school,
            COALESCE(s.course, '') AS course,
            COALESCE(s.year_level, '') AS year_level,
@@ -107,9 +109,8 @@ foreach ($ojts as $r) {
 <style>
   body{font-family:'Poppins',sans-serif;margin:0;background:#f5f6fa}
   .sidebar{width:220px;background:#2f3459;height:100vh;position:fixed;color:#fff;padding-top:30px}
-  .main{margin-left:240px;padding:28px}
+  .main{margin-left:240px;padding:20px}
   .card{background:#fff;border-radius:12px;padding:18px;box-shadow:0 6px 20px rgba(47,52,89,0.04)}
-  .top-icons{position:fixed;top:18px;right:28px;display:flex;gap:12px;z-index:1200}
   .tabs{display:flex;gap:18px;border-bottom:1px solid #e6e9f2;padding-bottom:12px;margin-bottom:16px}
   .tab{padding:10px 18px;border-radius:8px;cursor:pointer;color:#6b6f8b}
   .tab.active{border-bottom:3px solid #4f4aa6;color:#111}
@@ -151,6 +152,8 @@ foreach ($ojts as $r) {
     .sidebar a.active {
         background-color: #fff;
     }
+  /* match office_head_home.php top icons positioning & spacing */
+  #top-icons { display:flex; justify-content:flex-end; gap:14px; align-items:center; margin:8px 0 12px 0; z-index:50; }
 </style>
 </head>
 <body>
@@ -206,23 +209,29 @@ foreach ($ojts as $r) {
   <div style="position:absolute;bottom:20px;width:100%;text-align:center;font-weight:700;padding-bottom:6px">OJT-MS</div>
 </div>
 
-<div class="top-icons">
-  <a id="btnNotif" href="notifications.php" title="Notifications" style="width:40px;height:40px;display:inline-flex;align-items:center;justify-content:center;border-radius:8px;background:#fff;color:#2f3459;text-decoration:none">🔔</a>
-  <a id="btnSettings" href="settings.php" title="Settings" style="width:40px;height:40px;display:inline-flex;align-items:center;justify-content:center;border-radius:8px;background:#fff;color:#2f3459;text-decoration:none">⚙️</a>
-  <a id="btnLogout" href="../logout.php" title="Logout" style="width:40px;height:40px;display:inline-flex;align-items:center;justify-content:center;border-radius:8px;background:#fff;color:#2f3459;text-decoration:none">⤴️</a>
-</div>
-
 <div class="main">
+  <!-- top-right outline icons: notifications, settings, logout — moved inside .main to match office_head_home.php -->
+  <div id="top-icons" style="display:flex;justify-content:flex-end;gap:14px;align-items:center;margin:8px 0 12px 0;z-index:50;">
+      <a id="btnNotif" href="notifications.php" title="Notifications" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 17h5l-1.405-1.405A2.032 2.032 0 0 1 18 14.158V11a6 6 0 1 0-12 0v3.159c0 .538-.214 1.055-.595 1.436L4 17h5"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
+      </a>
+      <a id="btnSettings" href="settings.php" title="Settings" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82L4.3 4.46a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09c0 .64.38 1.2 1 1.51h.09a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.64.3 1.03.87 1.03 1.51V12c0 .64-.39 1.21-1.03 1.51z"></path></svg>
+      </a>
+      <a id="btnLogout" href="../logout.php" title="Logout" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+      </a>
+  </div>
+
   <div class="card">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
       <div>
         <div class="tabs" role="tablist" aria-label="OJTs tabs">
-          <div class="tab active" data-target="panel-active">Active</div>
+          <div class="tab active" data-target="panel-active">Ongoing</div>
           <div class="tab" data-target="panel-eval">For Evaluation</div>
           <div class="tab" data-target="panel-completed">Completed</div>
         </div>
-        <p style="margin:6px 0 0;color:#6b6f8b">Manage assigned OJTs for <?php echo htmlspecialchars($office_display); ?></p>
-      </div>
+        </div>
       <div style="display:flex;gap:12px;align-items:center">
         <!-- Create OJT removed per request -->
       </div>
@@ -320,26 +329,73 @@ foreach ($ojts as $r) {
 document.addEventListener('click', function(e){
   if (e.target.matches('.view-btn')) {
     const id = e.target.getAttribute('data-id');
-    if (id) window.location.href = 'office_head_view_ojt.php?id=' + encodeURIComponent(id);
-  }
-  if (e.target.id === 'btnLogout') {
-    if (!confirm('Log out?')) return;
-    window.location.replace(e.target.getAttribute('href') || '../logout.php');
-    e.preventDefault();
+    if (id) {
+      // open user profile in a new tab
+      window.open('user_profile.php?id=' + encodeURIComponent(id), '_blank');
+    }
   }
 });
 
-// tab switching
-document.querySelectorAll('.tab').forEach(t=>{
-  t.addEventListener('click', function(){
-    document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
-    this.classList.add('active');
+// tabs switching
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', function() {
     const target = this.getAttribute('data-target');
-    document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
-    const panel = document.getElementById(target);
-    if (panel) panel.classList.add('active');
+
+    // hide all tab panels
+    document.querySelectorAll('.tab-panel').forEach(panel => {
+      panel.classList.remove('active');
+    });
+
+    // show the selected tab panel
+    document.getElementById(target).classList.add('active');
+
+    // update tab active state
+    document.querySelectorAll('.tab').forEach(t => {
+      t.classList.remove('active');
+    });
+    this.classList.add('active');
   });
 });
+
+// search and sort functionality
+document.getElementById('searchInput').addEventListener('input', function() {
+  const query = this.value.toLowerCase();
+  filterTable(query);
+});
+
+document.getElementById('sortSelect').addEventListener('change', function() {
+  const sortBy = this.value;
+  sortTable(sortBy);
+});
+
+function filterTable(query) {
+  document.querySelectorAll('.tab-panel.active table tbody tr').forEach(row => {
+    const text = row.innerText.toLowerCase();
+    row.style.display = text.includes(query) ? '' : 'none';
+  });
+}
+
+function sortTable(sortBy) {
+  const table = document.querySelector('.tab-panel.active table');
+  const rows = Array.from(table.querySelectorAll('tbody tr'));
+
+  rows.sort((a, b) => {
+    let aValue, bValue;
+    if (sortBy === 'name') {
+      aValue = a.querySelector('td').innerText.toLowerCase();
+      bValue = b.querySelector('td').innerText.toLowerCase();
+    } else if (sortBy === 'hours') {
+      aValue = parseInt(a.querySelector('td:nth-child(5)').innerText);
+      bValue = parseInt(b.querySelector('td:nth-child(5)').innerText);
+    }
+    return aValue > bValue ? 1 : -1;
+  });
+
+  rows.forEach(row => {
+    table.querySelector('tbody').appendChild(row);
+  });
+}
 </script>
+
 </body>
 </html>
