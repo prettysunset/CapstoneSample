@@ -6,6 +6,12 @@ if (!isset($_SESSION['user_id'])) { header('Location: ../login.php'); exit; }
 
 $user_id = (int)$_SESSION['user_id'];
 
+// require login
+if (!isset($_SESSION['user_id'])) {
+    header("Location: ../login.php");
+    exit();
+}
+
 // resolve display name and office
 $user_name = trim(($_SESSION['first_name'] ?? '') . ' ' . ($_SESSION['last_name'] ?? ''));
 if ($user_name === '') {
@@ -302,11 +308,11 @@ foreach ($ojts as $r) {
       <div style="overflow:auto">
         <table>
           <thead>
-            <tr><th>Name</th><th>School</th><th>Course</th><th>Year Level</th><th>Hours</th><th>View</th></tr>
+            <tr><th>Name</th><th>School</th><th>Course</th><th>Year Level</th><th>Hours</th><th>Remarks</th><th>View</th></tr>
           </thead>
           <tbody>
             <?php if (empty($completedArr)): ?>
-              <tr><td colspan="6" style="text-align:center;color:#8a8f9d;padding:18px;">No completed OJTs.</td></tr>
+              <tr><td colspan="7" style="text-align:center;color:#8a8f9d;padding:18px;">No completed OJTs.</td></tr>
             <?php else: foreach ($completedArr as $o): ?>
               <tr>
                 <td><?php echo htmlspecialchars(trim($o['first_name'] . ' ' . $o['last_name'])); ?></td>
@@ -314,6 +320,7 @@ foreach ($ojts as $r) {
                 <td><?php echo htmlspecialchars($o['course'] ?: '-'); ?></td>
                 <td><?php echo htmlspecialchars($o['year_level'] ?: '-'); ?></td>
                 <td><?php echo htmlspecialchars((int)$o['hours_completed'] . ' / ' . (int)$o['hours_required'] . ' hrs'); ?></td>
+                <td><?php echo htmlspecialchars($o['remarks'] ?? '-'); ?></td>
                 <td><button class="view-btn" data-id="<?php echo (int)$o['user_id']; ?>">👁️</button></td>
               </tr>
             <?php endforeach; endif; ?>
@@ -396,6 +403,18 @@ function sortTable(sortBy) {
   });
 }
 </script>
-
+<script>
+  // attach confirm to top logout like hr_head_ojts.php
+  (function(){
+    const logoutBtn = document.getElementById('btnLogout') || document.querySelector('a[href$="logout.php"]');
+    if (!logoutBtn) return;
+    logoutBtn.addEventListener('click', function(e){
+      e.preventDefault();
+      if (confirm('Are you sure you want to logout?')) {
+        window.location.href = this.getAttribute('href') || '../logout.php';
+      }
+    });
+  })();
+</script>
 </body>
 </html>

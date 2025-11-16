@@ -543,9 +543,7 @@ $late_dtr_res = $late_dtr->get_result();
     <div class="table-section">
         <div style="display:flex;align-items:center;justify-content:space-between">
             <h3>Office Requests</h3>
-            <div style="display:flex;align-items:center;gap:8px">
-                <button id="refreshRequests" style="padding:6px 10px;border-radius:6px;border:1px solid #ccc;background:#fff;cursor:pointer">Refresh</button>
-            </div>
+            <div></div>
         </div>
 
         <div style="margin-top:12px; overflow-x:auto;">
@@ -595,8 +593,7 @@ $late_dtr_res = $late_dtr->get_result();
     <script>
     (function(){
       const officeId = Number(document.getElementById('oh_office_id').value || 0);
-      const refreshBtn = document.getElementById('refreshRequests');
-
+ 
       function updateRowStatus(id, status, processedAt) {
         const tr = document.querySelector('tr[data-req-id="'+id+'"]');
         if (!tr) return;
@@ -612,13 +609,13 @@ $late_dtr_res = $late_dtr->get_result();
             approveBtn.className = 'btn-approve';
             approveBtn.style.cssText = 'padding:6px 8px;border-radius:6px;border:1px solid #2f8f4a;background:#2f8f4a;color:#fff;cursor:pointer;margin-right:6px';
             approveBtn.onclick = function() { handleRequestAction(id, 'approve'); };
-
+ 
             const denyBtn = document.createElement('button');
             denyBtn.textContent = 'Deny';
             denyBtn.className = 'btn-deny';
             denyBtn.style.cssText = 'padding:6px 8px;border-radius:6px;border:1px solid #c03;background:#fff;color:#c03;cursor:pointer';
             denyBtn.onclick = function() { handleRequestAction(id, 'deny'); };
-
+ 
             actionTd.appendChild(approveBtn);
             actionTd.appendChild(denyBtn);
           } else {
@@ -630,12 +627,12 @@ $late_dtr_res = $late_dtr->get_result();
           }
         }
       }
-
+ 
       function handleRequestAction(requestId, action) {
         const url = action === 'approve' ? 'approve_request.php' : 'deny_request.php';
         const data = new FormData();
         data.append('request_id', requestId);
-
+ 
         fetch(url, {
           method: 'POST',
           body: data,
@@ -660,12 +657,9 @@ $late_dtr_res = $late_dtr->get_result();
           alert('Request failed. Please try again later.');
         });
       }
-
-      // Refresh button handler
-      refreshBtn.addEventListener('click', function() {
-        location.reload(); // simple page reload to refresh data
-      });
-
+ 
+      // Refresh button removed — table updates via action handlers automatically.
+ 
       // Initial row status update (in case there are pending requests)
       document.querySelectorAll('tr[data-req-id]').forEach(tr => {
         const id = tr.getAttribute('data-req-id');
@@ -680,6 +674,18 @@ $late_dtr_res = $late_dtr->get_result();
     })();
     </script>
 </div>
-
+<script>
+  // attach confirm to top logout like hr_head_ojts.php
+  (function(){
+    const logoutBtn = document.getElementById('btnLogout') || document.querySelector('a[href$="logout.php"]');
+    if (!logoutBtn) return;
+    logoutBtn.addEventListener('click', function(e){
+      e.preventDefault();
+      if (confirm('Are you sure you want to logout?')) {
+        window.location.href = this.getAttribute('href') || '../logout.php';
+      }
+    });
+  })();
+</script>
 </body>
 </html>

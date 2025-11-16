@@ -5,6 +5,12 @@ require_once __DIR__ . '/../conn.php';
 if (!isset($_SESSION['user_id'])) { header('Location: ../login.php'); exit; }
 $uid = (int)$_SESSION['user_id'];
 
+// require login
+if (!isset($_SESSION['user_id'])) {
+    header("Location: ../login.php");
+    exit();
+}
+
 // resolve office for this office head
 $office_name = '';
 $tblCheck = $conn->query("SHOW TABLES LIKE 'office_heads'");
@@ -27,10 +33,34 @@ if (!$office_name) {
 }
 $office_display = preg_replace('/\s+Office\s*$/i','', trim($office_name ?: 'Unknown Office'));
 
-// status filter from querystring — default to ongoing
-$allowed = ['pending','approved','ongoing','completed','no_response','rejected'];
-$statusFilter = isset($_GET['status']) ? strtolower(trim($_GET['status'])) : 'ongoing';
-if (!in_array($statusFilter, $allowed, true)) $statusFilter = 'ongoing';
+// --- added: resolve office_id and load office_requests for this office ---
+$office_id = null;
+$office_requests = [];
+if (!empty($office_name)) {
+    $s4 = $conn->prepare("SELECT office_id FROM offices WHERE office_name = ? LIMIT 1");
+    if ($s4) {
+        $s4->bind_param('s', $office_name);
+        $s4->execute();
+        $tmp4 = $s4->get_result()->fetch_assoc();
+        $s4->close();
+        $office_id = isset($tmp4['office_id']) ? (int)$tmp4['office_id'] : null;
+    }
+}
+if ($office_id) {
+    $rq = $conn->prepare("SELECT request_id, old_limit, new_limit, reason, status, date_requested FROM office_requests WHERE office_id = ? ORDER BY date_requested DESC, request_id DESC");
+    if ($rq) {
+        $rq->bind_param('i', $office_id);
+        $rq->execute();
+        $resq = $rq->get_result();
+        while ($r = $resq->fetch_assoc()) $office_requests[] = $r;
+        $rq->close();
+    }
+}
+
+// status filter from querystring — include "all" and default to all
+$allowed = ['all','pending','approved','ongoing','completed','no_response','rejected'];
+$statusFilter = isset($_GET['status']) ? strtolower(trim($_GET['status'])) : 'all';
+if (!in_array($statusFilter, $allowed, true)) $statusFilter = 'all';
 
 // fetch OJTs for this office with status filtering
 $ojts = [];
@@ -49,6 +79,7 @@ $sql = "
          COALESCE(s.status,'') AS student_status,
          COALESCE(oa.status,'') AS application_status,
          COALESCE(lc.late_count,0) AS late_count,
+         COALESCE(u.status,'') AS user_status,
          '' AS date_started,
          '' AS expected_end_date
   FROM users u
@@ -62,19 +93,26 @@ $sql = "
   WHERE u.role = 'ojt' AND u.office_name LIKE ?
 ";
 
-// append status-specific conditions
-if ($statusFilter === 'pending') {
-    $sql .= " AND (s.status = 'pending' OR oa.status = 'pending')";
-} elseif ($statusFilter === 'approved') {
-    $sql .= " AND oa.status = 'approved'";
-} elseif ($statusFilter === 'ongoing') {
-    $sql .= " AND s.status = 'ongoing'";
-} elseif ($statusFilter === 'completed') {
-    $sql .= " AND s.status = 'completed'";
-} elseif ($statusFilter === 'rejected') {
-    $sql .= " AND oa.status = 'rejected'";
-} elseif ($statusFilter === 'no_response') {
-    $sql .= " AND oa.application_id IS NULL";
+/* Always include OJTs that are active in the office (approved / ongoing / completed).
+   Additional status filters (from the dropdown) are applied below and will further
+   narrow results when selected. */
+$sql .= " AND (COALESCE(s.status, u.status, oa.status) IN ('approved','ongoing','completed'))";
+
+// apply status filter only when not "all"
+if ($statusFilter !== 'all') {
+    if ($statusFilter === 'pending') {
+        $sql .= " AND (COALESCE(s.status,'') = 'pending' OR COALESCE(oa.status,'') = 'pending')";
+    } elseif ($statusFilter === 'approved') {
+        $sql .= " AND (COALESCE(oa.status,'') = 'approved' OR COALESCE(s.status,'') = 'approved' OR COALESCE(u.status,'') = 'approved')";
+    } elseif ($statusFilter === 'ongoing') {
+        $sql .= " AND (COALESCE(oa.status,'') = 'ongoing' OR COALESCE(s.status,'') = 'ongoing' OR COALESCE(u.status,'') = 'ongoing')";
+    } elseif ($statusFilter === 'completed') {
+        $sql .= " AND (COALESCE(s.status,'') = 'completed' OR COALESCE(u.status,'') = 'completed')";
+    } elseif ($statusFilter === 'rejected') {
+        $sql .= " AND COALESCE(oa.status,'') = 'rejected'";
+    } elseif ($statusFilter === 'no_response') {
+        $sql .= " AND oa.application_id IS NULL";
+    }
 }
 
 $sql .= " ORDER BY COALESCE(s.last_name,u.last_name), COALESCE(s.first_name,u.first_name)";
@@ -256,12 +294,10 @@ $current = basename($_SERVER['SCRIPT_NAME']);
           <button id="btnExport" class="export">⬇ Export</button>
 
           <select id="statusFilter" class="dropdown" aria-label="Filter by status">
-            <option value="pending" <?= $statusFilter === 'pending' ? 'selected' : '' ?>>pending</option>
+            <option value="all" <?= $statusFilter === 'all' ? 'selected' : '' ?>>all</option>
             <option value="approved" <?= $statusFilter === 'approved' ? 'selected' : '' ?>>approved</option>
             <option value="ongoing" <?= $statusFilter === 'ongoing' ? 'selected' : '' ?>>ongoing</option>
             <option value="completed" <?= $statusFilter === 'completed' ? 'selected' : '' ?>>completed</option>
-            <option value="no_response" <?= $statusFilter === 'no_response' ? 'selected' : '' ?>>no response</option>
-            <option value="rejected" <?= $statusFilter === 'rejected' ? 'selected' : '' ?>>rejected</option>
           </select>
         </div>
       </div>
@@ -278,18 +314,25 @@ $current = basename($_SERVER['SCRIPT_NAME']);
               <th>Course</th>
               <th>Progress</th>
               <th>Estimated End Date</th>
+              <th>Status</th>
             </tr>
           </thead>
           <tbody id="allBody">
             <?php if (empty($ojts)): ?>
-              <tr><td colspan="5" style="text-align:center;color:#8a8f9d;padding:18px">No OJTs found for your office.</td></tr>
+              <tr><td colspan="6" style="text-align:center;color:#8a8f9d;padding:18px">No OJTs found for your office.</td></tr>
             <?php else: foreach ($ojts as $o): ?>
-              <tr data-name="<?= htmlspecialchars(strtolower(trim($o['first_name'].' '.$o['last_name']))) ?>" data-school="<?= htmlspecialchars(strtolower($o['school'])) ?>" data-course="<?= htmlspecialchars(strtolower($o['course'])) ?>">
+              <tr
+                data-name="<?= htmlspecialchars(strtolower(trim($o['first_name'].' '.$o['last_name']))) ?>"
+                data-school="<?= htmlspecialchars(strtolower($o['school'])) ?>"
+                data-course="<?= htmlspecialchars(strtolower($o['course'])) ?>"
+                data-status="<?= htmlspecialchars(strtolower($o['user_status'] ?? '')) ?>"
+              >
                 <td><?= htmlspecialchars(trim($o['first_name'].' '.$o['last_name'])) ?></td>
                 <td><?= htmlspecialchars($o['school'] ?: '-') ?></td>
                 <td><?= htmlspecialchars($o['course'] ?: '-') ?></td>
                 <td style="text-align:center"><?= is_numeric($o['progress']) ? (int)$o['progress'].'%' : '-' ?></td>
                 <td><?php echo $o['expected_end_date'] ? '<span class="date-badge">'.date('M d, Y', strtotime($o['expected_end_date'])).'</span>' : '-'; ?></td>
+                <td><?= htmlspecialchars($o['user_status'] ?: '-') ?></td>
               </tr>
             <?php endforeach; endif; ?>
           </tbody>
@@ -335,7 +378,16 @@ $current = basename($_SERVER['SCRIPT_NAME']);
             </tr>
           </thead>
           <tbody id="requestsBody">
-            <tr><td colspan="4" style="text-align:center;color:#8a8f9d;padding:18px">No requests found.</td></tr>
+            <?php if (empty($office_requests)): ?>
+              <tr><td colspan="4" style="text-align:center;color:#8a8f9d;padding:18px">No requests found.</td></tr>
+            <?php else: foreach ($office_requests as $req): ?>
+              <tr data-req-id="<?= (int)($req['request_id'] ?? 0) ?>" data-processed-at="<?= htmlspecialchars($req['date_of_action'] ?? '') ?>">
+                <td><?= htmlspecialchars($req['date_requested'] ?? '-') ?></td>
+                <td style="text-align:center"><?= htmlspecialchars($req['new_limit'] ?? '-') ?></td>
+                <td><?= htmlspecialchars($req['reason'] ?? '-') ?></td>
+                <td class="req-status"><?= htmlspecialchars($req['status'] ?? '-') ?></td>
+              </tr>
+            <?php endforeach; endif; ?>
           </tbody>
         </table>
       </div>
@@ -366,7 +418,7 @@ $current = basename($_SERVER['SCRIPT_NAME']);
     const q = (this.value||'').toLowerCase().trim();
     document.querySelectorAll('#allBody tr').forEach(tr=>{
       if (!tr.dataset || !tr.dataset.name) return;
-      const hay = (tr.dataset.name + ' ' + tr.dataset.school + ' ' + tr.dataset.course);
+      const hay = (tr.dataset.name + ' ' + tr.dataset.school + ' ' + tr.dataset.course + ' ' + (tr.dataset.status||''));
       tr.style.display = q === '' || hay.indexOf(q) !== -1 ? '' : 'none';
     });
   });
@@ -394,7 +446,90 @@ $current = basename($_SERVER['SCRIPT_NAME']);
       e.preventDefault();
     }
   });
+
+  // --- ADD: load DTR rows from server (office_head_dtr.php -> action 'get_daily_logs') ---
+  function fmtDate(d){ return d.toISOString().slice(0,10); }
+  function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+  async function loadDtr(startDate, endDate){
+    const tbody = document.getElementById('dtrBody');
+    if (!tbody) return;
+    tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:#8a8f9d;padding:18px">Loading...</td></tr>';
+    try {
+      const payload = { action: 'get_daily_logs', start_date: startDate, end_date: endDate };
+      const resp = await fetch('office_head_dtr.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      // server may return { success: true, data: [...] } or { success: true, rows: [...] }
+      const data = await resp.json().catch(()=>({success:false}));
+      const rows = Array.isArray(data.data) ? data.data
+                 : Array.isArray(data.rows) ? data.rows
+                 : Array.isArray(data) ? data : [];
+      if (!data.success || rows.length === 0) {
+         tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:#8a8f9d;padding:18px">No logs found for selected range.</td></tr>';
+         return;
+       }
+       tbody.innerHTML = '';
+       rows.forEach(r=>{
+         const tr = document.createElement('tr');
+         tr.innerHTML = [
+           `<td>${esc(r.log_date||'')}</td>`,
+           `<td>${esc((r.first_name||'') + ' ' + (r.last_name||''))}</td>`,
+           `<td>${esc(r.school || '-')}</td>`,
+           `<td>${esc(r.course || '-')}</td>`,
+           `<td>${esc(r.am_in || '-')}</td>`,
+           `<td>${esc(r.am_out || '-')}</td>`,
+           `<td>${esc(r.pm_in || '-')}</td>`,
+           `<td>${esc(r.pm_out || '-')}</td>`,
+           `<td style="text-align:center">${esc(r.hours ?? 0)}</td>`,
+           `<td style="text-align:center">${esc(r.minutes ?? 0)}</td>`
+         ].join('');
+         tbody.appendChild(tr);
+       });
+    } catch (err) {
+      console.error('loadDtr error', err);
+      tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:#a00;padding:18px">Unable to load logs.</td></tr>';
+    }
+  }
+
+  // load when switching to the DTR tab (default range: last 14 days)
+  document.querySelectorAll('.tab-pill').forEach(btn=>{
+    btn.addEventListener('click', function(){
+      if (this.dataset.tab === 'dtr') {
+        const end = new Date();
+        const start = new Date();
+        start.setDate(end.getDate() - 14);
+        loadDtr(fmtDate(start), fmtDate(end));
+      }
+    });
+  });
+
+  // If DTR tab is active on page load, auto-load
+  (function initDtrIfActive(){
+    const active = document.querySelector('.tab-pill.active');
+    if (active && active.dataset.tab === 'dtr') {
+      const end = new Date();
+      const start = new Date(); start.setDate(end.getDate() - 14);
+      loadDtr(fmtDate(start), fmtDate(end));
+    }
+  })();
+  // --- END ADD ---
 })();
+</script>
+<script>
+  // attach confirm to top logout like hr_head_ojts.php
+  (function(){
+    const logoutBtn = document.getElementById('btnLogout') || document.querySelector('a[href$="logout.php"]');
+    if (!logoutBtn) return;
+    logoutBtn.addEventListener('click', function(e){
+      e.preventDefault();
+      if (confirm('Are you sure you want to logout?')) {
+        window.location.href = this.getAttribute('href') || '../logout.php';
+      }
+    });
+  })();
 </script>
 </body>
 </html>

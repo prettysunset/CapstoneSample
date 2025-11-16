@@ -7,6 +7,12 @@ require_once __DIR__ . '/../conn.php';
 if (!isset($_SESSION['user_id'])) { header('Location: ../login.php'); exit; }
 $user_id = (int)$_SESSION['user_id'];
 
+// require login
+if (!isset($_SESSION['user_id'])) {
+    header("Location: ../login.php");
+    exit();
+}
+
 $su = $conn->prepare("SELECT first_name,last_name,office_name FROM users WHERE user_id=? LIMIT 1");
 $su->bind_param('i',$user_id);
 $su->execute();
@@ -231,7 +237,6 @@ $user_name = $display_name ?? 'Office Head';
   <div class="card">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
       <div style="display:flex;gap:12px;align-items:center">
-        <div class="small-note">Showing DTR for OJTs assigned to: <strong><?= htmlspecialchars($office_display) ?></strong></div>
       </div>
     </div>
 

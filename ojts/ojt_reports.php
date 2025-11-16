@@ -2,6 +2,12 @@
 session_start();
 require_once __DIR__ . '/../conn.php';
 
+// require login
+if (!isset($_SESSION['user_id'])) {
+    header("Location: ../login.php");
+    exit();
+}
+
 $display_name = 'User Name';
 $display_role = 'Role';
 $initials = 'UN';
@@ -510,6 +516,29 @@ if (!empty($student_id)) {
     })();
   </script>
 
+<script>
+    (function(){
+      function attachConfirm(id){
+        var el = document.getElementById(id);
+        if (!el) return;
+        el.addEventListener('click', function(e){
+          e.preventDefault();
+          if (confirm('Log out?')) {
+            // replace history entry so back button won't return to protected page
+            window.location.replace(el.getAttribute('href') || '../logout.php');
+          }
+        });
+      }
+      attachConfirm('btnLogout');
+      attachConfirm('sidebar-logout');
+      // keep small handlers for notif/settings
+      var n = document.getElementById('btnNotif');
+      if (n) n.addEventListener('click', function(e){ e.preventDefault(); alert('Walang bagong notification ngayon.'); });
+      var s = document.getElementById('btnSettings');
+      if (s) s.addEventListener('click', function(e){ e.preventDefault(); window.location.href = 'settings.php'; });
+    })();
+  
+    </script>
    
  </body>
  </html>
