@@ -255,11 +255,36 @@ if ($user_id) {
 
                             <!-- Tabs -->
                             <div role="tablist" aria-label="Profile tabs" style="display:flex; gap:8px; flex-wrap:wrap;">
-                              <button type="button" class="tab-btn active" data-tab="tab-info" aria-selected="true" role="tab">Information</button>
-                              <button type="button" class="tab-btn" data-tab="tab-journals" aria-selected="false" role="tab">Weekly Journals</button>
-                              <button type="button" class="tab-btn" data-tab="tab-attachments" aria-selected="false" role="tab">Attachments</button>
-                              <button type="button" class="tab-btn" data-tab="tab-eval" aria-selected="false" role="tab">Evaluation</button>
+                              <button id="tabbtn-info" type="button" class="tab-btn active" data-tab="tab-info" aria-selected="true" role="tab" aria-controls="tab-info">Information</button>
+                              <button id="tabbtn-journals" type="button" class="tab-btn" data-tab="tab-journals" aria-selected="false" role="tab" aria-controls="tab-journals">Weekly Journals</button>
+                              <button id="tabbtn-attachments" type="button" class="tab-btn" data-tab="tab-attachments" aria-selected="false" role="tab" aria-controls="tab-attachments">Attachments</button>
+                              <button id="tabbtn-eval" type="button" class="tab-btn" data-tab="tab-eval" aria-selected="false" role="tab" aria-controls="tab-eval">Evaluation</button>
                             </div>
+
+                            <script>
+                            (function(){
+                              // Delegated click handler so tabs work regardless of DOM order.
+                              document.addEventListener('click', function(e){
+                              var btn = e.target.closest('.tab-btn');
+                              if (!btn || !btn.dataset.tab) return;
+                              e.preventDefault();
+                              var tabs = Array.from(document.querySelectorAll('.tab-btn'));
+                              var panels = Array.from(document.querySelectorAll('.tab-panel'));
+                              tabs.forEach(function(t){
+                                var active = (t === btn);
+                                t.classList.toggle('active', active);
+                                t.setAttribute('aria-selected', active ? 'true' : 'false');
+                                t.style.background = active ? '#2f3459' : 'transparent';
+                                t.style.color = active ? '#fff' : '#2f3459';
+                                t.style.border = active ? '0' : '1px solid #e6e9f2';
+                              });
+                              panels.forEach(function(p){
+                                p.style.display = (p.id === btn.dataset.tab) ? 'block' : 'none';
+                              });
+                              btn.focus();
+                              });
+                            })();
+                            </script>
 
                             <!-- Tab panels -->
                             <div style="border-radius:8px; padding:14px; background:#fbfcff; min-height:220px;">
