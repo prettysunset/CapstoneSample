@@ -478,22 +478,23 @@ if ($user_id) {
                                               Name: <b><?php echo htmlspecialchars($sinfo['emg_name'] ?: '-'); ?></b><br>
                                               Relationship: <b><?php echo htmlspecialchars($sinfo['emg_relation'] ?: '-'); ?></b><br>
                                               Contact Number: <b><?php echo htmlspecialchars($sinfo['emg_contact'] ?: '-'); ?></b>
-                                            </p>
-                                        </div>
-
-                                        <!-- Percent / right column: circle left, details right (matches reference) -->
-                                        <div id="ojt-percent" style="flex:0 0 360px; display:flex;align-items:flex-start;gap:16px;">
-                                            <div class="ojt-circle" data-percent="<?php echo $percent; ?>" style="width:88px;height:88px;border-radius:50%;
-                                                     display:flex;align-items:center;justify-content:center;color:#2f3459;font-weight:700;font-size:18px;
-                                                     background:conic-gradient(#2f3459 0deg, #e6e9f2 0deg);flex:0 0 88px;">
-                                                <?php echo $percent; ?>%
                                             </div>
+                                            <div style="width:1px;background:#eef1f6;align-self:stretch;margin:0 45px;"></div>
+                                        <!-- Percent / right column: circle above details -->
+                                        <div id="ojt-percent" style="flex:0 0 360px; display:flex;flex-direction:column;align-items:flex-start;gap:12px;">
+                                          <div style="width:100%;display:flex;justify-content:flex-start;">
+                                            <div class="ojt-circle" data-percent="<?php echo $percent; ?>" style="width:88px;height:88px;border-radius:50%;
+                                                 display:flex;align-items:center;justify-content:center;color:#2f3459;font-weight:700;font-size:18px;
+                                                 background:conic-gradient(#2f3459 0deg, #e6e9f2 0deg);">
+                                              <?php echo $percent; ?>%
+                                            </div>
+                                          </div>
 
-                                            <div style="display:flex; flex-direction:column; align-items:flex-start; gap:6px; min-width:220px;">
-                                                <div style="color:#2f3459;font-weight:700;font-size:16px;"><?php echo htmlspecialchars((int)$hours_rendered . ' out of ' . (int)$total_required . ' hours'); ?></div>
-                                                <div style="color:#6b6f8b;font-size:13px;"><?php echo $percent; ?>% complete</div>
-                                                <div style="color:#6b6f8b;font-size:13px; margin-top:4px;">Date Started: <b style="color:#2f3459;"><?php echo htmlspecialchars($orientation_display); ?></b></div>
-                                                <div style="color:#6b6f8b;font-size:13px;">Expected End Date: <b style="color:#2f3459;"><?php echo htmlspecialchars($expected_end_display); ?></b></div>
+                                          <div style="display:flex; flex-direction:column; align-items:flex-start; gap:6px; min-width:220px;">
+                                            <div style="color:#2f3459;font-weight:700;font-size:16px;"><?php echo htmlspecialchars((int)$hours_rendered . ' out of ' . (int)$total_required . ' hours'); ?></div>
+                                            <div style="color:#6b6f8b;font-size:13px;"><?php echo $percent; ?>% complete</div>
+                                            <div style="color:#6b6f8b;font-size:13px; margin-top:4px;">Date Started: <b style="color:#2f3459;"><?php echo htmlspecialchars($orientation_display); ?></b></div>
+                                            <div style="color:#6b6f8b;font-size:13px;">Expected End Date: <b style="color:#2f3459;"><?php echo htmlspecialchars($expected_end_display); ?></b></div>
 
                                                 <div style="width:100%;height:8px"></div>
 
