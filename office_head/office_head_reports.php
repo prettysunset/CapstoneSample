@@ -160,11 +160,7 @@ $stmt->close();
     align-items:center;
     justify-content:center;
   }
-  .tab-pill:hover{ text-decoration:none; }
-  .tab-pill:focus{ outline:none; }
-  .tab-pill.active{background:#4f4aa6;color:#fff;border-color:#4f4aa6}
-  .tab-pill.disabled{cursor:default;opacity:0.9;pointer-events:none}
-  .controls{display:flex;gap:12px;align-items:center;margin-left:auto}
+   .controls{display:flex;gap:12px;align-items:center;margin-left:auto}
   .search{padding:10px 14px;border-radius:12px;border:1px solid #e6e9f2;width:380px}
   .export{display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border-radius:8px;background:#fff;border:1px solid #e6e9f2;cursor:pointer}
   .dropdown{padding:8px 12px;border-radius:8px;border:1px solid #e6e9f2;background:#fff}
@@ -283,11 +279,18 @@ $current = basename($_SERVER['SCRIPT_NAME']);
       <div class="title"><h3 style="margin:0">Reports</h3></div>
       <div class="row">
         <div class="tabs-row" style="flex:1">
-          <!-- tabs are client-side only (no navigation) -->
-          <button class="tab-pill active" data-tab="ojts" type="button">OJTs</button>
-          <button class="tab-pill" data-tab="dtr" type="button">DTR</button>
-          <button class="tab-pill" data-tab="requests" type="button">Office Requests</button>
-        </div>
+          <style>
+            .tabs{display:flex;gap:18px;border-bottom:1px solid #e6e9f2;padding-bottom:12px;margin-bottom:16px}
+            .tab{padding:10px 18px;border-radius:8px;cursor:pointer;color:#6b6f8b;background:transparent;border:none;font-weight:700}
+            .tab.active{border-bottom:3px solid #4f4aa6;color:#111}
+            .tab:focus{outline:none}
+          </style>
+
+          <div class="tabs">
+            <button class="tab-pill tab active" data-tab="ojts" type="button">OJTs</button>
+            <button class="tab-pill tab" data-tab="dtr" type="button">DTR</button>
+            <button class="tab-pill tab" data-tab="requests" type="button">Office Requests</button>
+          </div></div>
 
         <div class="controls">
           <input id="searchInput" class="search" placeholder="Search" />
