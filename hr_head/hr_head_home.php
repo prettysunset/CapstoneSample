@@ -1573,11 +1573,25 @@ if ($tab === 'pending' && !empty($offices)) {
                         $u->bind_param('si', $remarks, $appId);
                         $u->execute();
                     }
-                    // update students.reason for this applicant if possible
-                    $sid = isset($rowCandidate['student_id']) ? (int)$rowCandidate['student_id'] : 0;
-                    if ($sid && $updStudentStmt) {
-                        $updStudentStmt->bind_param('si', $remarks, $sid);
-                        $updStudentStmt->execute();
+
+                    // send notification email to student (basic PHP mail)
+                    if (!empty($studentEmail)) {
+                        $subject = "OJT Application Update";
+                        $message = "
+                          <p>Dear student,</p>
+                          <p>Your OJT application (ID: {$appId}) has been rejected.</p>
+                          <p><strong>Reason:</strong> " . htmlspecialchars($remarks) . "</p>
+                          <p>Regards,<br/>OJT-MS HR</p>
+                        ";
+                        // correct header string (no extra backslashes)
+                        $headers = "MIME-Version: 1.0\r\n";
+                        $headers .= "Content-Type: text/html; charset=UTF-8\r\n";
+                        $headers .= "From: OJTMS HR <no-reply@localhost>\r\n";
+
+                        $mailOk = @mail($studentEmail, $subject, $message, $headers);
+                        if (!$mailOk) {
+                            error_log("Auto-reject mail failed for app {$appId} to {$studentEmail}");
+                        }
                     }
                 } // end foreach candidates
                 if ($updStudentStmt) $updStudentStmt->close();

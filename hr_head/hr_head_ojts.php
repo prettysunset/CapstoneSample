@@ -83,6 +83,22 @@ $current_date = date("l, F j, Y");
 
 // --- NEW: fetch offices + requested limits + active OJTs count ---
 $offices_for_requests = [];
+
+// fetch latest pending request per office (map by office_id)
+$pendingMap = [];
+$qr = $conn->prepare("SELECT office_id, new_limit, reason, status, date_requested FROM office_requests WHERE LOWER(status) = 'pending' ORDER BY office_id, date_requested DESC");
+if ($qr) {
+    $qr->execute();
+    $resr = $qr->get_result();
+    while ($prow = $resr->fetch_assoc()) {
+        $oid = (int)$prow['office_id'];
+        // keep first (latest) pending per office because of ORDER BY date_requested DESC
+        if (!isset($pendingMap[$oid])) $pendingMap[$oid] = $prow;
+    }
+    $qr->close();
+}
+
+// load offices and compute active counts (existing logic) but merge pending request if any
 $off_q = $conn->query("SELECT office_id, office_name, current_limit, requested_limit, reason, status FROM offices ORDER BY office_name");
 if ($off_q) {
     $stmtCount = $conn->prepare("
@@ -92,6 +108,8 @@ if ($off_q) {
     ");
     while ($r = $off_q->fetch_assoc()) {
         $office_id = (int)$r['office_id'];
+
+        // count filled (approved) as before
         $stmtCount->bind_param("ii", $office_id, $office_id);
         $stmtCount->execute();
         $cnt = $stmtCount->get_result()->fetch_assoc();
@@ -99,35 +117,45 @@ if ($off_q) {
         $capacity = is_null($r['current_limit']) ? null : (int)$r['current_limit'];
         $available = is_null($capacity) ? '—' : max(0, $capacity - $filled);
 
+        // merge pending request if exists for this office
+        $display_requested = is_null($r['requested_limit']) ? '' : (int)$r['requested_limit'];
+        $display_reason = $r['reason'] ?? '';
+        $display_status = $r['status'] ?? '';
+
+        if (isset($pendingMap[$office_id])) {
+            $pr = $pendingMap[$office_id];
+            // override display values with latest pending request
+            $display_requested = isset($pr['new_limit']) ? (int)$pr['new_limit'] : $display_requested;
+            $display_reason = $pr['reason'] ?? $display_reason;
+            $display_status = $pr['status'] ?? 'pending';
+        }
+
         $offices_for_requests[] = [
             'office_id' => $office_id,
             'office_name' => $r['office_name'],
             'current_limit' => $capacity,
             'active_ojts' => $filled,
             'available_slots' => $available,
-            'requested_limit' => is_null($r['requested_limit']) ? '' : (int)$r['requested_limit'],
-            'reason' => $r['reason'] ?? '',
-            'status' => $r['status'] ?? ''
+            'requested_limit' => $display_requested,
+            'reason' => $display_reason,
+            'status' => $display_status
         ];
     }
     $stmtCount->close();
     $off_q->free();
 
-    // Ensure approved requests appear at the bottom of the table
-    if (!empty($offices_for_requests) && is_array($offices_for_requests)) {
-        usort($offices_for_requests, function($a, $b){
-            $rank = function($status){
-                $s = strtolower(trim((string)($status ?? '')));
-                if ($s === 'approved') return 2;
-                if ($s === 'declined' || $s === 'rejected') return 1;
-                return 0; // pending / other first
-            };
-            return $rank($a['status']) <=> $rank($b['status']);
-        });
-    }
+    // (optional) keep same sorting/filtering behavior as before
+    usort($offices_for_requests, function($a, $b){
+        $rank = function($status){
+            $s = strtolower(trim((string)($status ?? '')));
+            if ($s === 'approved') return 2;
+            if ($s === 'declined' || $s === 'rejected') return 1;
+            return 0;
+        };
+        return $rank($a['status']) <=> $rank($b['status']);
+    });
 
-    // Only show pending requests in the Requested OJTs table.
-    // Approved / Declined requests will no longer appear here.
+    // show only pending / empty-status items if that was intended
     $offices_for_requests = array_values(array_filter($offices_for_requests, function($r){
         $s = strtolower(trim((string)($r['status'] ?? '')));
         return $s === '' || $s === 'pending';
