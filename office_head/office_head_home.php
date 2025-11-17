@@ -93,6 +93,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (!empty($_SERVER['HTTP_X_REQUESTED_
             echo json_encode(['success' => false, 'message' => 'Requested limit cannot be less than current number of OJTs ('.$occupied.').']);
             exit;
         }
+        // Prevent no-op: reject if requested equals current office limit
+        $qcur = $conn->prepare("SELECT COALESCE(current_limit, 0) AS current_limit FROM offices WHERE office_id = ? LIMIT 1");
+        if ($qcur) {
+            $qcur->bind_param('i', $office_id);
+            $qcur->execute();
+            $curRow = $qcur->get_result()->fetch_assoc();
+            $qcur->close();
+            $currentLimit = isset($curRow['current_limit']) ? (int)$curRow['current_limit'] : 0;
+            if ($new_limit === $currentLimit) {
+                http_response_code(400);
+                echo json_encode(['success' => false, 'message' => 'Requested limit is the same as the current limit. No request submitted.']);
+                exit;
+            }
+        }
     }
     // --- end server-side check ---
 
@@ -593,10 +607,10 @@ $late_dtr_res = $late_dtr->get_result();
           <table style="width:100%; border-collapse:collapse; text-align:center;">
             <thead>
               <tr>
-                <th style="padding:8px; background:#f7f7f7; border:1px solid #e0e0e0;">Current Limit</th>
+                <th style="padding:8px; background:#f7f7f7; border:1px solid #e0e0e0;">Capacity</th>
+                <th style="padding:8px; background:#f7f7f7; border:1px solid #e0e0e0;">Available Slots</th>
                 <th style="padding:8px; background:#f7f7f7; border:1px solid #e0e0e0;">Ongoing OJTs</th>
                 <th style="padding:8px; background:#f7f7f7; border:1px solid #e0e0e0;">Approved</th>
-                <th style="padding:8px; background:#f7f7f7; border:1px solid #e0e0e0;">Available Slots</th>
               </tr>
             </thead>
             <tbody>
@@ -605,17 +619,17 @@ $late_dtr_res = $late_dtr->get_result();
                   <input id="ci_current_limit" type="text" value="<?= htmlspecialchars($office['current_limit']) ?>" readonly style="width:70px;border:0;background:transparent;text-align:center;">
                 </td>
                 <td style="padding:8px; border:1px solid #e0e0e0;">
-                  <input id="ci_active_ojts" type="text" value="<?= $active_ojts ?>" readonly style="width:70px;border:0;background:transparent;text-align:center;">
-                </td>
-                <td style="padding:8px; border:1px solid #e0e0e0;">
-                  <input id="ci_approved_ojts" type="text" value="<?= $approved_ojts ?>" readonly style="width:70px;border:0;background:transparent;text-align:center;">
-                </td>
-                <td style="padding:8px; border:1px solid #e0e0e0;">
                   <?php
                     $curLimit = isset($office['current_limit']) ? (int)$office['current_limit'] : 0;
                     $available = max($curLimit - ($active_ojts + $approved_ojts), 0);
                   ?>
                   <input id="ci_available_slots" type="text" value="<?= $available ?>" readonly style="width:70px;border:0;background:transparent;text-align:center;">
+                </td>
+                <td style="padding:8px; border:1px solid #e0e0e0;">
+                  <input id="ci_active_ojts" type="text" value="<?= $active_ojts ?>" readonly style="width:70px;border:0;background:transparent;text-align:center;">
+                </td>
+                <td style="padding:8px; border:1px solid #e0e0e0;">
+                  <input id="ci_approved_ojts" type="text" value="<?= $approved_ojts ?>" readonly style="width:70px;border:0;background:transparent;text-align:center;">
                 </td>
               </tr>
             </tbody>
@@ -631,7 +645,7 @@ $late_dtr_res = $late_dtr->get_result();
             <div style="background:#fff;padding:18px;border-radius:8px;width:420px;box-shadow:0 8px 30px rgba(0,0,0,0.12);">
                 <h4 style="margin:0 0 8px 0">Request Change - <?= htmlspecialchars($office_display) ?></h4>
                 <div style="display:grid;gap:8px;margin-top:8px">
-                    <label>Current Limit <input id="m_current_limit" readonly style="width:100%;padding:8px;border-radius:6px;border:1px solid #ddd"></label>
+                    <label>Capacity <input id="m_current_limit" readonly style="width:100%;padding:8px;border-radius:6px;border:1px solid #ddd"></label>
                     <label>Ongoing OJTs <input id="m_active_ojts" readonly style="width:100%;padding:8px;border-radius:6px;border:1px solid #ddd"></label>
                     <label>Approved <input id="m_approved_ojts" readonly style="width:100%;padding:8px;border-radius:6px;border:1px solid #ddd"></label>
                     <label>Available Slots <input id="m_available_slots" readonly style="width:100%;padding:8px;border-radius:6px;border:1px solid #ddd"></label>
@@ -662,7 +676,14 @@ $late_dtr_res = $late_dtr->get_result();
             $officeId = (int)($office['office_id'] ?? 0);
             $reqs = [];
             if ($officeId > 0) {
-                $qr = $conn->prepare("SELECT new_limit, reason, status, date_requested FROM office_requests WHERE office_id = ? ORDER BY date_requested DESC LIMIT 100");
+                // ensure newest requests appear first (most recent date_requested on top)
+                $qr = $conn->prepare("
+                    SELECT request_id, new_limit, reason, status, date_requested
+                    FROM office_requests
+                    WHERE office_id = ?
+                    ORDER BY COALESCE(date_requested, '1970-01-01') DESC, request_id DESC
+                    LIMIT 100
+                ");
                 if ($qr) {
                     $qr->bind_param('i', $officeId);
                     $qr->execute();
@@ -886,11 +907,11 @@ $late_dtr_res = $late_dtr->get_result();
       return;
     }
 
-    // no-op check: if same as current ask confirm
+    // block no-op requests: do not submit if requested equals current
     if (requested === current) {
-      if (!confirm('Requested limit is the same as current limit. Do you still want to submit?')) {
-        return;
-      }
+      alert('Requested limit is the same as the current limit. No request submitted.');
+      mRequested.focus();
+      return;
     }
 
     // disable button to prevent duplicate clicks
