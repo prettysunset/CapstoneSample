@@ -311,15 +311,6 @@ if (empty($weeks)) {
       </div>
 
       <nav style="padding: 6px 10px 12px;">
-        <a href="ojt_home.php"
-         style="display:flex;align-items:center;gap:10px;padding:10px 12px;margin:8px 0;border-radius:12px;text-decoration:none;color:#fff;background:transparent;">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex:0 0 18px;">
-          <path d="M3 11.5L12 4l9 7.5"></path>
-          <path d="M5 12v7a1 1 0 0 0 1 1h3v-5h6v5h3a1 1 0 0 0 1-1v-7"></path>
-        </svg>
-        <span>Home</span>
-        </a>
-
         <a href="ojt_profile.php"
          style="display:flex;align-items:center;gap:10px;padding:10px 12px;margin:8px 0;border-radius:12px;text-decoration:none;color:#fff;background:transparent;">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex:0 0 18px;">
@@ -462,9 +453,9 @@ if (!empty($student_id)) {
           <table style="width:100%;border-collapse:collapse;background:#fff;border-radius:6px;overflow:hidden">
             <thead>
               <tr style="background:#fbfbfe;font-weight:700;color:#333">
-                <th style="padding:10px 14px">Week Coverage</th>
                 <th style="padding:10px 14px">Date Uploaded</th>
-                <th style="padding:10px 14px">Attachment</th>
+                <th style="padding:10px 14px">Week Coverage</th>
+                 <th style="padding:10px 14px">Attachment</th>
               </tr>
             </thead>
             <tbody>
@@ -477,8 +468,8 @@ if (!empty($student_id)) {
                 if ($rj->num_rows) {
                   while ($row = $rj->fetch_assoc()) {
                     echo '<tr>';
-                    echo '<td style="padding:10px 14px">'.htmlspecialchars($row['week_coverage'] ?: '—').'</td>';
                     echo '<td style="padding:10px 14px">'.htmlspecialchars($row['date_uploaded']).'</td>';
+                    echo '<td style="padding:10px 14px">'.htmlspecialchars($row['week_coverage'] ?: '—').'</td>';
                     $att = $row['attachment'] ? '<a href="../'.htmlspecialchars($row['attachment']).'" target="_blank">View</a>' : '—';
                     echo '<td style="padding:10px 14px">'.$att.'</td>';
                     echo '</tr>';

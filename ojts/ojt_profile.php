@@ -89,6 +89,62 @@ if ($user_id) {
         foreach (explode(' ', $display_name) as $p) if ($p !== '') $initials .= strtoupper($p[0]);
         $initials = substr($initials ?: 'UN', 0, 2);
     } // <-- close if ($sr)
+
+    // Handle weekly journal upload (POST from this page)
+    if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'upload_journal') {
+        $journal_upload_error = '';
+        if (empty($student_id)) {
+            $journal_upload_error = 'Student record not found.';
+        } else {
+            $week = trim((string)($_POST['week_coverage'] ?? ''));
+            if ($week === '') {
+                $journal_upload_error = 'Please enter week coverage.';
+            } elseif (empty($_FILES['attachment']) || $_FILES['attachment']['error'] === UPLOAD_ERR_NO_FILE) {
+                $journal_upload_error = 'Please attach a file.';
+            } else {
+                $f = $_FILES['attachment'];
+                if ($f['error'] !== UPLOAD_ERR_OK) {
+                    $journal_upload_error = 'File upload error.';
+                } else {
+                    $max = 2 * 1024 * 1024;
+                    if ($f['size'] > $max) {
+                        $journal_upload_error = 'File too large. Maximum 2 MB.';
+                    } else {
+                        // only allow PDF and DOCX
+                        $allowed = ['pdf','docx'];
+                        $ext = strtolower(pathinfo($f['name'], PATHINFO_EXTENSION));
+                        if (!in_array($ext, $allowed, true)) {
+                            $journal_upload_error = 'Unsupported file type. Allowed: DOCX, PDF.';
+                        } else {
+                            $uploadDir = __DIR__ . '/../uploads/journals/';
+                            if (!is_dir($uploadDir)) @mkdir($uploadDir, 0755, true);
+                            $safe = preg_replace('/[^A-Za-z0-9_\-\.]/', '_', basename($f['name']));
+                            $filename = time() . '_' . bin2hex(random_bytes(6)) . '_' . $safe;
+                            $target = $uploadDir . $filename;
+                            if (move_uploaded_file($f['tmp_name'], $target)) {
+                                $relpath = 'uploads/journals/' . $filename;
+                                $stmt = $conn->prepare("INSERT INTO weekly_journal (user_id, week_coverage, date_uploaded, attachment) VALUES (?, ?, ?, ?)");
+                                $today = date('Y-m-d');
+                                $stmt->bind_param('isss', $student_id, $week, $today, $relpath);
+                                if ($stmt->execute()) {
+                                    $stmt->close();
+                                    // redirect to avoid form resubmission
+                                    // keep user on Weekly Journals tab after upload
+                                    header('Location: ' . $_SERVER['REQUEST_URI'] . '#tab-journals');
+                                    exit();
+                                } else {
+                                    $journal_upload_error = 'Database error while saving journal.';
+                                    $stmt->close();
+                                }
+                            } else {
+                                $journal_upload_error = 'Unable to move uploaded file.';
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 } // <-- close if ($user_id)
 ?>
 <html>
@@ -159,23 +215,14 @@ if ($user_id) {
 
       
         <nav style="padding: 6px 10px 12px;">
-          <a href="ojt_home.php"
-             style="display:flex;align-items:center;gap:10px;padding:10px 12px;margin:8px 0;border-radius:12px;text-decoration:none;color:#fff;background:transparent;">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex:0 0 18px;">
-              <path d="M3 11.5L12 4l9 7.5"></path>
-              <path d="M5 12v7a1 1 0 0 0 1 1h3v-5h6v5h3a1 1 0 0 0 1-1v-7"></path>
-            </svg>
-            <span>Home</span>
-          </a>
-
           <a href="ojt_profile.php" class="active" aria-current="page"
              style="display:flex;align-items:center;gap:10px;padding:10px 12px;margin:8px 0;border-radius:12px;text-decoration:none;color:#2f3459;background:#fff;box-shadow:0 4px 10px rgba(0,0,0,0.04);">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex:0 0 18px;">
-              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
-              <circle cx="12" cy="7" r="4"></circle>
-            </svg>
-            <span style="font-weight:600;">Profile</span>
-          </a>
+             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex:0 0 18px;">
+               <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+               <circle cx="12" cy="7" r="4"></circle>
+             </svg>
+             <span style="font-weight:600;">Profile</span>
+           </a>
 
             
             </a>
@@ -222,7 +269,6 @@ if ($user_id) {
                   $status_display = ucwords(strtolower($ur['status'] ?? 'active'));
                 ?>
                 <div style="display:flex; gap:12px; align-items:center; margin-top:6px;">
-                    <button style="padding:12px 16px; border-radius:10px; border:0; background:#2f3459; color:#fff; cursor:pointer; font-size:15px;">Print DTR</button>
                     <button style="padding:12px 16px; border-radius:10px; border:1px solid #e6e9f2; background:transparent; color:#2f3459; cursor:pointer; font-size:15px;">Edit Profile</button>
                 </div>
             </div>
@@ -526,160 +572,165 @@ if ($user_id) {
                              </section>
 
                             <section id="tab-journals" class="tab-panel" style="display:none;">
-                                    <?php
-                                    // fetch journals
-                                    $journals = [];
-                                    if (!empty($student_id)) {
-                                        $qj = $conn->prepare("SELECT journal_id, date_uploaded, week_coverage, attachment, status FROM weekly_journal WHERE student_id = ? ORDER BY date_uploaded DESC, journal_id DESC");
-                                        $qj->bind_param('i', $student_id);
-                                        $qj->execute();
-                                        $rj = $qj->get_result();
-                                        while ($row = $rj->fetch_assoc()) $journals[] = $row;
-                                        $qj->close();
-                                    }
-                                    ?>
+                                <?php
+                                // Show weekly_journal rows from DB (user_id = student_id)
+                                $journals = [];
+                                if (!empty($student_id)) {
+                                    $qj = $conn->prepare("SELECT journal_id, date_uploaded, week_coverage, attachment FROM weekly_journal WHERE user_id = ? ORDER BY date_uploaded DESC, journal_id DESC");
+                                    $qj->bind_param('i', $student_id);
+                                    $qj->execute();
+                                    $rj = $qj->get_result();
+                                    while ($row = $rj->fetch_assoc()) $journals[] = $row;
+                                    $qj->close();
+                                }
+                                ?>
 
-                                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
-                                        <div style="color:#6b6f8b;font-size:16px;">Uploaded weekly journals</div>
-                                        <!-- Upload button (top-right) -->
-                                        <div>
-                                        <button id="btn-upload-journal" type="button" style="display:inline-flex;gap:8px;align-items:center;padding:10px 14px;border-radius:8px;border:0;background:#6f6ca6;color:#fff;cursor:pointer;font-size:14px;">
+                                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+                                    <div style="color:#6b6f8b;font-size:16px;">Weekly Journals (<?php echo count($journals); ?>)</div>
+                                    <?php if (!empty($student_id)): ?>
+                                        <button id="btn-upload-journal" type="button" style="display:inline-flex;gap:8px;align-items:center;padding:8px 12px;border-radius:8px;border:0;background:#2f3459;color:#fff;cursor:pointer;font-size:14px;">
                                             <span style="font-weight:700;font-size:18px;line-height:0;">+</span> Upload Journal
                                         </button>
-                                    </div>
+                                    <?php endif; ?>
                                 </div>
 
-                                    <!-- Upload modal (hidden by default) -->
-                                    <form id="frm-upload-journal" action="ojt_upload_journal.php" method="post" enctype="multipart/form-data" style="display:none;">
-                                        <input type="hidden" name="student_id" value="<?php echo htmlspecialchars($student_id ?? ''); ?>">
-                                        <div id="upload-modal-overlay" style="position:fixed;inset:0;background:rgba(15,20,40,0.5);display:none;align-items:center;justify-content:center;z-index:9999;">
-                                            <div style="width:360px;background:#fff;border-radius:28px;padding:20px 22px;box-shadow:0 12px 40px rgba(15,20,40,0.35);font-family:Arial,Helvetica,sans-serif;">
-                                                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
-                                                    <h3 style="margin:0;font-size:18px;color:#2f3459;">Upload Journal</h3>
-                                                    <button type="button" id="upload-close" style="border:0;background:transparent;font-size:18px;color:#9aa0b6;cursor:pointer;">✕</button>
+                                <!-- Upload modal -->
+                                <form id="frm-upload-journal" action="" method="post" enctype="multipart/form-data" style="display:none;">
+                                    <input type="hidden" name="action" value="upload_journal">
+                                    <div id="upload-modal-overlay" style="position:fixed;inset:0;background:rgba(15,20,40,0.5);display:none;align-items:center;justify-content:center;z-index:9999;">
+                                        <div id="upload-modal-content" style="width:360px;background:#fff;border-radius:12px;padding:18px 18px;box-shadow:0 12px 40px rgba(15,20,40,0.35);font-family:Arial,Helvetica,sans-serif;">
+                                            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+                                                <h3 style="margin:0;font-size:18px;color:#2f3459;">Upload Journal</h3>
+                                                <button type="button" id="upload-close" style="border:0;background:transparent;font-size:18px;color:#9aa0b6;cursor:pointer;">✕</button>
+                                            </div>
+                                            <?php if (!empty($journal_upload_error)): ?>
+                                                <div style="color:#d32f2f;margin-bottom:8px;"><?php echo htmlspecialchars($journal_upload_error); ?></div>
+                                            <?php endif; ?>
+                                            <div style="margin-bottom:10px;">
+                                                <label style="display:block;font-size:13px;color:#6b6f8b;margin-bottom:6px;">Week</label>
+                                                <input id="modal-week" name="week_coverage" type="text" placeholder="Week 8 (September 8–12)" style="width:100%;padding:10px;border-radius:8px;border:1px solid #e6e9f2;font-size:14px;" required>
+                                            </div>
+                                            <div style="margin-bottom:8px;">
+                                                <label style="display:block;font-size:13px;color:#6b6f8b;margin-bottom:6px;">Attach file</label>
+                                                <div style="display:flex;gap:8px;">
+                                                    <input id="modal-file" name="attachment" type="file" accept=".docx,.pdf" style="flex:1;" required>
                                                 </div>
-                                                <div style="margin-bottom:10px;">
-                                                    <label style="display:block;font-size:13px;color:#6b6f8b;margin-bottom:6px;">Week</label>
-                                                    <input id="modal-week" name="week_coverage" type="text" placeholder="Week 8 (September 8–12)" style="width:100%;padding:10px;border-radius:8px;border:1px solid #e6e9f2;font-size:14px;">
-                                                </div>
-                                                <div style="margin-bottom:8px;">
-                                                    <label style="display:block;font-size:13px;color:#6b6f8b;margin-bottom:6px;">Attach file</label>
-                                                    <div style="display:flex;gap:8px;">
-                                                        <input id="modal-file" name="attachment" type="file" accept=".doc,.docx,.pdf" style="flex:1;">
-                                                    </div>
-                                                    <div style="font-size:12px;color:#8a8f9d;margin-top:8px;">
-                                                        <strong>Note:</strong>
-                                                        <ul style="margin:6px 0 0 18px;padding:0;color:#8a8f9d;">
-                                                            <li>Supported file types: DOCX, PDF</li>
-                                                            <li>Maximum file size per file: 2 MB</li>
-                                                        </ul>
-                                                    </div>
-                                                </div>
-                                                <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:12px;">
-                                                    <button type="button" id="modal-cancel" style="padding:10px 14px;border-radius:8px;border:1px solid #e6e9f2;background:transparent;color:#2f3459;cursor:pointer;">Cancel</button>
-                                                    <button type="submit" id="modal-upload" style="padding:10px 16px;border-radius:18px;border:0;background:#2f3459;color:#fff;cursor:pointer;">Upload</button>
+                                                <div style="font-size:12px;color:#8a8f9d;margin-top:8px;">
+                                                    <strong>Note:</strong>
+                                                    <ul style="margin:6px 0 0 18px;padding:0;color:#8a8f9d;">
+                                                        <li>Supported file types: DOCX, PDF</li>
+                                                        <li>Maximum file size per file: 2 MB</li>
+                                                    </ul>
                                                 </div>
                                             </div>
+                                            <div style="display:flex;justify-content:flex-end;gap=10px;margin-top:12px;">
+                                                <button type="button" id="modal-cancel" style="padding:8px 12px;border-radius:8px;border:1px solid #e6e9f2;background:transparent;color:#2f3459;cursor:pointer;">Cancel</button>
+                                                <button type="submit" id="modal-upload" style="padding:8px 14px;border-radius:18px;border:0;background:#2f3459;color:#fff;cursor:pointer;">Upload</button>
+                                            </div>
                                         </div>
-                                    </form>
-
-                                    <div style="margin-top:4px; overflow:auto;">
-                                      <table style="width:100%;border-collapse:collapse;background:#fff;border:1px solid #eceff5">
-                                        <thead style="background:#f5f7fb;color:#2f3459">
-                                          <tr>
-                                            <th style="text-align:left;padding:12px;border-bottom:1px solid #eef1f6;width:18%;">DATE UPLOADED</th>
-                                            <th style="text-align:left;padding:12px;border-bottom:1px solid #eef1f6;width:40%;">WEEK</th>
-                                            <th style="text-align:left;padding:12px;border-bottom:1px solid #eef1f6;width:30%;">ATTACHMENT</th>
-                                            <th style="text-align:center;padding:12px;border-bottom:1px solid #eef1f6;width:12%;">ACTION</th>
-                                          </tr>
-                                        </thead>
-                                        <tbody>
-                                          <?php if (count($journals) === 0): ?>
-                                            <tr>
-                                              <td colspan="4" style="padding:18px;text-align:center;color:#8a8f9d;">No weekly journals uploaded yet.</td>
-                                            </tr>
-                                          <?php else: ?>
-                                            <?php foreach($journals as $j): ?>
-                                              <tr>
-                                                <td style="padding:12px;border-top:1px solid #f1f4f8;color:#6b6f8b;">
-                                                  <?php echo !empty($j['date_uploaded']) ? date('M j, Y', strtotime($j['date_uploaded'])) : '-'; ?>
-                                                </td>
-                                                <td style="padding:12px;border-top:1px solid #f1f4f8;color:#2f3459;">
-                                                  <?php echo htmlspecialchars($j['week_coverage'] ?: '-'); ?>
-                                                </td>
-                                                <td style="padding:12px;border-top:1px solid #f1f4f8;color:#2f3459;">
-                                                  <?php if (!empty($j['attachment'])): ?>
-                                                    <a href="<?php echo htmlspecialchars('../' . ltrim($j['attachment'],'/\\')); ?>" target="_blank" style="color:#2f3459;text-decoration:underline;"><?php echo htmlspecialchars(basename($j['attachment'])); ?></a>
-                                                  <?php else: ?>
-                                                    -
-                                                  <?php endif; ?>
-                                                </td>
-                                                <td style="padding:12px;border-top:1px solid #f1f4f8;text-align:center;color:#6b6f8b;">
-                                                  <?php if (!empty($j['attachment'])): ?>
-                                                    <a href="<?php echo htmlspecialchars('../' . ltrim($j['attachment'],'/\\')); ?>" target="_blank" title="View" style="margin-right:8px;">🔍</a>
-                                                    <a href="<?php echo htmlspecialchars('../' . ltrim($j['attachment'],'/\\')); ?>" download title="Download">⬇️</a>
-                                                  <?php else: ?>
-                                                    -
-                                                  <?php endif; ?>
-                                                </td>
-                                              </tr>
-                                            <?php endforeach; ?>
-                                          <?php endif; ?>
-                                        </tbody>
-                                      </table>
                                     </div>
+                                </form>
 
-                                    <script>
-                                    (function(){
-                                        var btn = document.getElementById('btn-upload-journal');
-                                        var modalForm = document.getElementById('frm-upload-journal');
-                                        var overlay = document.getElementById('upload-modal-overlay');
-                                        var modalWeek = document.getElementById('modal-week');
-                                        var modalFile = document.getElementById('modal-file');
-                                        var closeBtn = document.getElementById('upload-close');
-                                        var cancelBtn = document.getElementById('modal-cancel');
+                                <div style="margin-top:4px; overflow:auto;">
+                                  <table style="width:100%;border-collapse:collapse;background:#fff;border:1px solid #eceff5">
+                                    <thead style="background:#f5f7fb;color:#2f3459">
+                                      <tr>
+                                        <th style="text-align:left;padding:12px;border-bottom:1px solid #eef1f6;width:25%;">DATE UPLOADED</th>
+                                        <th style="text-align:left;padding:12px;border-bottom:1px solid #eef1f6;width:45%;">WEEK</th>
+                                        <th style="text-align:left;padding:12px;border-bottom:1px solid #eef1f6;width:20%;">ATTACHMENT</th>
+                                        <th style="text-align:center;padding:12px;border-bottom:1px solid #eef1f6;width:10%;">ACTION</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      <?php if (empty($journals)): ?>
+                                        <tr><td colspan="4" style="padding:18px;text-align:center;color:#8a8f9d;">No weekly journals found.</td></tr>
+                                      <?php else: foreach($journals as $j): ?>
+                                        <tr>
+                                          <td style="padding:12px;border-top:1px solid #f1f4f8;color:#6b6f8b;"><?php echo !empty($j['date_uploaded']) ? date('M j, Y', strtotime($j['date_uploaded'])) : '-'; ?></td>
+                                          <td style="padding:12px;border-top:1px solid #f1f4f8;color:#2f3459;"><?php echo htmlspecialchars($j['week_coverage'] ?: '-'); ?></td>
+                                          <td style="padding:12px;border-top:1px solid #f1f4f8;color:#2f3459;"><?php echo !empty($j['attachment']) ? htmlspecialchars(basename($j['attachment'])) : '-'; ?></td>
+                                          <td style="padding:12px;border-top:1px solid #f1f4f8;text-align:center;color:#6b6f8b;">
+                                            <?php if (!empty($j['attachment'])): $path = '../' . ltrim($j['attachment'],'/\\'); ?>
+                                              <a href="<?php echo htmlspecialchars($path); ?>" target="_blank" title="View" style="margin-right:8px;">🔍</a>
+                                              <a href="<?php echo htmlspecialchars($path); ?>" download title="Download">⬇️</a>
+                                            <?php else: ?>-<?php endif; ?>
+                                          </td>
+                                        </tr>
+                                      <?php endforeach; endif; ?>
+                                    </tbody>
+                                  </table>
+                                </div>
+                                <script>
+                                (function(){
+                                    var btn = document.getElementById('btn-upload-journal');
+                                    var modalForm = document.getElementById('frm-upload-journal');
+                                    var overlay = document.getElementById('upload-modal-overlay');
+                                    var modalContent = document.getElementById('upload-modal-content');
+                                    var modalWeek = document.getElementById('modal-week');
+                                    var modalFile = document.getElementById('modal-file');
+                                    var closeBtn = document.getElementById('upload-close');
+                                    var cancelBtn = document.getElementById('modal-cancel');
 
-                                        // open modal
-                                        btn && btn.addEventListener('click', function(){
-                                            if (!modalForm) return;
-                                            modalForm.style.display = 'block';
-                                            overlay.style.opacity = '1';
-                                        });
-                                        // close modal helper
-                                        function closeModal(){
-                                            if (!modalForm) return;
-                                            modalForm.style.display = 'none';
-                                            modalWeek.value = '';
-                                            modalFile.value = '';
+                                    function openModal(){
+                                        if (!overlay) return;
+                                        overlay.style.display = 'flex';
+                                        if (modalForm) modalForm.style.display = 'block';
+                                        // focus first input
+                                        setTimeout(function(){ try { modalWeek && modalWeek.focus(); } catch(e){} }, 80);
+                                    }
+                                    function closeModal(){
+                                        if (!overlay) return;
+                                        overlay.style.display = 'none';
+                                        if (modalForm) modalForm.style.display = 'none';
+                                        if (modalWeek) modalWeek.value = '';
+                                        if (modalFile) modalFile.value = '';
+                                    }
+
+                                    // prevent clicks inside modal content from closing
+                                    if (modalContent) modalContent.addEventListener('click', function(e){ e.stopPropagation(); });
+                                    // clicking overlay closes the modal
+                                    if (overlay) overlay.addEventListener('click', closeModal);
+
+                                    btn && btn.addEventListener('click', openModal);
+                                    closeBtn && closeBtn.addEventListener('click', closeModal);
+                                    cancelBtn && cancelBtn.addEventListener('click', closeModal);
+
+                                    // client-side validation before submit
+                                    modalForm && modalForm.addEventListener('submit', function(e){
+                                        // basic required checks
+                                        if (!modalWeek.value || !modalWeek.value.trim()){
+                                            e.preventDefault();
+                                            alert('Please enter week coverage.');
+                                            modalWeek && modalWeek.focus();
+                                            return false;
                                         }
-                                        closeBtn && closeBtn.addEventListener('click', closeModal);
-                                        cancelBtn && cancelBtn.addEventListener('click', closeModal);
-
-                                        // client validation before submit
-                                        modalForm.addEventListener('submit', function(e){
-                                            if (!modalWeek.value.trim()){
-                                                e.preventDefault();
-                                                alert('Please enter week coverage.');
-                                                modalWeek.focus();
-                                                return false;
-                                            }
-                                            if (!modalFile.files || !modalFile.files.length){
-                                                e.preventDefault();
-                                                alert('Please attach a file.');
-                                                modalFile.focus();
-                                                return false;
-                                            }
-                                            // file size check (2 MB)
-                                            var f = modalFile.files[0];
-                                            if (f.size > 2 * 1024 * 1024){
-                                                e.preventDefault();
-                                                alert('File too large. Maximum 2 MB.');
-                                                return false;
-                                            }
-                                            // allow submit; modal will close when page reloads
-                                        });
-                                    })();
-                                    </script>
+                                        if (!modalFile.files || !modalFile.files.length){
+                                            e.preventDefault();
+                                            alert('Please attach a file.');
+                                            modalFile && modalFile.focus();
+                                            return false;
+                                        }
+                                        var f = modalFile.files[0];
+                                        // size check (2 MB)
+                                        if (f.size > 2 * 1024 * 1024){
+                                            e.preventDefault();
+                                            alert('File too large. Maximum 2 MB.');
+                                            return false;
+                                        }
+                                        // extension check (client-side; server enforces as well)
+                                        var allowed = ['pdf','docx'];
+                                        var name = f.name || '';
+                                        var ext = (name.split('.').pop() || '').toLowerCase();
+                                        if (allowed.indexOf(ext) === -1){
+                                            e.preventDefault();
+                                            alert('Unsupported file type. Allowed: DOCX, PDF.');
+                                            modalFile && modalFile.focus();
+                                            return false;
+                                        }
+                                        // if all checks pass, allow native submit (server will validate again)
+                                    });
+                                 })();
+                                </script>
                             </section>
 
                             <section id="tab-attachments" class="tab-panel" style="display:none;">
@@ -772,7 +823,7 @@ if ($user_id) {
 
                             <section id="tab-eval" class="tab-panel" style="display:none;">
                                     <h4 style="margin:0 0 10px 0; color:#2f3459; font-size:20px;">Evaluation</h4>
-                                    <p style="margin:0; color:#6b6f8b; font-size:16px;">No evaluations recorded yet.</p>
+                                    <p style="margin:0; color:#6b6f8b; font-size:16px;">No evaluation recorded yet.</p>
                             </section>
                             </div>
                     </div>
@@ -806,7 +857,14 @@ if ($user_id) {
                         }
 
                         // initial state
-                        const initial = tabs.find(t=>t.classList.contains('active')) || tabs[0];
+                        // prefer tab indicated by URL fragment (e.g. #tab-journals), else fall back to default
+                        var hash = (window.location && window.location.hash) ? window.location.hash : '';
+                        var initial = null;
+                        if (hash) {
+                          var target = hash.substring(1); // remove leading '#'
+                          initial = tabs.find(t => t.dataset && t.dataset.tab === target) || null;
+                        }
+                        if (!initial) initial = tabs.find(t=>t.classList.contains('active')) || tabs[0];
                         if (initial) activate(initial);
 
                         tabs.forEach((btn, idx) => {
