@@ -830,7 +830,6 @@ if ($user_id) {
             </div>
     </div>
 
-      // confirm logout (both top icon and sidebar) — use replace so back can't restore protected pages
     <script>
     (function(){
       function attachConfirm(id){
