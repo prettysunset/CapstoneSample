@@ -102,15 +102,19 @@ if ($qr) {
 $off_q = $conn->query("SELECT office_id, office_name, current_limit, requested_limit, reason, status FROM offices ORDER BY office_name");
 if ($off_q) {
     $stmtCount = $conn->prepare("
-        SELECT COUNT(DISTINCT student_id) AS filled
-        FROM ojt_applications
-        WHERE (office_preference1 = ? OR office_preference2 = ?) AND status = 'approved'
+        SELECT COUNT(*) AS filled
+        FROM users u
+        WHERE u.role = 'ojt'
+          AND u.status IN ('approved','ongoing')
+          AND LOWER(TRIM(u.office_name)) LIKE ?
     ");
     while ($r = $off_q->fetch_assoc()) {
         $office_id = (int)$r['office_id'];
 
-        // count filled (approved) as before
-        $stmtCount->bind_param("ii", $office_id, $office_id);
+        // count filled using normalized office_name (substring match)
+        $officeName = trim((string)($r['office_name'] ?? ''));
+        $like = '%' . mb_strtolower($officeName) . '%';
+        $stmtCount->bind_param("s", $like);
         $stmtCount->execute();
         $cnt = $stmtCount->get_result()->fetch_assoc();
         $filled = (int)($cnt['filled'] ?? 0);
@@ -218,7 +222,7 @@ if ($moa_q) {
     th{background:#f5f6fa;padding:10px;border:1px solid #eee;text-align:center}
     .view-btn{background:none;border:none;cursor:pointer;font-size:18px;color:#222}
     .empty{padding:20px;text-align:center;color:#666}
-    .status-approved{color:#0b7a3a;font-weight:600;}
+    .status-approved{ color: inherit; font-weight: normal; }
     .status-rejected{color:#a00;font-weight:600;}
     /* Responsive tweaks */
     @media (max-width:900px){
@@ -397,7 +401,7 @@ if ($moa_q) {
       </div>
 
       <a href="settings.php" title="Settings" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06A2 2 0 1 1 2.28 16.8l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09c.7 0 1.3-.4 1.51-1A1.65 1.65 0 0 0 4.27 6.3L4.2 6.23A2 2 0 1 1 6 3.4l.06.06c.5.5 1.2.7 1.82.33.7-.4 1.51-.4 2.21 0 .62.37 1.32.17 1.82-.33L12.6 3.4a2 2 0 1 1 1.72 3.82l-.06.06c-.5.5-.7 1.2-.33 1.82.4.7.4 1.51 0 2.21-.37.62-.17 1.32.33 1.82l.06.06A2 2 0 1 1 19.4 15z"></path></svg>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06A2 2 0 1 1 2.28 16.8l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09c.7 0 1.3-.4 1.51-1A1.65 1.65 0 0 0 4.27 6.3L4.2 6.23A2 2 0 1 1 6 3.4l.06.06c.5.5 1.2.7 1.82.33.7-.4 1.51-.4 2.21 0 .62.37 1.32.17 1.82-.33L12.6 3.4a2 2 0 1 1 1.72 3.82l-.06.06c-.5.5-.7 1.2-.33 1.82.4.7.4 1.51 0 2.21-.37.62-.17 1.32.33 1.82l.06.06A2 2 0 1 1 19.4 15z"></path></svg>
       </a>
       <a id="top-logout" href="../logout.php" title="Logout" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
@@ -564,7 +568,6 @@ if ($moa_q) {
                 <tr>
                   <th>Office</th>
                   <th style="text-align:center">Current Limit</th>
-                  <th style="text-align:center">Active OJTs</th>
                   <th style="text-align:center">Available Slots</th>
                   <th style="text-align:center">Requested Limit</th>
                   <th>Reason</th>
@@ -576,7 +579,6 @@ if ($moa_q) {
                   <tr data-office="<?php echo htmlspecialchars(strtolower($of['office_name'] ?? '')); ?>">
                     <td><?= htmlspecialchars($of['office_name']) ?></td>
                     <td style="text-align:center"><?= $of['current_limit'] === null ? '—' : (int)$of['current_limit'] ?></td>
-                    <td style="text-align:center"><?= (int)$of['active_ojts'] ?></td>
                     <td style="text-align:center"><?= htmlspecialchars((string)$of['available_slots']) ?></td>
                     <td style="text-align:center"><?= $of['requested_limit'] === '' ? '—' : (int)$of['requested_limit'] ?></td>
                     <td><?= htmlspecialchars($of['reason'] ?: '—') ?></td>
@@ -617,7 +619,7 @@ if ($moa_q) {
               <span style="width:10px;height:10px;background:#10b981;border-radius:50%;display:inline-block"></span>
               Active OJT
             </span>
-            <span id="view_department" style="display:flex;align-items:center;gap:6px;color:#6b7280">IT Department</span>
+            <span id="view_department" style="display:flex;align-items:center;gap=6px;color:#6b7280">IT Department</span>
           </div>
 
           <div class="view-tools" aria-hidden="true">
@@ -769,8 +771,31 @@ if ($moa_q) {
         underline.style.transform = `translateX(${rect.left - containerRect.left}px)`;
     }
     // init
-    const active = document.querySelector('.tabs .tab.active') || tabs[0];
+    // allow selecting a tab via ?tab=<name> or #<name> so we can preserve tab after reload
+    let active = document.querySelector('.tabs .tab.active') || tabs[0];
+    const urlParams = new URLSearchParams(window.location.search);
+    const requestedTabFromUrl = urlParams.get('tab') || (location.hash ? location.hash.slice(1) : null);
+    if (requestedTabFromUrl) {
+      const found = tabs.find(t => t.getAttribute('data-tab') === requestedTabFromUrl);
+      if (found) {
+        tabs.forEach(t=>{ t.classList.remove('active'); t.setAttribute('aria-selected','false'); });
+        found.classList.add('active');
+        found.setAttribute('aria-selected','true');
+        active = found;
+      }
+    }
     if (active) positionUnderline(active);
+
+    // ensure the correct tab panel is shown on page load (honor ?tab=requested)
+    (function(){
+      const activeTabName = active ? active.getAttribute('data-tab') : 'ojts';
+      // set panels visibility to match active tab
+      document.querySelectorAll('.tab-panel').forEach(p=>{
+        p.style.display = (p.id === 'tab-' + activeTabName) ? 'block' : 'none';
+      });
+      // set aria-selected on tabs consistently
+      tabs.forEach(t => t.setAttribute('aria-selected', t.classList.contains('active') ? 'true' : 'false'));
+    })();
 
     // controls elements (top row)
     const controlsOJTs = document.getElementById('controlsOJTs');
@@ -793,37 +818,39 @@ if ($moa_q) {
       const search = document.getElementById('requestedSearch');
       const sortSel = document.getElementById('requestedSort');
       const sortDirBtn = document.getElementById('requestedSortDir');
-      const COL = { current_limit:1, active_ojts:2, available_slots:3, requested_limit:4 };
-      function parseNum(txt){
-        if (txt === null || txt === undefined) return null;
-        txt = txt.toString().trim();
-        if (txt === '—' || txt === '') return null;
-        const n = parseInt(txt.replace(/[^\d-]/g,''),10);
-        return isNaN(n) ? null : n;
-      }
-      function filterAndSort(){
-        const q = (search?.value || '').toLowerCase().trim();
-        const rows = Array.from(tbodyReq.querySelectorAll('tr'));
-        rows.forEach(r=>{
-          const office = (r.cells[0]?.textContent || '').toLowerCase();
-          const matches = q === '' || office.indexOf(q) !== -1;
-          r.style.display = matches ? '' : 'none';
-        });
-        const sortBy = sortSel?.value;
-        const dir = (sortDirBtn?.dataset.dir || 'desc') === 'asc' ? 1 : -1;
-        if (sortBy && COL.hasOwnProperty(sortBy)) {
-          const visible = rows.filter(r => r.style.display !== 'none');
-          visible.sort((a,b)=>{
-            const aVal = parseNum(a.cells[COL[sortBy]]?.textContent);
-            const bVal = parseNum(b.cells[COL[sortBy]]?.textContent);
-            if (aVal === null && bVal === null) return 0;
-            if (aVal === null) return 1 * dir;
-            if (bVal === null) return -1 * dir;
-            return (aVal - bVal) * dir;
-          });
-          visible.forEach(r => tbodyReq.appendChild(r));
+      // Updated column indexes after removing "Active OJTs" column:
+      // Office(0), Current Limit(1), Available Slots(2), Requested Limit(3), Reason(4), Action(5)
+      const COL = { current_limit:1, available_slots:2, requested_limit:3 };
+        function parseNum(txt){
+          if (txt === null || txt === undefined) return null;
+          txt = txt.toString().trim();
+          if (txt === '—' || txt === '') return null;
+          const n = parseInt(txt.replace(/[^\d-]/g,''),10);
+          return isNaN(n) ? null : n;
         }
-      }
+        function filterAndSort(){
+          const q = (search?.value || '').toLowerCase().trim();
+          const rows = Array.from(tbodyReq.querySelectorAll('tr'));
+          rows.forEach(r=>{
+            const office = (r.cells[0]?.textContent || '').toLowerCase();
+            const matches = q === '' || office.indexOf(q) !== -1;
+            r.style.display = matches ? '' : 'none';
+          });
+          const sortBy = sortSel?.value;
+          const dir = (sortDirBtn?.dataset.dir || 'desc') === 'asc' ? 1 : -1;
+          if (sortBy && COL.hasOwnProperty(sortBy)) {
+            const visible = rows.filter(r => r.style.display !== 'none');
+            visible.sort((a,b)=>{
+              const aVal = parseNum(a.cells[COL[sortBy]]?.textContent);
+              const bVal = parseNum(b.cells[COL[sortBy]]?.textContent);
+              if (aVal === null && bVal === null) return 0;
+              if (aVal === null) return 1 * dir;
+              if (bVal === null) return -1 * dir;
+              return (aVal - bVal) * dir;
+            });
+            visible.forEach(r => tbodyReq.appendChild(r));
+          }
+        }
       if (sortDirBtn) {
         if (!sortDirBtn.dataset.dir) sortDirBtn.dataset.dir = 'desc';
         sortDirBtn.addEventListener('click', function(){
@@ -897,7 +924,8 @@ if ($moa_q) {
       }
       // success — reload so HR + Office Head pages reflect updated limits/status
       console.log('Office request processed:', j.message || 'OK');
-      location.reload();
+      // reload but keep the Requested tab active
+      location.href = window.location.pathname + '?tab=requested';
     } catch (err) {
       console.error(err);
       alert('Request failed');
@@ -1114,7 +1142,7 @@ if ($moa_q) {
   const searchInput = document.getElementById('searchInput');
   const officeFilter = document.getElementById('officeFilter');
   const statusFilter = document.getElementById('statusFilter');
-  const tbody = document.querySelector('#ojtTable tbody');
+   const tbody = document.querySelector('#ojtTable tbody');
   if (!tbody) return;
 
   const norm = s => (s||'').toString().toLowerCase().trim();

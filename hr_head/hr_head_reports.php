@@ -106,11 +106,34 @@ function fetch_moa($conn){
     return $rows;
 }
 
+// new: load office_requests
+function fetch_office_requests($conn){
+    // return only non-pending office requests (approved/rejected)
+    $rows = [];
+    $sql = "
+      SELECT r.request_id, r.office_id, r.old_limit, r.new_limit, r.reason, r.status, r.date_requested, r.date_of_action,
+             o.office_name
+      FROM office_requests r
+      LEFT JOIN offices o ON o.office_id = r.office_id
+      WHERE r.status <> 'pending'
+      ORDER BY r.date_requested DESC, r.request_id DESC
+    ";
+    $res = $conn->query($sql);
+    if ($res) {
+        while ($r = $res->fetch_assoc()) {
+            $rows[] = $r;
+        }
+        $res->free();
+    }
+    return $rows;
+}
+
 function fmtDate($d){ if (!$d) return '-'; $dt = date_create($d); return $dt ? $dt->format('M j, Y') : '-'; }
 
 $students = fetch_students($conn);
 $offices = fetch_offices($conn);
 $moa = fetch_moa($conn);
+$office_requests = fetch_office_requests($conn);
 ?>
 <!doctype html>
 <html lang="en">
@@ -269,6 +292,9 @@ $moa = fetch_moa($conn);
             </button>
             <button class="tab" data-tab="moa" role="tab" aria-selected="false" aria-controls="panel-moa">
               <span>MOA (<?= count($moa) ?>)</span>
+            </button>
+            <button class="tab" data-tab="requests" role="tab" aria-selected="false" aria-controls="panel-requests">
+              <span>Office Requests (<?= count($office_requests) ?>)</span>
             </button>
           </div>
         </div>
@@ -450,6 +476,36 @@ $moa = fetch_moa($conn);
          </div>
        </div>
 
+      <!-- NEW: Office Requests panel -->
+      <div id="panel-requests" class="panel" style="display:none">
+        <div style="overflow-x:auto">
+          <table class="tbl" id="tblRequests">
+            <thead>
+              <tr>
+                <th>Date Requested</th>
+                <th>Office</th>
+                <th style="text-align:center">New Limit</th>
+                <th>Reason</th>
+                <th style="text-align:center">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              <?php if (empty($office_requests)): ?>
+                <tr><td colspan="5" class="empty">No office requests.</td></tr>
+              <?php else: foreach ($office_requests as $req): ?>
+                <tr data-search="<?= htmlspecialchars(strtolower(($req['office_name'] ?? '') . ' ' . ($req['reason'] ?? '') . ' ' . ($req['status'] ?? '')) ) ?>">
+                  <td style="text-align:center"><?= htmlspecialchars(fmtDate($req['date_requested'] ?? '')) ?></td>
+                  <td><?= htmlspecialchars($req['office_name'] ?? '-') ?></td>
+                  <td style="text-align:center"><?= is_null($req['new_limit']) ? '—' : (int)$req['new_limit'] ?></td>
+                  <td><?= htmlspecialchars($req['reason'] ?? '-') ?></td>
+                  <td style="text-align:center"><?= htmlspecialchars(ucfirst($req['status'] ?? '')) ?></td>
+                </tr>
+              <?php endforeach; endif; ?>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
     </div>
   </main>
 
@@ -469,6 +525,7 @@ $moa = fetch_moa($conn);
       const isStudents = visible.id === 'panel-students';
       const isOffices  = visible.id === 'panel-offices';
       const isMoa      = visible.id === 'panel-moa';
+      const isRequests = visible.id === 'panel-requests';
 
       visible.querySelectorAll('tbody tr').forEach(tr=>{
         // placeholder rows have no data-search attribute
@@ -494,6 +551,10 @@ $moa = fetch_moa($conn);
           // status cell is the last td (index 5)
           const statusText = norm(tds[5]?.textContent || '');
           if (moaStatusVal) visibleByStatus = statusText.indexOf(moaStatusVal) !== -1;
+        } else if (isRequests) {
+          // office requests: rely on data-search (office, reason, status)
+          visibleByOffice = true;
+          visibleByStatus = true;
         }
 
         tr.style.display = (visibleBySearch && visibleByOffice && visibleByStatus) ? '' : 'none';
@@ -511,6 +572,7 @@ $moa = fetch_moa($conn);
        document.getElementById('panel-students').style.display = tab==='students' ? 'block' : 'none';
        document.getElementById('panel-offices').style.display = tab==='offices' ? 'block' : 'none';
        document.getElementById('panel-moa').style.display = tab==='moa' ? 'block' : 'none';
+       document.getElementById('panel-requests').style.display = tab==='requests' ? 'block' : 'none';
 
        // show/hide students-only filters
        const sf = document.getElementById('studentsFilters');
