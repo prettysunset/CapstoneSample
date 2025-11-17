@@ -200,7 +200,7 @@ if ($user_id) {
     <div class="bottom-title">OJT-MS</div>
 </div>
     <div class="main-content" style="position:fixed; left:260px; top:0; bottom:0; padding:32px 32px 32px 0; display:flex; flex-direction:column; align-items:flex-start; gap:20px; width:calc(100% - 260px); background:#f6f7fb; overflow:auto; font-size:18px;">
-        <div style="width:auto; max-width:980px; align-self:flex-start; display:flex; gap:24px; align-items:center; background:#fff; padding:24px; border-radius:12px; box-shadow:0 6px 20px rgba(47,52,89,0.06);">
+        <div style="width:100%; max-width:none; align-self:flex-start; display:flex; gap:24px; align-items:center; background:#fff; padding:24px; border-radius:12px; box-shadow:0 6px 20px rgba(47,52,89,0.06);">
             <div style="width:110px;height:110px;border-radius:50%;overflow:hidden;background:#2f3459;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:36px;">
               <?php if (!empty($app_picture_url)): ?>
                 <img src="<?php echo htmlspecialchars($app_picture_url); ?>" alt="Profile picture" style="width:110px;height:110px;object-fit:cover;display:block;">
@@ -227,7 +227,7 @@ if ($user_id) {
                 </div>
             </div>
         </div>
-            <div style="max-width:980px; width:100%; display:grid; grid-template-columns:1fr; gap:20px;">
+            <div style="width:100%; max-width:none; display:grid; grid-template-columns:1fr; gap:20px;">
                     <div style="background:#fff; padding:20px; border-radius:12px; box-shadow:0 6px 20px rgba(47,52,89,0.04);">
                     <div style="display:flex; flex-direction:column; gap:12px;">
                             <style>
