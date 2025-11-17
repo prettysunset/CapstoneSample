@@ -96,11 +96,9 @@ foreach ($ojts as $r) {
     $hr = (int)($r['hours_required'] ?? 0);
     $status = strtolower(trim((string)($r['student_status'] ?? '')));
 
-    if ($status === 'completed') {
-        // already completed — show under Completed tab
-        $completedArr[] = $r;
-    } elseif ($hr > 0 && $hc >= $hr) {
-        // reached required hours but not yet marked completed — show for evaluation
+    // Treat students who are 'completed' OR who reached/surpassed required hours
+    // as For Evaluation first.
+    if ($status === 'completed' || ($hr > 0 && $hc >= $hr)) {
         $for_eval[] = $r;
     } else {
         $active[] = $r;
@@ -235,7 +233,7 @@ foreach ($ojts as $r) {
         <div class="tabs" role="tablist" aria-label="OJTs tabs">
           <div class="tab active" data-target="panel-active">Ongoing</div>
           <div class="tab" data-target="panel-eval">For Evaluation</div>
-          <div class="tab" data-target="panel-completed">Completed</div>
+          <div class="tab" data-target="panel-evaluated">Evaluated</div>
         </div>
         </div>
       <div style="display:flex;gap:12px;align-items:center">
@@ -304,7 +302,7 @@ foreach ($ojts as $r) {
       </div>
     </div>
 
-    <div id="panel-completed" class="tab-panel">
+    <div id="panel-evaluated" class="tab-panel">
       <div style="overflow:auto">
         <table>
           <thead>
@@ -312,7 +310,7 @@ foreach ($ojts as $r) {
           </thead>
           <tbody>
             <?php if (empty($completedArr)): ?>
-              <tr><td colspan="7" style="text-align:center;color:#8a8f9d;padding:18px;">No completed OJTs.</td></tr>
+              <tr><td colspan="7" style="text-align:center;color:#8a8f9d;padding:18px;">No evaluated OJTs.</td></tr>
             <?php else: foreach ($completedArr as $o): ?>
               <tr>
                 <td><?php echo htmlspecialchars(trim($o['first_name'] . ' ' . $o['last_name'])); ?></td>
