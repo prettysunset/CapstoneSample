@@ -11,38 +11,80 @@ if ($rc) {
     $rc->free();
 }
 
-// Save AF2 data to session and redirect to AF3
-if ($_SERVER["REQUEST_METHOD"] == "POST") {
-    // resolve course input: may be course_id (from dropdown) or free text (fallback)
-    $rawCourse = $_POST['course'] ?? '';
-    $courseResolved = trim($rawCourse);
-    $courseId = null;
-    if ($courseResolved !== '' && ctype_digit((string)$courseResolved)) {
-        $cid = (int)$courseResolved;
-        $s = $conn->prepare("SELECT course_name FROM courses WHERE course_id = ? LIMIT 1");
-        if ($s) {
-            $s->bind_param('i', $cid);
-            $s->execute();
-            $cr = $s->get_result()->fetch_assoc();
-            $s->close();
-            if ($cr && !empty($cr['course_name'])) {
-                $courseResolved = $cr['course_name'];
-                $courseId = $cid;
+// --- NEW: compute availability per course (true if any related office has available slots) ---
+$courseAvailability = [];
+if (!empty($courses)) {
+    // detect capacity column used in offices table (fallback to current_limit)
+    $capacityCol = null;
+    $variants = ['current_limit','slot_capacity','capacity','slots','max_slots','updated_limit'];
+    foreach ($variants as $v) {
+        $res = $conn->query("SHOW COLUMNS FROM offices LIKE '".$conn->real_escape_string($v)."'");
+        if ($res && $res->num_rows > 0) { $capacityCol = $v; break; }
+        if ($res) $res->free();
+    }
+
+    $ids = array_map('intval', array_column($courses, 'course_id'));
+    if (!empty($ids)) {
+        $in = implode(',', $ids);
+        $capExpr = $capacityCol ? "`".$conn->real_escape_string($capacityCol)."`" : "o.current_limit";
+        $sql = "
+            SELECT oc.course_id, o.office_id, o.office_name, {$capExpr} AS capacity,
+               (SELECT COUNT(*) FROM users u WHERE u.role = 'ojt' AND u.office_name = o.office_name AND u.status IN ('approved','ongoing')) AS filled
+            FROM office_courses oc
+            JOIN offices o ON oc.office_id = o.office_id
+            WHERE oc.course_id IN ({$in})
+        ";
+        $res = $conn->query($sql);
+        if ($res) {
+            $tmp = [];
+            while ($r = $res->fetch_assoc()) {
+                $cid = (int)$r['course_id'];
+                $capacity = is_null($r['capacity']) ? null : (int)$r['capacity'];
+                $filled = isset($r['filled']) ? (int)$r['filled'] : 0;
+                $available = ($capacity === null) ? true : ($capacity - $filled > 0);
+                if (!isset($tmp[$cid])) $tmp[$cid] = false;
+                if ($available) $tmp[$cid] = true;
             }
+            $res->free();
+            // populate courseAvailability: default false for courses without offices
+            foreach ($ids as $cid) $courseAvailability[$cid] = !empty($tmp[$cid]);
         }
     }
-    // store both name and id (id may be null)
-    $_SESSION['af2'] = [
-        'school'         => $_POST['school'] ?? '',
-        'school_address' => $_POST['school_address'] ?? '',
-        'course'         => $courseResolved,
-        'course_id'      => $courseId,
-        'year_level'     => $_POST['year_level'] ?? '',
-        'school_year'    => $_POST['school_year'] ?? '',
-        'semester'       => $_POST['semester'] ?? '',
-        'adviser'        => $_POST['adviser'] ?? '',
-        'adviser_contact'=> $_POST['adviser_contact'] ?? ''
-    ];
+}
+
+// Save AF2 data to session and redirect to AF3
+if ($_SERVER["REQUEST_METHOD"] == "POST") {
+        // resolve course input: may be course_id (from dropdown) or free text (fallback)
+        $rawCourse = $_POST['course'] ?? '';
+        $courseResolved = trim($rawCourse);
+        $courseId = null;
+        if ($courseResolved !== '' && ctype_digit((string)$courseResolved)) {
+            $cid = (int)$courseResolved;
+            $s = $conn->prepare("SELECT course_name FROM courses WHERE course_id = ? LIMIT 1");
+            if ($s) {
+                $s->bind_param('i', $cid);
+                $s->execute();
+                $cr = $s->get_result()->fetch_assoc();
+                $s->close();
+                if ($cr && !empty($cr['course_name'])) {
+                    $courseResolved = $cr['course_name'];
+                    $courseId = $cid;
+                }
+            }
+        }
+        // store both name and id (id may be null)
+        $_SESSION['af2'] = [
+            'school'         => $_POST['school'] ?? '',
+            'school_address' => $_POST['school_address'] ?? '',
+            'course'         => $courseResolved,
+            'course_id'      => $courseId,
+            'year_level'     => $_POST['year_level'] ?? '',
+            // school year is fixed (not provided by user)
+            'school_year'    => '2025-2026',
+            'semester'       => $_POST['semester'] ?? '',
+            'adviser'        => $_POST['adviser'] ?? '',
+            'adviser_contact'=> $_POST['adviser_contact'] ?? ''
+        ];
 
     // persist AF2 into students table (insert or update). requires conn.php to provide $conn (mysqli)
     require_once __DIR__ . '/conn.php';
@@ -232,8 +274,8 @@ $af2 = isset($_SESSION['af2']) ? $_SESSION['af2'] : [];
         border-radius: 15px;
     }
 }
-</style>
 
+#courseAvailabilityMsg { display:none !important; }
   </style>
 </head>
 <body>
@@ -283,7 +325,7 @@ $af2 = isset($_SESSION['af2']) ? $_SESSION['af2'] : [];
           <input type="text" name="school_address" placeholder="School Address *" required value="<?= isset($af2['school_address']) ? htmlspecialchars($af2['school_address']) : '' ?>">
 
           <fieldset>
-            <select name="course" required>
+            <select name="course" id="courseSelect" required>
               <option value="" disabled <?= !isset($af2['course_id']) ? 'selected' : '' ?>>Select Course *</option>
               <?php foreach ($courses as $c): 
                 $sel = '';
@@ -297,6 +339,7 @@ $af2 = isset($_SESSION['af2']) ? $_SESSION['af2'] : [];
                 <option value="<?= (int)$c['course_id'] ?>" <?= $sel ?>><?= htmlspecialchars($c['course_name'] . ($c['course_code'] ? " ({$c['course_code']})" : '')) ?></option>
               <?php endforeach; ?>
             </select>
+            <div id="courseAvailabilityMsg" style="color:#b91c1c;display:none;margin-top:6px;font-size:0.95rem;">No available office for the selected course.</div>
             <select name="year_level" required>
               <option value="" disabled <?= !isset($af2['year_level']) ? 'selected' : '' ?>>Year Level *</option>
               <option value="3" <?= (isset($af2['year_level']) && $af2['year_level'] == '3') ? 'selected' : '' ?>>2nd Year</option>
@@ -307,13 +350,12 @@ $af2 = isset($_SESSION['af2']) ? $_SESSION['af2'] : [];
           </fieldset>
 
           <fieldset>
-            <input type="text" name="school_year" placeholder="School Year (e.g. 2024–2025) *" required value="<?= isset($af2['school_year']) ? htmlspecialchars($af2['school_year']) : '' ?>">
             <select name="semester" required>
-              <option value="" disabled <?= !isset($af2['semester']) ? 'selected' : '' ?>>Semester *</option>
-              <option value="1st Semester" <?= (isset($af2['semester']) && $af2['semester'] == '1st Semester') ? 'selected' : '' ?>>1st Semester</option>
-              <option value="2nd Semester" <?= (isset($af2['semester']) && $af2['semester'] == '2nd Semester') ? 'selected' : '' ?>>2nd Semester</option>
-              <option value="3rd Term (for Trimester schools)" <?= (isset($af2['semester']) && $af2['semester'] == '3rd Term (for Trimester schools)') ? 'selected' : '' ?>>3rd Term (for Trimester schools)</option>
-            </select>
+               <option value="" disabled <?= !isset($af2['semester']) ? 'selected' : '' ?>>Semester *</option>
+               <option value="1st Semester" <?= (isset($af2['semester']) && $af2['semester'] == '1st Semester') ? 'selected' : '' ?>>1st Semester</option>
+               <option value="2nd Semester" <?= (isset($af2['semester']) && $af2['semester'] == '2nd Semester') ? 'selected' : '' ?>>2nd Semester</option>
+               <option value="3rd Term (for Trimester schools)" <?= (isset($af2['semester']) && $af2['semester'] == '3rd Term (for Trimester schools)') ? 'selected' : '' ?>>3rd Term (for Trimester schools)</option>
+             </select>
           </fieldset>
 
           <fieldset>
@@ -321,9 +363,14 @@ $af2 = isset($_SESSION['af2']) ? $_SESSION['af2'] : [];
             <input type="text" id="adviser_contact" name="adviser_contact" placeholder="Contact Number *" required maxlength="11" pattern="[0-9]{11}" value="<?= isset($af2['adviser_contact']) ? htmlspecialchars($af2['adviser_contact']) : '' ?>">
           </fieldset>
 
+          <!-- add this above the form -->
+<div id="courseWarning" style="display:none;padding:10px;border-radius:8px;background:#fff4e5;color:#8a5a00;margin-bottom:12px;border:1px solid #ffd7a8;font-weight:600">
+  No available office for the selected course.
+</div>
+
           <div class="form-nav">
             <button type="button" class="secondary" onclick="window.location='application_form1.php'">← Previous</button>
-            <button type="submit">Next →</button>
+            <button type="submit" id="nextBtn">Next →</button>
           </div>
         </form>
       </div>
@@ -430,6 +477,61 @@ window.addEventListener('load', () => { document.body.style.opacity = 1; });
         }
       }
     });
+  }
+})();
+</script>
+<script>
+// server-provided availability map
+const courseAvailability = <?= json_encode($courseAvailability, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT) ?> || {};
+
+(function(){
+  const courseSelect = document.getElementById('courseSelect');
+  const warning = document.getElementById('courseWarning');
+  const nextBtn = document.getElementById('nextBtn');
+  const form = document.getElementById('af2Form');
+
+  function updateAvailabilityUI() {
+    const val = courseSelect && courseSelect.value ? String(courseSelect.value) : '';
+    if (!val) {
+      if (warning) warning.style.display = 'none';
+      if (nextBtn) nextBtn.disabled = false;
+      if (courseSelect) courseSelect.setCustomValidity('');
+      return;
+    }
+    const ok = !!courseAvailability[val];
+    if (!ok) {
+      if (warning) {
+        warning.textContent = 'No available office for the selected course.';
+        warning.style.display = 'block';
+      }
+      if (nextBtn) nextBtn.disabled = true;
+      if (courseSelect) courseSelect.setCustomValidity('No available office for selected course');
+    } else {
+      if (warning) warning.style.display = 'none';
+      if (nextBtn) nextBtn.disabled = false;
+      if (courseSelect) courseSelect.setCustomValidity('');
+    }
+  }
+
+  if (courseSelect) {
+    courseSelect.addEventListener('change', updateAvailabilityUI);
+    // initial check if preselected
+    updateAvailabilityUI();
+  }
+
+  // final safety on submit: re-check availability before allowing submit
+  if (form) {
+    form.addEventListener('submit', function(e){
+      const val = courseSelect && courseSelect.value ? String(courseSelect.value) : '';
+      if (val && !courseAvailability[val]) {
+        // ensure top banner visible and keep user on page
+        if (warning) { warning.textContent = 'No available office for the selected course.'; warning.style.display = 'block'; }
+        e.preventDefault();
+        courseSelect.focus();
+        return false;
+      }
+      return true;
+    }, {passive:false});
   }
 })();
 </script>

@@ -129,10 +129,13 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     // If user clicked Previous: save AF3 fields to session and go back to AF2
     if (isset($_POST['action']) && $_POST['action'] === 'prev') {
         // Save non-file inputs so they persist when returning to AF3
+        // ensure empty/blank required_hours is saved as null (not 0)
+        $raw_rh = isset($_POST['required_hours']) ? trim((string)$_POST['required_hours']) : '';
+        $rh_val = ($raw_rh !== '' && is_numeric($raw_rh)) ? intval($raw_rh) : null;
         $_SESSION['af3'] = [
             'first_choice'    => isset($_POST['first_choice']) ? intval($_POST['first_choice']) : null,
             'second_choice'   => (isset($_POST['second_choice']) && $_POST['second_choice'] !== '') ? intval($_POST['second_choice']) : null,
-            'required_hours'  => isset($_POST['required_hours']) ? intval($_POST['required_hours']) : null
+            'required_hours'  => $rh_val
             // note: file inputs cannot be preserved by PHP across navigation without upload
         ];
         header("Location: application_form2.php");
@@ -570,7 +573,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             </select>
           </fieldset>
 
-          <input type="number" name="required_hours" placeholder="Required Hours *" required min="1" value="<?= isset($af3['required_hours']) ? (int)$af3['required_hours'] : '' ?>">
+          <input type="number" name="required_hours" placeholder="Required Hours *" required min="1" value="<?= (isset($af3['required_hours']) && is_numeric($af3['required_hours']) && intval($af3['required_hours']) > 0) ? htmlspecialchars($af3['required_hours']) : '' ?>">
 
           <h3>UPLOAD REQUIREMENTS</h3>
 

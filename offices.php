@@ -1,10 +1,41 @@
+<?php
+// add server-side data before rendering HTML so design/header stays unchanged
+require_once __DIR__ . '/conn.php';
+
+// detect capacity column (match logic used in hr_head_home)
+$capacityCol = null;
+$variants = ['current_limit','slot_capacity','capacity','slots','max_slots'];
+foreach ($variants as $v) {
+    $res = $conn->query("SHOW COLUMNS FROM offices LIKE '".$conn->real_escape_string($v)."'");
+    if ($res && $res->num_rows > 0) { $capacityCol = $v; break; }
+    if ($res) $res->free();
+}
+
+// fetch offices list with chosen capacity column (if found)
+if ($capacityCol) {
+    $sql = "SELECT office_id, office_name, `".$conn->real_escape_string($capacityCol)."` AS capacity FROM offices ORDER BY office_name";
+} else {
+    $sql = "SELECT office_id, office_name FROM offices ORDER BY office_name";
+}
+$offices = [];
+if ($resOff = $conn->query($sql)) {
+    while ($r = $resOff->fetch_assoc()) $offices[] = $r;
+    if ($resOff) $resOff->free();
+}
+
+// prepare statement to count active/approved OJTs assigned to an office (same source as hr_head_home)
+$stmtFilled = $conn->prepare("
+    SELECT COUNT(*) AS cnt
+    FROM users
+    WHERE role = 'ojt' AND office_name = ? AND status IN ('approved','ongoing')
+");
+?>
 <html>
 <head>
     <meta charset="UTF-8" />
     <link rel="stylesheet" href="stylenibilog.css" />
     <title>OJT-MS Offices</title>
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700;900&display=swap" rel="stylesheet">
-
 <style>
 /* General Page */
 body {
@@ -161,7 +192,7 @@ th {
     background-color: #f0f6ff;
     color: #3a4163;
     text-align: left;
-    padding: 15px;
+    padding: 12px; /* reduced from 15px */
     font-weight: 700;
     font-size: 16px;
     border-bottom: 2px solid #d6e4f0;
@@ -181,7 +212,7 @@ th {
 
 /* Table Cells */
 td {
-    padding: 14px 15px;
+    padding: 10px 12px; /* reduced from 14px 15px */
     border-bottom: 1px solid #d6e4f0;
     font-size: 15px;
 }
@@ -191,19 +222,32 @@ tr:hover td {
     background-color: rgba(74,111,243,0.05);
 }
 
-/* Status Colors */
-.status {
-    font-weight: 600;
+/* Status Colors (updated: add colored stroke/border for Open/Full) */
+.status{
+    font-weight:600;
+    display:inline-block;
+    padding:6px 10px;
+    border-radius:999px;
+    font-size:13px;
+    box-sizing:border-box;
+    border:2px solid transparent; /* default stroke */
 }
-.status.open {
-    color: #009900;
+
+/* Open: green text + green stroke + subtle green bg */
+.status.open{
+    color:#0b7a3a; /* dark green text */
+    background: rgba(16,185,129,0.06); /* subtle green tint */
+    border-color:#10b981; /* green stroke */
 }
-.status.full {
-    color: #ff0000;
+
+/* Full: red text + red stroke + subtle red bg */
+.status.full{
+    color:#b91c1c; /* dark red text */
+    background: rgba(220,38,38,0.04); /* subtle red tint */
+    border-color:#ef4444; /* red stroke */
 }
 </style>
 </head>
-
 <body>
     <!-- ✅ Centered Navbar -->
     <nav class="navbar" role="navigation">
@@ -221,42 +265,108 @@ tr:hover td {
 
     <h1>OJT Slot <span style="color: #4a6ff3;">Availability</span></h1>
 
-    <!-- ====== Table Sections (Ground + Floors) ====== -->
-    <div class="table-section">
-        <!-- Ground Floor -->
-        <table>
-            <tr class="floor-header">
-                <th colspan="3">Ground Floor</th>
-            </tr>
-            <tr>
-                <th>Office</th>
-                <th>Available Slots</th>
-                <th>Status</th>
-            </tr>
-            <tr><td>Front Desk</td><td>5</td><td class="status open">Open</td></tr>
-            <tr><td>BPLO</td><td>2</td><td class="status open">Open</td></tr>
-            <tr><td>LCR</td><td>0</td><td class="status full">Full</td></tr>
-            <tr><td>TREASURY</td><td>3</td><td class="status open">Open</td></tr>
-            <tr><td>CSWDO</td><td>3</td><td class="status open">Open</td></tr>
-            <tr><td>TRAFFIC</td><td>3</td><td class="status open">Open</td></tr>
-            <tr><td>CDRRMO</td><td>3</td><td class="status open">Open</td></tr>
-            <tr><td>ASSESSOR</td><td>4</td><td class="status open">Open</td></tr>
-            <tr><td>ACCOUNTING</td><td>5</td><td class="status open">Open</td></tr>
-            <tr><td>CAD</td><td>3</td><td class="status open">Open</td></tr>
-        </table>
+    <!-- ===== simplified single table with accurate counts (based on hr_head_home logic) ===== -->
+    <div class="table-section" style="justify-content:center;max-width:1100px;margin-bottom:40px;">
+        <?php if (empty($offices)): ?>
+            <div class="empty">No offices found.</div>
+        <?php else: ?>
+            <!-- search bar above the table -->
+            <div style="width:100%;max-width:900px;margin:0 auto 12px;display:block;">
+                <input id="officeSearch" type="search" placeholder="Search office / slots / status" aria-label="Search offices"
+                       style="width:100%;padding:8px 10px;border:1px solid #e6e9fb;border-radius:8px;background:#fff;box-sizing:border-box;">
+            </div>
 
-        <!-- 2nd Floor -->
-        <table>
-            <tr class="floor-header">
-                <th colspan="3">2nd Floor</th>
-            </tr>
-            <tr>
-                <th>Office</th>
-                <th>Available Slots</th>
-                <th>Status</th>
-            </tr>
-            <tr><td>Mayor's Office</td><td>5</td><td class="status open">Open</td></tr>
-            <tr><td>CA</td><td>2</td><td class="status open">Open</td></tr>
-            <tr><td>BUDGET</td><td>0</td><td class="status full">Full</td></tr>
-            <tr><td>LEGAL</td><td>3</td><td class="status full">Full</td></tr>
-            <tr><td>CIO</td><td>3</
+            <div style="width:100%;max-width:900px;margin:0 auto;overflow:hidden;">
+            <table id="officesTable" style="width:100%;border-collapse:collapse;background-color:rgba(255,255,255,0.95);">
+                <thead>
+                    <tr>
+                        <th style="text-align:left;padding:12px;border:1px solid #e6e9fb">Office</th>
+                        <th style="text-align:center;padding:12px;border:1px solid #e6e9fb">Available Slots</th>
+                        <th style="text-align:center;padding:12px;border:1px solid #e6e9fb">Status</th>
+                    </tr>
+                </thead>
+                <tbody id="offices_tbody">
+                <?php foreach ($offices as $o):
+                    $officeName = $o['office_name'] ?? '';
+                    $cap = array_key_exists('capacity', $o) ? (is_null($o['capacity']) ? null : (int)$o['capacity']) : null;
+
+                    $filled = 0;
+                    if ($stmtFilled) {
+                        $stmtFilled->bind_param('s', $officeName);
+                        $stmtFilled->execute();
+                        $stmtFilled->bind_result($cnt);
+                        $stmtFilled->fetch();
+                        $filled = (int)($cnt ?? 0);
+                        $stmtFilled->free_result();
+                    }
+
+                    if ($cap === null) {
+                        $availableDisplay = '—';
+                        $statusLabel = 'Open';
+                        $statusClass = 'status-open';
+                    } else {
+                        $availableNum = max(0, $cap - $filled);
+                        $availableDisplay = $availableNum;
+                        if ($availableNum === 0) {
+                            $statusLabel = 'Full';
+                            $statusClass = 'status-full';
+                        } else {
+                            $statusLabel = 'Open';
+                            $statusClass = 'status-open';
+                        }
+                    }
+                ?>
+                    <tr class="office-row">
+                        <td class="col-office" style="padding:10px;border:1px solid #e6e9fb;"><?= htmlspecialchars($officeName ?: '—') ?></td>
+                        <td class="col-available" style="text-align:center;padding:10px;border:1px solid #e6e9fb"><?= htmlspecialchars((string)$availableDisplay) ?></td>
+                        <td class="col-status" style="text-align:center;padding:10px;border:1px solid #e6e9fb"><span class="<?= $statusClass ?>"><?= htmlspecialchars($statusLabel) ?></span></td>
+                    </tr>
+                <?php endforeach; ?>
+                </tbody>
+            </table>
+            </div>
+
+            <div id="noResults" class="empty" style="display:none;text-align:center;padding:14px;color:#6b7280">No matching offices found.</div>
+        <?php endif; ?>
+    </div>
+
+    <script>
+    // live client-side filtering (filters as you type)
+    (function(){
+        const input = document.getElementById('officeSearch');
+        const tbody = document.getElementById('offices_tbody');
+        if (!input || !tbody) return;
+        const rows = Array.from(tbody.querySelectorAll('tr.office-row'));
+        const noResults = document.getElementById('noResults');
+
+        function norm(s){ return (s||'').toString().toLowerCase().trim(); }
+
+        function filter(){
+            const q = norm(input.value);
+            let any = false;
+            rows.forEach(r=>{
+                const office = norm(r.querySelector('.col-office')?.textContent);
+                const available = norm(r.querySelector('.col-available')?.textContent);
+                const status = norm(r.querySelector('.col-status')?.textContent);
+                const show = !q || office.indexOf(q) !== -1 || available.indexOf(q) !== -1 || status.indexOf(q) !== -1;
+                r.style.display = show ? '' : 'none';
+                if (show) any = true;
+            });
+            if (!any) {
+                noResults && (noResults.style.display = '');
+            } else {
+                noResults && (noResults.style.display = 'none');
+            }
+        }
+
+        input.addEventListener('input', filter, {passive:true});
+        // initial run to apply any pre-filled value
+        filter();
+    })();
+    </script>
+<?php
+if ($stmtFilled) $stmtFilled->close();
+?>
+<!-- ...existing code (rest of page) ... -->
+</body>
+</html>
