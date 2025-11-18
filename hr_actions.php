@@ -556,7 +556,7 @@ if ($action === 'approve_send') {
           . "<p>Please follow instructions sent by HR. Thank you.</p>"
           . "<p>— HR Department</p>";
 
-    $hardcopy_note = "<p><strong>Hard copy requirements:</strong> Our records indicate that we have received all required hard copy documents for your application.</p>";
+    $hardcopy_note = "<p><strong>Hard copy requirements:</strong> Our records indicate that we have received all required soft copy documents for your application.</p>";
     $html = $hardcopy_note . $html;
 
     try {
