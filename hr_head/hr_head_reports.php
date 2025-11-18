@@ -23,7 +23,9 @@ $current_date = date("l, F j, Y");
 function fetch_students($conn){
     $q = "
     SELECT s.student_id, s.first_name, s.last_name, s.college, s.course,
-           s.hours_rendered, s.total_hours_required, s.status AS student_status,
+           s.hours_rendered, s.total_hours_required,
+           -- STATUS logic changed: prefer users.status; if missing use latest application status; fallback to students.status
+           COALESCE(NULLIF(u.status,''), NULLIF(oa.status,''), s.status) AS student_status,
            u.office_name AS office_name,
            oa.remarks AS app_remarks, oa.date_submitted
     FROM students s
@@ -34,10 +36,8 @@ function fetch_students($conn){
         JOIN (
             SELECT student_id, MAX(date_submitted) AS max_date
             FROM ojt_applications
-            WHERE status = 'approved'
             GROUP BY student_id
         ) mx ON oa1.student_id = mx.student_id AND oa1.date_submitted = mx.max_date
-        WHERE oa1.status = 'approved'
     ) oa ON oa.student_id = s.student_id
     ORDER BY s.last_name, s.first_name
     ";
