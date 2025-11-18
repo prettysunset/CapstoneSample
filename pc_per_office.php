@@ -70,6 +70,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     error_log("pc_per_office: lookup username='{$username}' => " . ($user ? "FOUND user_id={$user['user_id']} role={$user['role']} stored_preview=" . substr($user['password'],0,12) : "NOT FOUND"));
     if (!$user) json_resp(['success'=>false,'message'=>'Invalid username or password','debug'=>'user_not_found','username'=>$username]);
 
+    // --- enforce account age: disallow time-in/out if account is less than 1 week old ---
+    try {
+        $dc = $conn->prepare("SELECT DATE_FORMAT(date_created, '%Y-%m-%d') AS date_created FROM users WHERE user_id = ? LIMIT 1");
+        $dc->bind_param('i', $user['user_id']);
+        $dc->execute();
+        $dcRow = $dc->get_result()->fetch_assoc();
+        $dc->close();
+    } catch (Exception $e) {
+        $dcRow = null;
+    }
+    if ($dcRow && !empty($dcRow['date_created'])) {
+        $createdDate = $dcRow['date_created']; // yyyy-mm-dd
+        // determine effective date: prefer client_local_date, then client_ts, then server date
+        $effectiveDate = '';
+        if (!empty($client_local_date)) {
+            $effectiveDate = $client_local_date;
+        } elseif (!empty($client_ts)) {
+            try { $tmp = new DateTime($client_ts); $effectiveDate = $tmp->format('Y-m-d'); } catch (Exception $e) { /* ignore */ }
+        }
+        if (!$effectiveDate) {
+            $row = $conn->query("SELECT DATE_FORMAT(NOW(), '%Y-%m-%d') AS today")->fetch_assoc();
+            $effectiveDate = $row['today'] ?? date('Y-m-d');
+        }
+        // per requirement allow logging on createdDate + 8 days (example: 2025-11-17 -> allowed 2025-11-25)
+        $allowFrom = (new DateTime($createdDate))->modify('+8 days')->format('Y-m-d');
+        if ($effectiveDate < $allowFrom) {
+            json_resp([
+                'success' => false,
+                'message' => "You will be able to time in after your orientation"
+            ]);
+        }
+    }
+
     // 2) Verify password - SKIPPED per request (development only)
     // Allow action when username exists and role will be checked below.
     // Keep stored value available if you want to log later.
