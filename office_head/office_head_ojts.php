@@ -2,6 +2,133 @@
 session_start();
 date_default_timezone_set('Asia/Manila');
 require_once __DIR__ . '/../conn.php';
+
+// prevent PHP notices/warnings breaking JSON responses; buffer output
+ob_start();
+ini_set('display_errors', '0');
+error_reporting(E_ALL);
+
+// --- handle AJAX JSON submission in same file (no new file) ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // try to parse JSON payload
+    $raw = file_get_contents('php://input');
+    $data = json_decode($raw, true);
+    if (is_array($data) && isset($data['trainee_id'])) {
+
+        // remove any buffered output (warnings, stray whitespace) before sending JSON header
+        if (ob_get_length()) ob_clean();
+        header('Content-Type: application/json');
+
+        // session already started above — DO NOT call session_start() again
+        $evaluator_id = isset($_SESSION['user_id']) ? (int)$_SESSION['user_id'] : 0;
+        $trainee = (int)$data['trainee_id'];
+        $scores = $data['scores'] ?? [];
+        $remarks = trim((string)($data['remarks'] ?? ''));
+
+        // resolve student_id (students.user_id = trainee)
+        $student_id = null;
+        $q = $conn->prepare("SELECT student_id FROM students WHERE user_id = ? LIMIT 1");
+        if ($q) {
+            $q->bind_param("i", $trainee);
+            $q->execute();
+            $r = $q->get_result()->fetch_assoc();
+            $q->close();
+            if ($r && !empty($r['student_id'])) $student_id = (int)$r['student_id'];
+        }
+
+        if (!$student_id) {
+            echo json_encode(['success' => false, 'message' => 'Trainee not found']);
+            exit;
+        }
+
+        // compute average of numeric scores (ignore NA / null)
+        $sum = 0.0; $count = 0;
+        foreach ($scores as $v) {
+            if ($v === null) continue;
+            if (is_string($v) && strtoupper($v) === 'NA') continue;
+            if ($v === '') continue;
+            // allow numeric strings and numbers
+            if (is_numeric($v)) {
+                $n = floatval($v);
+                $sum += $n;
+                $count++;
+            }
+        }
+
+        if ($count > 0) {
+            $avg = $sum / $count;
+            $avgRounded = round($avg, 2);
+            $avgStr = number_format($avgRounded, 2, '.', '');
+
+            // map to description by nearest integer
+            $map = [5 => 'Outstanding', 4 => 'Very Good', 3 => 'Good', 2 => 'Fair', 1 => 'Poor'];
+            $roundedInt = (int) round($avgRounded);
+            if ($roundedInt < 1) $roundedInt = 1;
+            if ($roundedInt > 5) $roundedInt = 5;
+            $desc = $map[$roundedInt] ?? 'N/A';
+
+            $ratingDesc = $avgStr . ' | ' . $desc;
+            $ratingValue = $avgRounded;
+        } else {
+            // no numeric ratings provided
+            $ratingDesc = 'N/A | N/A';
+            $desc = 'N/A';
+            $avgRounded = null;
+            $ratingValue = null;
+        }
+
+        // Begin DB transaction: insert evaluation and update statuses
+        $conn->begin_transaction();
+        $success = false;
+
+        $ins = $conn->prepare("INSERT INTO evaluations (student_id, rating, rating_desc, feedback, date_evaluated, user_id) VALUES (?, ?, ?, ?, NOW(), ?)");
+        if ($ins) {
+            // bind: int, double (nullable), string, string, int
+            $ins->bind_param("idssi", $student_id, $ratingValue, $ratingDesc, $remarks, $evaluator_id);
+            $insOk = $ins->execute();
+            $ins->close();
+        } else {
+            echo json_encode(['success' => false, 'message' => 'DB prepare failed (evaluations insert)']);
+            $conn->rollback();
+            exit;
+        }
+
+        if ($insOk) {
+            // update students.status => mark evaluated
+            $u1 = $conn->prepare("UPDATE students SET status = 'evaluated' WHERE student_id = ?");
+            $u1Ok = true;
+            if ($u1) { $u1->bind_param("i", $student_id); $u1Ok = $u1->execute(); $u1->close(); }
+
+            // update users.status => mark evaluated (users.user_id = trainee)
+            $u2 = $conn->prepare("UPDATE users SET status = 'evaluated' WHERE user_id = ?");
+            $u2Ok = true;
+            if ($u2) { $u2->bind_param("i", $trainee); $u2Ok = $u2->execute(); $u2->close(); }
+
+            // update ojt_applications.status => evaluated (if application exists)
+            $u3 = $conn->prepare("UPDATE ojt_applications SET status = 'evaluated', date_updated = NOW() WHERE student_id = ?");
+            $u3Ok = true;
+            if ($u3) { $u3->bind_param("i", $student_id); $u3Ok = $u3->execute(); $u3->close(); }
+
+            if ($u1Ok && $u2Ok && $u3Ok) {
+                $conn->commit();
+                $success = true;
+            } else {
+                $conn->rollback();
+            }
+        } else {
+            $conn->rollback();
+        }
+
+        if ($success) {
+            echo json_encode(['success' => true, 'message' => 'Evaluation saved and statuses updated', 'rating' => $avgRounded, 'rating_text' => $ratingDesc]);
+            exit;
+        } else {
+            echo json_encode(['success' => false, 'message' => 'DB operation failed']);
+            exit;
+        }
+    }
+}
+
 if (!isset($_SESSION['user_id'])) { header('Location: ../login.php'); exit; }
 
 $user_id = (int)$_SESSION['user_id'];
@@ -96,6 +223,12 @@ foreach ($ojts as $r) {
     $hr = (int)($r['hours_required'] ?? 0);
     $status = strtolower(trim((string)($r['student_status'] ?? '')));
 
+    // If already evaluated, put to completedArr
+    if ($status === 'evaluated') {
+        $completedArr[] = $r;
+        continue;
+    }
+
     // Treat students who are 'completed' OR who reached/surpassed required hours
     // as For Evaluation first.
     if ($status === 'completed' || ($hr > 0 && $hc >= $hr)) {
@@ -103,6 +236,30 @@ foreach ($ojts as $r) {
     } else {
         $active[] = $r;
     }
+}
+
+// Load evaluated OJTs with latest evaluation remarks (override completedArr with richer rows)
+$completedArr = [];
+$q = $conn->prepare("
+    SELECT u.user_id,
+           COALESCE(NULLIF(u.first_name, ''), NULLIF(s.first_name, '')) AS first_name,
+           COALESCE(NULLIF(u.last_name, ''), NULLIF(s.last_name, '')) AS last_name,
+           COALESCE(s.college, '') AS school,
+           COALESCE(s.course, '') AS course,
+           COALESCE(s.year_level, '') AS year_level,
+           COALESCE(s.hours_rendered, 0) AS hours_completed,
+           COALESCE(s.total_hours_required, 500) AS hours_required,
+           (SELECT rating_desc FROM evaluations ev2 WHERE ev2.student_id = s.student_id ORDER BY date_evaluated DESC, eval_id DESC LIMIT 1) AS remarks
+    FROM students s
+    JOIN users u ON s.user_id = u.user_id
+    WHERE s.status = 'evaluated'
+    ORDER BY u.last_name, u.first_name
+");
+if ($q) {
+    $q->execute();
+    $res = $q->get_result();
+    while ($row = $res->fetch_assoc()) $completedArr[] = $row;
+    $q->close();
 }
 ?>
 <!doctype html>
@@ -158,6 +315,27 @@ foreach ($ojts as $r) {
     }
   /* match office_head_home.php top icons positioning & spacing */
   #top-icons { display:flex; justify-content:flex-end; gap:14px; align-items:center; margin:8px 0 12px 0; z-index:50; }
+
+  /* icon style that matches top-right icons: no border, transparent background, same color */
+  .icon-btn {
+    background: transparent;
+    border: 0;
+    color: #2f3459; /* same as sidebar color */
+    width: 40px;
+    height: 40px;
+    border-radius: 8px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 0; /* avoid emoji font sizing — use SVG inside */
+    padding: 0;
+    line-height: 1;
+  }
+  .icon-btn:active { transform: translateY(1px); }
+  .icon-btn.small { width: 32px; height: 32px; font-size:0 }
+  .icon-btn svg { width:18px; height:18px; stroke:currentColor; fill:none; }
+  .evaluate-btn { margin-left: 8px; } /* keep spacing */
 </style>
 </head>
 <body>
@@ -266,7 +444,14 @@ foreach ($ojts as $r) {
                 <td><?php echo htmlspecialchars($o['course'] ?: '-'); ?></td>
                 <td><?php echo htmlspecialchars($o['year_level'] ?: '-'); ?></td>
                 <td><?php echo htmlspecialchars((int)$o['hours_completed'] . ' / ' . (int)$o['hours_required'] . ' hrs'); ?></td>
-                <td><button class="view-btn" data-id="<?php echo (int)$o['user_id']; ?>">👁️</button></td>
+                <td>
+                  <button class="view-btn icon-btn" data-id="<?php echo (int)$o['user_id']; ?>" title="View">
+                    <svg viewBox="0 0 24 24" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                      <circle cx="12" cy="12" r="3"></circle>
+                    </svg>
+                  </button>
+                </td>
               </tr>
             <?php endforeach; endif; ?>
           </tbody>
@@ -292,8 +477,24 @@ foreach ($ojts as $r) {
                 <td><?php echo htmlspecialchars($o['year_level'] ?: '-'); ?></td>
                 <td><?php echo htmlspecialchars((int)$o['hours_completed'] . ' / ' . (int)$o['hours_required'] . ' hrs'); ?></td>
                 <td style="white-space:nowrap">
-                  <button class="view-btn" data-id="<?php echo (int)$o['user_id']; ?>">👁️</button>
-                  <button class="view-btn" data-id="<?php echo (int)$o['user_id']; ?>" title="Evaluate" style="margin-left:8px">📄</button>
+                  <button class="view-btn icon-btn" data-id="<?php echo (int)$o['user_id']; ?>" title="View">
+                    <svg viewBox="0 0 24 24" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                      <circle cx="12" cy="12" r="3"></circle>
+                    </svg>
+                  </button>
+                  <button class="evaluate-btn icon-btn"
+                    data-id="<?php echo (int)$o['user_id']; ?>"
+                    data-name="<?php echo htmlspecialchars(trim($o['first_name'].' '.$o['last_name'])); ?>"
+                    data-school="<?php echo htmlspecialchars($o['school'] ?: '-'); ?>"
+                    data-course="<?php echo htmlspecialchars($o['course'] ?: '-'); ?>"
+                    data-hours="<?php echo htmlspecialchars((int)$o['hours_completed'] . ' / ' . (int)$o['hours_required'] . ' hrs'); ?>"
+                    title="Evaluate">
+                    <svg viewBox="0 0 24 24" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                      <polyline points="14 2 14 8 20 8"></polyline>
+                    </svg>
+                  </button>
                 </td>
               </tr>
             <?php endforeach; endif; ?>
@@ -319,7 +520,14 @@ foreach ($ojts as $r) {
                 <td><?php echo htmlspecialchars($o['year_level'] ?: '-'); ?></td>
                 <td><?php echo htmlspecialchars((int)$o['hours_completed'] . ' / ' . (int)$o['hours_required'] . ' hrs'); ?></td>
                 <td><?php echo htmlspecialchars($o['remarks'] ?? '-'); ?></td>
-                <td><button class="view-btn" data-id="<?php echo (int)$o['user_id']; ?>">👁️</button></td>
+                <td>
+                  <button class="view-btn icon-btn" data-id="<?php echo (int)$o['user_id']; ?>" title="View">
+                    <svg viewBox="0 0 24 24" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                      <circle cx="12" cy="12" r="3"></circle>
+                    </svg>
+                  </button>
+                </td>
               </tr>
             <?php endforeach; endif; ?>
           </tbody>
@@ -330,87 +538,277 @@ foreach ($ojts as $r) {
   </div>
 </div>
 
+<div id="evalModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);align-items:center;justify-content:center;z-index:9999;">
+  <div style="background:#fff;width:820px;max-width:95%;border-radius:8px;padding:18px;box-shadow:0 8px 30px rgba(0,0,0,0.15);height:80vh;max-height:80vh;overflow-y:auto;">
+    <!-- OJT info shown above the evaluation scale -->
+    <div id="evalInfo" style="margin-bottom:12px;padding:10px;border-radius:6px;background:#f7f8fb;border:1px solid #eef1f6;color:#000;">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+        <!-- left: name (bold) and course underneath -->
+        <div style="font-size:15px;color:#000;min-width:220px;">
+          <div>
+            <span style="color:#000;">Name:</span>
+            <span id="evalNameText" style="font-weight:700;margin-left:6px;">—</span>
+          </div>
+          <div id="evalCourse" style="margin-top:6px;color:#000;opacity:0.9;">Course: —</div>
+        </div>
+        <!-- right: school and hours stacked and right-aligned -->
+        <div style="text-align:right;color:#000;opacity:0.85;min-width:200px;">
+          <div id="evalSchool">School: —</div>
+          <div id="evalHours" style="margin-top:6px;">Hours: —</div>
+        </div>
+      </div>
+    </div>
+     <h3 style="margin:0 0 8px 0;">Evaluation Scale</h3>
+    <p style="margin:6px 0 12px 0;line-height:1.4;">
+      Please rate the trainee's performance using the following scale.<br><br>
+      <strong>5 - Outstanding:</strong> Consistently exceeds expectations. Performance is exceptional.<br>
+      <strong>4 - Very Good:</strong> Consistently meets all expectations. Performance is of high quality.<br>
+      <strong>3 - Good:</strong> Meets expectations most of the time. Performance is satisfactory.<br>
+      <strong>2 - Fair:</strong> Sometimes fails to meet expectations. Requires improvement and supervision.<br>
+      <strong>1 - Poor:</strong> Consistently fails to meet expectations. Performance is unacceptable.<br>
+      <strong>N/A:</strong> Not Applicable. The trainee did not have the opportunity to demonstrate this skill.
+    </p>
+
+    <!-- Interactive evaluation grid (no image) -->
+    <div style="overflow:auto;margin-top:6px;">
+      <table id="evalGrid" style="width:100%;border-collapse:collapse;font-size:14px;">
+        <thead>
+          <tr style="background:#2f3459;color:#fff;">
+            <th style="padding:8px;border:1px solid #e6e9f2;text-align:left">Competency</th>
+            <th style="padding:8px;border:1px solid #e6e9f2;text-align:center;width:48px">5</th>
+            <th style="padding:8px;border:1px solid #e6e9f2;text-align:center;width:48px">4</th>
+            <th style="padding:8px;border:1px solid #e6e9f2;text-align:center;width:48px">3</th>
+            <th style="padding:8px;border:1px solid #e6e9f2;text-align:center;width:48px">2</th>
+            <th style="padding:8px;border:1px solid #e6e9f2;text-align:center;width:48px">1</th>
+            <th style="padding:8px;border:1px solid #e6e9f2;text-align:center;width:60px">N/A</th>
+          </tr>
+        </thead>
+        <tbody>
+          <?php
+            $competencies = [
+              'Application of Knowledge: Applies academic theories to practical work.',
+              'Quality of Work: Produces accurate, thorough, and neat work.',
+              'Job-Specific Skills: Performs tasks specific to the role effectively.',
+              'Quantity of Work: Completes satisfactory volume of work on time.',
+              'Learning & Adaptability: Learns new tasks, procedures, and systems quickly.'
+            ];
+            foreach ($competencies as $idx => $text):
+              $key = 'c' . ($idx+1);
+          ?>
+          <tr data-key="<?= $key ?>">
+            <td style="padding:10px;border:1px solid #eef1f6;vertical-align:middle;"><?= htmlspecialchars($text) ?></td>
+            <?php for ($s = 5; $s >= 1; $s--): ?>
+              <td style="padding:6px;border:1px solid #eef1f6;text-align:center;">
+                <!-- numeric columns show no text by default; data-score holds value -->
+                <button type="button" class="score-cell" data-key="<?= $key ?>" data-score="<?= $s ?>"
+                  aria-label="Score <?= $s ?>"
+                  style="width:36px;height:30px;border-radius:4px;border:1px solid #cfd6ea;background:#fff;cursor:pointer">
+                </button>
+              </td>
+            <?php endfor; ?>
+            <td style="padding:6px;border:1px solid #eef1f6;text-align:center;">
+              <!-- keep N/A visible by default -->
+              <button type="button" class="score-cell" data-key="<?= $key ?>" data-score="NA"
+                aria-label="Not applicable"
+                style="width:44px;height:30px;border-radius:4px;border:1px solid #cfd6ea;background:#fff;cursor:pointer">
+                N/A
+              </button>
+            </td>
+          </tr>
+          <?php endforeach; ?>
+        </tbody>
+      </table>
+    </div>
+
+    <div style="margin-top:10px;">
+      <label style="display:block;margin-bottom:6px;font-weight:600">Feedback (optional)</label>
+      <textarea id="evalRemarks" rows="3" style="width:100%;padding:8px;border-radius:6px;border:1px solid #ddd"></textarea>
+    </div>
+
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px;">
+      <button id="evalCancel" style="padding:8px 12px;border-radius:6px;border:1px solid #ccc;background:#fff;cursor:pointer">Cancel</button>
+      <button id="evalSubmit" style="padding:8px 12px;border-radius:6px;border:0;background:#4f4aa6;color:#fff;cursor:pointer">Submit Evaluation</button>
+    </div>
+  </div>
+</div>
 <script>
-document.addEventListener('click', function(e){
-  if (e.target.matches('.view-btn')) {
-    const id = e.target.getAttribute('data-id');
-    if (id) {
-      // open user profile in a new tab
-      window.open('user_profile.php?id=' + encodeURIComponent(id), '_blank');
-    }
-  }
-});
+  // store selections per modal open
+  const _evalStore = {};
 
-// tabs switching
-document.querySelectorAll('.tab').forEach(tab => {
-  tab.addEventListener('click', function() {
-    const target = this.getAttribute('data-target');
+  // delegated handler for score cells
+  document.addEventListener('click', function (e) {
+    const btn = e.target.closest('.score-cell');
+    if (!btn) return;
 
-    // hide all tab panels
-    document.querySelectorAll('.tab-panel').forEach(panel => {
-      panel.classList.remove('active');
+    const key = btn.getAttribute('data-key');
+    const score = btn.getAttribute('data-score');
+
+    // save selection
+    _evalStore[key] = score;
+
+    // visually mark row: clear all then set selected
+    const row = btn.closest('tr[data-key]');
+    if (!row) return;
+    row.querySelectorAll('.score-cell').forEach(b => {
+      b.style.background = '#fff';
+      b.style.borderColor = '#cfd6ea';
+      b.style.color = '#000';
+      b.textContent = ''; // keep ALL buttons empty by default (including N/A)
     });
 
-    // show the selected tab panel
-    document.getElementById(target).classList.add('active');
+    // mark clicked
+    btn.style.background = '#4f4aa6';
+    btn.style.color = '#fff';
+    btn.style.borderColor = '#4f4aa6';
+    btn.textContent = '✓';
+  });
 
-    // update tab active state
-    document.querySelectorAll('.tab').forEach(t => {
-      t.classList.remove('active');
+  // open modal handler
+  document.addEventListener('click', function (e) {
+    const btn = e.target.closest && e.target.closest('.evaluate-btn');
+    if (!btn) return;
+    const traineeId = btn.getAttribute('data-id');
+    const modal = document.getElementById('evalModal');
+    modal.dataset.traineeId = traineeId;
+
+    // populate info
+    document.getElementById('evalNameText').textContent = (btn.getAttribute('data-name') || '—');
+    document.getElementById('evalSchool').textContent = 'School: ' + (btn.getAttribute('data-school') || '—');
+    document.getElementById('evalCourse').textContent = 'Course: ' + (btn.getAttribute('data-course') || '—');
+    document.getElementById('evalHours').textContent = 'Hours: ' + (btn.getAttribute('data-hours') || '—');
+
+    // reset previous selections/remarks
+    Object.keys(_evalStore).forEach(k => delete _evalStore[k]);
+    modal.querySelectorAll('.score-cell').forEach(b => {
+      b.style.background = '#fff';
+      b.style.borderColor = '#cfd6ea';
+      b.style.color = '#000';
+      b.textContent = ''; // empty by default (including N/A)
     });
-    this.classList.add('active');
+    document.getElementById('evalRemarks').value = '';
+
+    modal.style.display = 'flex';
   });
-});
 
-// search and sort functionality
-document.getElementById('searchInput').addEventListener('input', function() {
-  const query = this.value.toLowerCase();
-  filterTable(query);
-});
-
-document.getElementById('sortSelect').addEventListener('change', function() {
-  const sortBy = this.value;
-  sortTable(sortBy);
-});
-
-function filterTable(query) {
-  document.querySelectorAll('.tab-panel.active table tbody tr').forEach(row => {
-    const text = row.innerText.toLowerCase();
-    row.style.display = text.includes(query) ? '' : 'none';
+  // close modal
+  document.getElementById('evalCancel').addEventListener('click', function (e) {
+    e.preventDefault();
+    document.getElementById('evalModal').style.display = 'none';
   });
-}
 
-function sortTable(sortBy) {
-  const table = document.querySelector('.tab-panel.active table');
-  const rows = Array.from(table.querySelectorAll('tbody tr'));
+  // submit evaluation — enforce all competencies selected
+  document.getElementById('evalSubmit').addEventListener('click', function (e) {
+    e.preventDefault();
+    const modal = document.getElementById('evalModal');
+    const traineeId = modal.dataset.traineeId;
+    if (!traineeId) { alert('Trainee ID not set'); return; }
 
-  rows.sort((a, b) => {
-    let aValue, bValue;
-    if (sortBy === 'name') {
-      aValue = a.querySelector('td').innerText.toLowerCase();
-      bValue = b.querySelector('td').innerText.toLowerCase();
-    } else if (sortBy === 'hours') {
-      aValue = parseInt(a.querySelector('td:nth-child(5)').innerText);
-      bValue = parseInt(b.querySelector('td:nth-child(5)').innerText);
+    // build payload
+    const payload = { trainee_id: traineeId, remarks: (document.getElementById('evalRemarks').value || '').trim(), scores: {} };
+    const rows = Array.from(modal.querySelectorAll('tr[data-key]'));
+    rows.forEach(row => {
+      const key = row.getAttribute('data-key');
+      payload.scores[key] = (typeof _evalStore[key] !== 'undefined') ? _evalStore[key] : null;
+    });
+
+    // REQUIRE: every competency must have a selection (numeric or NA)
+    const allRated = rows.every(row => {
+      const k = row.getAttribute('data-key');
+      return typeof payload.scores[k] !== 'undefined' && payload.scores[k] !== null;
+    });
+    if (!allRated) {
+      alert('Please rate all competencies (choose 5/4/3/2/1 or N/A) before submitting.');
+      return;
     }
-    return aValue > bValue ? 1 : -1;
+
+    // disable submit to avoid duplicates
+    this.disabled = true;
+
+    fetch('office_head_ojts.php', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+      body: JSON.stringify(payload)
+    })
+      .then(r => r.json().catch(() => ({ success: false, message: 'Invalid JSON response' })))
+      .then(resp => {
+        this.disabled = false;
+        if (resp && resp.success) {
+          // go to evaluated tab so the evaluated list is shown
+          // use query param so server-rendered evaluated rows appear
+          window.location.href = 'office_head_ojts.php?tab=evaluated';
+        } else {
+          alert('Submit failed: ' + (resp && resp.message ? resp.message : 'Unknown error'));
+        }
+      })
+      .catch(err => {
+        this.disabled = false;
+        console.error(err);
+        alert('Submit failed. Check console.');
+      });
   });
 
-  rows.forEach(row => {
-    table.querySelector('tbody').appendChild(row);
-  });
-}
-</script>
-<script>
-  // attach confirm to top logout like hr_head_ojts.php
-  (function(){
-    const logoutBtn = document.getElementById('btnLogout') || document.querySelector('a[href$="logout.php"]');
-    if (!logoutBtn) return;
-    logoutBtn.addEventListener('click', function(e){
-      e.preventDefault();
-      if (confirm('Are you sure you want to logout?')) {
-        window.location.href = this.getAttribute('href') || '../logout.php';
+  // tabs wiring
+  (function () {
+    function activateTabEl(tab) {
+      if (!tab) return;
+      const tabs = Array.from(document.querySelectorAll('.tabs .tab'));
+      tabs.forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+
+      const target = tab.getAttribute('data-target');
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+      const panel = document.getElementById(target);
+      if (panel) panel.classList.add('active');
+    }
+
+    document.addEventListener('DOMContentLoaded', function () {
+      const container = document.querySelector('.tabs');
+      if (!container) return;
+      // try to honour ?tab=... or #panel-... so redirects show correct tab
+      const params = new URLSearchParams(location.search);
+      let tabParam = params.get('tab') || '';
+      if (!tabParam && location.hash) {
+        tabParam = location.hash.replace(/^#/, '');
       }
+      if (tabParam) {
+        let panelId = tabParam.startsWith('panel-') ? tabParam : ('panel-' + tabParam);
+        const predefined = container.querySelector(`.tab[data-target="${panelId}"]`);
+        if (predefined) activateTabEl(predefined);
+      }
+
+      // delegated click handler...
+      container.addEventListener('click', function (e) {
+        const tab = e.target.closest('.tab');
+        if (!tab) return;
+        activateTabEl(tab);
+      });
+
+      const tabEls = Array.from(container.querySelectorAll('.tab'));
+      tabEls.forEach((t, idx, arr) => {
+        t.setAttribute('role', 'tab');
+        t.tabIndex = 0;
+        t.addEventListener('keydown', function (ev) {
+          if (ev.key === 'Enter' || ev.key === ' ') {
+            ev.preventDefault();
+            activateTabEl(t);
+            return;
+          }
+          if (ev.key === 'ArrowRight' || ev.key === 'ArrowDown') {
+            ev.preventDefault();
+            const next = arr[(idx + 1) % arr.length];
+            next && next.focus();
+          }
+          if (ev.key === 'ArrowLeft' || ev.key === 'ArrowUp') {
+            ev.preventDefault();
+            const prev = arr[(idx - 1 + arr.length) % arr.length];
+            prev && prev.focus();
+          }
+        });
+      });
+
+      // activate initially marked tab or first tab
+      const initially = container.querySelector('.tab.active') || container.querySelector('.tab');
+      if (initially) activateTabEl(initially);
     });
   })();
 </script>
