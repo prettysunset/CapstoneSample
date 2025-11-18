@@ -443,6 +443,7 @@ $current = basename($_SERVER['SCRIPT_NAME']);
 
         <div class="controls">
           <input id="searchInput" class="search" placeholder="Search" />
+          <input id="requestDateFilter" type="date" style="margin-left:8px;display:none;padding:8px;border-radius:8px;border:1px solid #e6e9f2" max="<?= date('Y-m-d') ?>" />
           <button id="btnExport" class="export">⬇ Export</button>
 
           <select id="statusFilter" class="dropdown" aria-label="Filter by status">
@@ -555,7 +556,9 @@ $current = basename($_SERVER['SCRIPT_NAME']);
                 $proc_disp = '';
                 if (!empty($proc_at) && strtotime($proc_at) !== false) $proc_disp = date('m/d/Y', strtotime($proc_at));
             ?>
-              <tr data-req-id="<?= (int)($req['request_id'] ?? 0) ?>" data-processed-at="<?= htmlspecialchars($proc_disp) ?>">
+              <tr data-req-id="<?= (int)($req['request_id'] ?? 0) ?>"
+                  data-processed-at="<?= htmlspecialchars($proc_disp) ?>"
+                  data-requested="<?= htmlspecialchars($req['date_requested'] ?? '') ?>">
                 <td><?= htmlspecialchars($rq_disp) ?></td>
                 <td style="text-align:center"><?= htmlspecialchars($req['new_limit'] ?? '-') ?></td>
                 <td><?= htmlspecialchars($req['reason'] ?? '-') ?></td>
@@ -578,40 +581,135 @@ $current = basename($_SERVER['SCRIPT_NAME']);
     dtr: document.getElementById('panel-dtr'),
     requests: document.getElementById('panel-requests')
   };
+  // hide top-row controls when DTR tab is active
+  const topSearch = document.getElementById('searchInput');
+  const topStatus = document.getElementById('statusFilter');
+  const reqDateFilter = document.getElementById('requestDateFilter');
+  const originalStatusOptions = topStatus ? topStatus.innerHTML : '';
+  const originalSearchPlaceholder = topSearch ? topSearch.placeholder : '';
+
   function switchTab(name){
     tabs.forEach(t=>t.classList.toggle('active', t.dataset.tab===name));
     Object.keys(panels).forEach(k=>{
       panels[k].style.display = k === name ? 'block' : 'none';
     });
+    // DTR hides top search/dropdown
+    if (name === 'dtr') {
+      if (topSearch) topSearch.style.display = 'none';
+      if (topStatus) topStatus.style.display = 'none';
+      if (reqDateFilter) reqDateFilter.style.display = 'none';
+    } else if (name === 'requests') {
+      // Requests: show search and make it search "reason"; change status choices to pending/approved/rejected
+      if (topSearch) {
+        topSearch.style.display = '';
+        topSearch.placeholder = 'Search reason';
+        topSearch.value = '';
+      }
+      if (reqDateFilter) {
+        reqDateFilter.style.display = '';
+        reqDateFilter.value = '';
+      }
+      if (topStatus) {
+        topStatus.style.display = '';
+        topStatus.innerHTML = '<option value="all">all</option><option value="pending">pending</option><option value="approved">approved</option><option value="rejected">rejected</option>';
+        topStatus.value = 'all';
+      }
+      filterRequests();
+    } else {
+      // other tabs (OJTs)
+      if (topSearch) {
+        topSearch.style.display = '';
+        topSearch.placeholder = originalSearchPlaceholder;
+        topSearch.value = '';
+      }
+      if (reqDateFilter) reqDateFilter.style.display = 'none';
+      if (topStatus) {
+        topStatus.style.display = '';
+        topStatus.innerHTML = originalStatusOptions;
+      }
+      // ensure OJTs search state reset
+      document.querySelectorAll('#allBody tr').forEach(tr=> tr.style.display = '');
+    }
   }
-  tabs.forEach(t=> t.addEventListener('click', ()=> switchTab(t.dataset.tab)));
+   // ensure initial UI matches the active tab in markup
+   (function initTabState(){
+     const active = document.querySelector('.tab-pill.active');
+     if (active && active.dataset.tab) switchTab(active.dataset.tab);
+   })();
+   tabs.forEach(t=> t.addEventListener('click', ()=> switchTab(t.dataset.tab)));
 
-  // search filter for ALL OJTs table
+  // search filter and requests filtering
   const search = document.getElementById('searchInput');
-  search.addEventListener('input', function(){
-    const q = (this.value||'').toLowerCase().trim();
-    document.querySelectorAll('#allBody tr').forEach(tr=>{
-      if (!tr.dataset || !tr.dataset.name) return;
-      const hay = (tr.dataset.name + ' ' + tr.dataset.school + ' ' + tr.dataset.course + ' ' + (tr.dataset.status||''));
-      tr.style.display = q === '' || hay.indexOf(q) !== -1 ? '' : 'none';
+
+  function filterRequests(){
+    const q = (search.value||'').toLowerCase().trim();
+    const statusSel = (topStatus && topStatus.value) ? String(topStatus.value).toLowerCase() : '';
+    const dateVal = (reqDateFilter && reqDateFilter.value) ? reqDateFilter.value : '';
+    document.querySelectorAll('#requestsBody tr').forEach(tr=>{
+      const reason = (tr.querySelector('td:nth-child(3)')?.textContent || '').toLowerCase();
+      const rowStatus = (tr.querySelector('td:nth-child(4)')?.textContent || '').toLowerCase();
+      // try to get original ISO date from data-requested (if available) or parse displayed MM/DD/YYYY
+      let rowDateIso = (tr.dataset.requested || '').split(' ')[0];
+      if (!rowDateIso && tr.querySelector('td:nth-child(1)')) {
+        const disp = tr.querySelector('td:nth-child(1)').textContent.trim();
+        // convert MM/DD/YYYY -> yyyy-mm-dd
+        const m = disp.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+        if (m) rowDateIso = `${m[3]}-${m[1].padStart(2,'0')}-${m[2].padStart(2,'0')}`;
+      }
+      let show = true;
+      if (q && reason.indexOf(q) === -1) show = false;
+      if (dateVal && rowDateIso !== dateVal) show = false;
+      // apply status filter only when not "all"
+      if (statusSel && statusSel !== 'all') {
+        if (rowStatus !== statusSel) show = false;
+      }
+      tr.style.display = show ? '' : 'none';
     });
-  });
+  }
 
-  // status dropdown — redirect with query param (default handled server-side)
-  document.getElementById('statusFilter').addEventListener('change', function(){
-    const v = this.value;
-    const url = new URL(window.location.href);
-    url.searchParams.set('status', v);
-    window.location.href = url.toString();
-  });
+  // wire search to handle both OJTs and Requests depending on active tab
+  if (search) {
+    search.addEventListener('input', function(){
+      const active = document.querySelector('.tab-pill.active')?.dataset.tab;
+      if (active === 'requests') {
+        filterRequests();
+        return;
+      }
+      const q = (this.value||'').toLowerCase().trim();
+      document.querySelectorAll('#allBody tr').forEach(tr=>{
+        if (!tr.dataset || !tr.dataset.name) return;
+        const hay = (tr.dataset.name + ' ' + tr.dataset.school + ' ' + tr.dataset.course + ' ' + (tr.dataset.status||''));
+        tr.style.display = q === '' || hay.indexOf(q) !== -1 ? '' : 'none';
+      });
+    });
+  }
 
-  // DTR search removed (search input was removed from the DTR panel)
+  if (reqDateFilter) reqDateFilter.addEventListener('change', filterRequests);
+
+   // status dropdown — redirect with query param (default handled server-side)
+  if (topStatus) {
+    topStatus.addEventListener('change', function(){
+      const active = document.querySelector('.tab-pill.active')?.dataset.tab;
+      if (active === 'requests') {
+        // requests: filter client-side (no redirect)
+        filterRequests();
+        return;
+      }
+      // other tabs: preserve existing behavior (redirect)
+      const v = this.value;
+      const url = new URL(window.location.href);
+      url.searchParams.set('status', v);
+      window.location.href = url.toString();
+    });
+  }
  
-  // export button placeholder
-  document.getElementById('btnExport').addEventListener('click', function(){
-    alert('Export not implemented — will export current table to CSV when enabled.');
-  });
-
+   // DTR search removed (search input was removed from the DTR panel)
+  
+   // export button placeholder
+   document.getElementById('btnExport').addEventListener('click', function(){
+     alert('Export not implemented — will export current table to CSV when enabled.');
+   });
+ 
   // top icons actions
   document.addEventListener('click', function(e){
     if (e.target.id === 'btnLogout') {
