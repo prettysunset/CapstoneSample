@@ -17,7 +17,7 @@ $stmtUser->execute();
 $user = $stmtUser->get_result()->fetch_assoc() ?: [];
 $stmtUser->close();
 $full_name = trim(($user['first_name'] ?? '') . ' ' . ($user['middle_name'] ?? '') . ' ' . ($user['last_name'] ?? ''));
-$role_label = ($user['role'] === 'hr_staff') ? 'HR Staff' : (!empty($user['role']) ? ucwords(str_replace('_',' ', $user['role'])) : 'User');
+$role_label = !empty($user['role']) ? ucwords(str_replace('_',' ', $user['role'])) : 'User';
 
 // add same datetime variables as OJTs
 $current_time = date("g:i A");
@@ -53,11 +53,11 @@ $stmtOff->close();
     .datetime h2{font-size:22px;color:#2f3850;margin:0}
     .datetime p{color:#6d6d6d;margin:0}
     .table-container{background:#fff;border-radius:8px;padding:16px;box-shadow:0 2px 8px rgba(0,0,0,0.06)}
-    .table-tabs{display:flex;gap:16px;margin-bottom:12px;border-bottom:2px solid #eee}
+    .table-tabs{display:flex;gap:16px;margin-bottom:12px;border-bottom:2px solid #999}
     .table-tabs a{padding:8px 12px;text-decoration:none;color:#555;border-radius:6px}
     .table-tabs a.active{background:#2f3850;color:#fff}
     table{width:100%;border-collapse:collapse;font-size:14px}
-    th,td{padding:10px;border:1px solid #eee;text-align:left}
+    th,td{padding:10px;border:1px solid #999;text-align:left}
     th{background:#f5f6fa}
     .actions{display:flex;gap:8px;justify-content:center}
     .actions button{border:none;background:none;cursor:pointer;font-size:16px}
@@ -73,7 +73,7 @@ $stmtOff->close();
   .controls{display:flex;gap:12px;align-items:center;margin-bottom:12px}
   input[type=date], input[type=text]{padding:10px;border:1px solid #ddd;border-radius:8px}
   .tbl{width:100%;border-collapse:collapse}
-  .tbl th,.tbl td{padding:10px;border:1px solid #eee}
+  .tbl th,.tbl td{padding:10px;border:1px solid #999}
   .tbl thead th{background:#f4f6fb;font-weight:700;color:#333}
   .tbl thead th.left{ text-align:left }
   .tbl thead th.center{ text-align:center }
@@ -109,7 +109,7 @@ $stmtOff->close();
         </svg>
         OJTs
       </a>
-      <a href="#" class="active">
+      <a href="hr_staff_dtr.php" class="active">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px">
           <circle cx="12" cy="12" r="8"></circle>
           <path d="M12 8v5l3 2"></path>
@@ -126,7 +126,7 @@ $stmtOff->close();
       <a href="hr_staff_accounts.php">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px">
           <circle cx="12" cy="12" r="3"></circle>
-          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06A2 2 0 1 1 2.28 16.8l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09c.7 0 1.3-.4 1.51-1A1.65 1.65 0 0 0 4.27 6.3L4.2 6.23A2 2 0 1 1 6 3.4l.06.06c.5.5 1.2.7 1.82.33.7-.4 1.51-.4 2.21 0 .62.37 1.32.17 1.82-.33L12.6 3.4a2 2 0 1 1 1.72 3.82l-.06.06c-.5.5-.7 1.2-.33 1.82.4.7.4 1.51 0 2.21-.37.62-.17 1.32.33 1.82l.06.06A2 2 0 1 1 19.4 15z"></path>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06A2 2 0 1 1 2.28 16.8l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09c.7 0 1.3-.4 1.51-1A1.65 1.65 0 0 0 4.27 6.3L4.2 6.23A2 2 0 1 1 6 3.4l.06.06c.5.5 1.2.7 1.82.33.7-.4 1.51-.4 2.21 0 .62.37 1.32.17 1.82-.33L12.6 3.4a2 2 0 1 1 1.72 3.82l-.06.06c-.5.5-.7 1.2-.33 1.82.4.7.4 1.51 0 2.21-.37.62-.17 1.32.33 1.82l.06.06A2 2 0 1 1 19.4 15z"></path>
         </svg>
         Accounts
       </a>
@@ -177,16 +177,36 @@ $stmtOff->close();
     <div class="table-container">
       <div style="display:flex;flex-direction:column;gap:12px;">
         <div class="tabs" role="tablist" aria-label="DTR Tabs"
-           style="display:flex;justify-content:center;align-items:flex-end;gap:24px;font-size:18px;border-bottom:2px solid #eee;padding-bottom:12px;position:relative;">
+           style="display:flex;justify-content:space-between;align-items:flex-end;gap:24px;font-size:18px;border-bottom:2px solid #eee;padding-bottom:12px;position:relative;">
           <!-- Only Daily Logs retained -->
           <div style="font-size:18px;font-weight:700;color:#2f3850">Daily Logs</div>
+
+          <!-- sort controls moved here -->
+          <div style="display:flex;gap:6px;align-items:center;">
+            <label for="sortBy" style="font-weight:600">Sort by</label>
+            <select id="sortBy" style="padding:8px;border:1px solid #ddd;border-radius:8px">
+              <option value="none">None</option>
+              <option value="am_in">A.M. Arrival</option>
+              <option value="am_out">A.M. Departure</option>
+              <option value="pm_in">P.M. Arrival</option>
+              <option value="pm_out">P.M. Departure</option>
+            </select>
+
+            <select id="sortDir" style="padding:8px;border:1px solid #ddd;border-radius:8px">
+              <option value="asc">Asc</option>
+              <option value="desc">Desc</option>
+            </select>
+          </div>
         </div>
       </div>
 
       <div id="panel-daily" class="panel" style="display:block">
         <div class="controls" style="margin-bottom:16px">
-          <label for="dtrDate" style="font-weight:600">Date</label>
-          <input type="date" id="dtrDate">
+          <label for="fromDate" style="font-weight:600">From Date</label>
+          <input type="date" id="fromDate" max="<?= date('Y-m-d') ?>">
+
+          <label for="toDate" style="font-weight:600">To Date</label>
+          <input type="date" id="toDate" max="<?= date('Y-m-d') ?>">
 
           <!-- office filter dropdown -->
           <label for="officeFilter" style="font-weight:600;margin-left:12px">Office</label>
@@ -197,23 +217,6 @@ $stmtOff->close();
             <?php endforeach; ?>
           </select>
 
-          <!-- sort controls -->
-          <label for="sortBy" style="font-weight:600;margin-left:12px">Sort by</label>
-          <select id="sortBy" style="padding:10px;border:1px solid #ddd;border-radius:8px">
-            <option value="none">None</option>
-            <option value="am_in">A.M. Arrival</option>
-            <option value="am_out">A.M. Departure</option>
-            <option value="pm_in">P.M. Arrival</option>
-            <option value="pm_out">P.M. Departure</option>
-          </select>
-
-          <select id="sortDir" style="padding:10px;border:1px solid #ddd;border-radius:8px;margin-left:6px">
-            <option value="asc">Asc</option>
-            <option value="desc">Desc</option>
-          </select>
-
-          <!-- reload button removed: table updates automatically when controls change -->
- 
           <div style="flex:1"></div>
           <div style="position:relative;display:inline-block">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"
@@ -249,41 +252,68 @@ $stmtOff->close();
   });
 
   // controls + elements
-  const dateInput = document.getElementById('dtrDate');
+  const fromDateInput = document.getElementById('fromDate');
+  const toDateInput = document.getElementById('toDate');
   const tableWrap = document.getElementById('tableWrap');
   const search = document.getElementById('search');
   const officeFilter = document.getElementById('officeFilter');
-  const sortBy = document.getElementById('sortBy');
-  const sortDir = document.getElementById('sortDir');
 
   const today = new Date().toISOString().slice(0,10);
-  dateInput.value = today;
+  // prevent picking future dates (set max on inputs) and initialize values
+  fromDateInput.max = today;
+  toDateInput.max = today;
+  if (!fromDateInput.value) fromDateInput.value = today;
+  // Do NOT set a default for toDate; leave blank so user can choose a range.
+  // If toDate is blank, loadForDate will treat toDate = fromDate (single-day).
+
+  // ensure to-date is not before from-date
+  function ensureValidRange() {
+    if (!fromDateInput.value || !toDateInput.value) return;
+    if (toDateInput.value < fromDateInput.value) {
+      // auto-correct to-date and inform user
+      toDateInput.value = fromDateInput.value;
+      alert('To Date cannot be earlier than From Date. Adjusted To Date to match From Date.');
+    }
+  }
 
   // automatically load when the date is changed via the calendar
-  dateInput.addEventListener('change', loadForDate);
+  fromDateInput.addEventListener('change', function(){
+    // update max of toDate in case user changed fromDate (not strictly necessary but keeps UX consistent)
+    if (fromDateInput.value) {
+      // if user set fromDate in the future (shouldn't happen because of max), clamp to max
+      if (fromDateInput.value > today) fromDateInput.value = today;
+    }
+    ensureValidRange();
+    loadForDate();
+  });
+  toDateInput.addEventListener('change', function(){
+    // clamp to max
+    if (toDateInput.value > today) toDateInput.value = today;
+    ensureValidRange();
+    loadForDate();
+  });
   // support Enter key as well
-  dateInput.addEventListener('keydown', (e)=>{ if(e.key==='Enter') loadForDate(); });
+  fromDateInput.addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ ensureValidRange(); loadForDate(); } });
+  toDateInput.addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ ensureValidRange(); loadForDate(); } });
   search.addEventListener('input', filterRows);
   officeFilter.addEventListener('change', loadForDate);
-  sortBy.addEventListener('change', loadForDate);
-  sortDir.addEventListener('change', loadForDate);
 
   // DAILY: always render headers; fill rows if backend returns data
   async function loadForDate(){
-    const dt = dateInput.value || today;
+    const fromDt = fromDateInput.value || today;
+    // if toDate is empty, treat as single-day = fromDt (preserves existing behavior)
+    const toDt = toDateInput.value || fromDt;
     const office = (officeFilter && officeFilter.value) ? officeFilter.value : 'all';
-    const sortKey = (sortBy && sortBy.value) ? sortBy.value : 'none';
-    const dir = (sortDir && sortDir.value === 'desc') ? -1 : 1;
 
     // render header immediately with empty tbody
     tableWrap.innerHTML = renderDailyHeader() + '<tbody id="dtrRows"></tbody></table>';
 
     try {
-      // request only by date; apply office filter & sort on client
+      // request by date range; apply office filter on client
       const res = await fetch('../hr_actions.php', {
         method:'POST',
         headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ action: 'get_dtr_by_date', date: dt })
+        body: JSON.stringify({ action: 'get_dtr_by_range', from: fromDt, to: toDt })
       });
       const json = await res.json();
       let rows = (json && json.success) ? (json.rows || []) : [];
@@ -294,21 +324,12 @@ $stmtOff->close();
         rows = rows.filter(r => String(r.office || '').toLowerCase() === offLower);
       }
 
-      // client-side sort by selected time column (am_in, am_out, pm_in, pm_out)
-      if (sortKey && sortKey !== 'none') {
-        rows.sort((a,b)=>{
-          const va = timeToMinutes(a[sortKey] || '');
-          const vb = timeToMinutes(b[sortKey] || '');
-          return (va - vb) * dir;
-        });
-      }
-
-      renderDailyRows(rows, dt);
+      renderDailyRows(rows, fromDt + ' to ' + toDt);
       // re-apply current search filter after new rows are rendered
       filterRows();
     } catch (err) {
       // backend failed — show empty table (renderDailyRows handles empty)
-      renderDailyRows([], dt);
+      renderDailyRows([], fromDt + ' to ' + toDt);
       filterRows();
     }
   }
@@ -350,7 +371,7 @@ $stmtOff->close();
      // build tbody based on rows; keep header rendered separately
      let tbody = '';
      if (!rows || rows.length === 0) {
-       tbody = '<tbody id="dtrRows"><tr><td colspan="11" style="text-align:center;padding:20px;color:#777">No logs for ' + escapeHtml(dt) + '.</td></tr></tbody></table>';
+       tbody = '<tbody id="dtrRows"><tr><td colspan="11" style="text-align:center;padding:20px;color:#777">No logs</td></tr></tbody></table>';
        tableWrap.innerHTML = renderDailyHeader() + tbody;
        return;
      }

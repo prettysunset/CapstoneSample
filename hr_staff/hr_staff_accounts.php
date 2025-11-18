@@ -273,7 +273,8 @@ $stmtU->execute();
 $user = $stmtU->get_result()->fetch_assoc() ?: [];
 $stmtU->close();
 $full_name = trim(($user['first_name'] ?? '') . ' ' . ($user['middle_name'] ?? '') . ' ' . ($user['last_name'] ?? ''));
-$role_label = ($user['role'] === 'hr_staff') ? 'HR Staff' : (!empty($user['role']) ? ucwords(str_replace('_',' ', $user['role'])) : 'HR Head');
+$role_label = !empty($user['role']) ? ucwords(str_replace('_',' ', $user['role'])) : 'User';
+
 // --- NEW: datetime for top-right (match MOA/DTR layout) ---
 $current_time = date("g:i A");
 $current_date = date("l, F j, Y");
@@ -417,7 +418,7 @@ foreach ($ojts as $zz) {
         </svg>
         MOA
       </a>
-      <a href="#" class="active">
+      <a href="hr_staff_accounts.php" class="active">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px">
           <circle cx="12" cy="12" r="3"></circle>
           <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06A2 2 0 1 1 2.28 16.8l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09c.7 0 1.3-.4 1.51-1A1.65 1.65 0 0 0 4.27 6.3L4.2 6.23A2 2 0 1 1 6 3.4l.06.06c.5.5 1.2.7 1.82.33.7-.4 1.51-.4 2.21 0 .62.37 1.32.17 1.82-.33L12.6 3.4a2 2 0 1 1 1.72 3.82l-.06.06c-.5.5-.7 1.2-.33 1.82.4.7.4 1.51 0 2.21-.37.62-.17 1.32.33 1.82l.06.06A2 2 0 1 1 19.4 15z"></path>
@@ -525,6 +526,9 @@ foreach ($ojts as $zz) {
               <?php endforeach; ?>
             </select>
           </div>
+          <button class="btn btn-add" id="btnAdd">Add Account</button>
+          <!-- moved here so it sits on the same row as the search (visibility toggled by JS) -->
+          <button id="btnAddHr" class="btn btn-add" style="min-width:140px;padding:8px 14px;display:none">Add HR Staff</button>
         </div>
       </div>
 
@@ -703,8 +707,12 @@ foreach ($ojts as $zz) {
 (function(){
   // tab switching (works for office, hr, ojt) + toggle Add buttons
   function updateActionButtonsForTab(tab) {
+    const topAdd = document.getElementById('btnAdd');      // top Add Account (office head)
+    const hrAdd  = document.getElementById('btnAddHr');    // HR panel Add HR Staff (inside HR panel)
     const statusFilter = document.getElementById('filter_status');
     const officeFilter = document.getElementById('filter_office');
+    if (topAdd) topAdd.style.display = (tab === 'office') ? '' : 'none';
+    if (hrAdd)  hrAdd.style.display  = (tab === 'hr') ? '' : 'none';
     // show OJT filters only on OJTs tab
     // NOTE: explicit inline display ('inline-block') is required to override the CSS rule that sets display:none
     if (statusFilter) statusFilter.style.display = (tab === 'ojt') ? 'inline-block' : 'none';
@@ -763,6 +771,10 @@ foreach ($ojts as $zz) {
   if (search) search.addEventListener('input', applyFilters);
   if (statusFilter) statusFilter.addEventListener('change', applyFilters);
   if (officeFilter) officeFilter.addEventListener('change', applyFilters);
+
+  // open modal instead of navigating
+  const btnAddEl = document.getElementById('btnAdd');
+  if (btnAddEl) btnAddEl.addEventListener('click', ()=> { openAdd(); });
 
 })(); 
 
@@ -1130,6 +1142,7 @@ document.getElementById('btnAddHr').addEventListener('click', function(e){
 
   function hideSuggestions(){
     suggestions.style.display = 'none';
+    suggestions.innerHTML = '';
     suggItems = [];
     sel = -1;
   }
@@ -1239,12 +1252,23 @@ async function submitAdd(){
 
   try {
     // server-side check: office existence
-    const chk = await fetch(window.location.href, {
+    const chkRes = await fetch(window.location.href, {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ action: 'check_office', office: office })
     });
-    const chkJson = await chk.json();
+
+    if (!chkRes.ok) {
+      const txt = await chkRes.text().catch(()=>chkRes.statusText);
+      throw new Error('Office-check failed: ' + chkRes.status + ' ' + txt);
+    }
+
+    let chkJson;
+    try { chkJson = await chkRes.json(); } catch (e) {
+      const txt = await chkRes.text().catch(()=>null);
+      throw new Error('Office-check returned invalid JSON: ' + (txt || e.message));
+    }
+
     if (chkJson && chkJson.exists) {
       statusEl.style.background = '#fff4f4';
       statusEl.style.color = '#a00';
@@ -1279,12 +1303,20 @@ async function submitAdd(){
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify(payload)
     });
-    const j = await res.json();
+
+    if (!res.ok) {
+      const txt = await res.text().catch(()=>res.statusText);
+      throw new Error('Create account failed: ' + res.status + ' ' + txt);
+    }
+
+    let j;
+    try { j = await res.json(); } catch (e) {
+      const txt = await res.text().catch(()=>null);
+      throw new Error('Create account returned invalid JSON: ' + (txt || e.message));
+    }
+
     if (!j || !j.success) {
-      statusEl.style.background = '#fff4f4';
-      statusEl.style.color = '#a00';
-      statusEl.textContent = 'Failed: ' + (j?.message || 'Unknown error');
-      return;
+      throw new Error(j?.message || 'Server returned failure creating account.');
     }
 
     // 2) now request this page to send the actual email (server-side send implemented above)
@@ -1304,7 +1336,14 @@ async function submitAdd(){
         accept_courses: accept_courses
       })
     });
-    const mailJson = await mailRes.json();
+
+    let mailJson = null;
+    if (mailRes.ok) {
+      try { mailJson = await mailRes.json(); } catch(e){ mailJson = null; }
+    } else {
+      const txt = await mailRes.text().catch(()=>mailRes.statusText);
+      console.warn('send_officehead_email responded non-OK:', mailRes.status, txt);
+    }
 
     if (mailJson && mailJson.success) {
       statusEl.style.background = '#e6f9ee';
@@ -1328,10 +1367,10 @@ async function submitAdd(){
     if (window.__hr_modal) window.__hr_modal.reset();
     setTimeout(()=>{ closeAdd(); location.reload(); }, 1400);
   } catch (err) {
-    console.error(err);
+    console.error('submitAdd error:', err);
     statusEl.style.background = '#fff4f4';
     statusEl.style.color = '#a00';
-    statusEl.textContent = 'Request failed.';
+    statusEl.textContent = 'Request failed: ' + (err.message || 'Unknown error');
   }
 
   function escapeHtml(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
@@ -1393,6 +1432,32 @@ document.addEventListener('DOMContentLoaded', function(){
       }
     });
   })();
+</script>
+
+<script>
+/* Utility: generate a readable random password used by submitAdd/submitAddHr */
+function randomPassword(len){
+  len = parseInt(len || 10, 10);
+  const upper = "ABCDEFGHJKLMNPQRSTUVWXYZ"; // avoid confusing I/O
+  const lower = "abcdefghijkmnpqrstuvwxyz"; // avoid confusing l
+  const digits = "23456789"; // avoid 0/1
+  const specials = "!@#$%&*?";
+  const all = upper + lower + digits + specials;
+
+  // ensure at least one of each required category
+  let pwd = '';
+  pwd += upper.charAt(Math.floor(Math.random()*upper.length));
+  pwd += lower.charAt(Math.floor(Math.random()*lower.length));
+  pwd += digits.charAt(Math.floor(Math.random()*digits.length));
+  pwd += specials.charAt(Math.floor(Math.random()*specials.length));
+
+  for (let i = pwd.length; i < len; i++){
+    pwd += all.charAt(Math.floor(Math.random()*all.length));
+  }
+
+  // shuffle characters
+  return pwd.split('').sort(()=>0.5 - Math.random()).join('');
+}
 </script>
 
 </body>

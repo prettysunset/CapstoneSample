@@ -556,7 +556,7 @@ if ($action === 'approve_send') {
           . "<p>Please follow instructions sent by HR. Thank you.</p>"
           . "<p>— HR Department</p>";
 
-    $hardcopy_note = "<p><strong>Hard copy requirements:</strong> Our records indicate that we have received all required hard copy documents for your application.</p>";
+    $hardcopy_note = "<p><strong>Hard copy requirements:</strong> Our records indicate that we have received all required soft copy documents for your application.</p>";
     $html = $hardcopy_note . $html;
 
     try {
@@ -647,8 +647,10 @@ if ($action === 'reject' || $action === 'approve') {
     // Get student info for email if rejecting
     $student_email = '';
     $student_name = '';
+    $student_id = 0;
     if ($action === 'reject') {
-        $stmt = $conn->prepare("SELECT s.email, s.first_name, s.last_name
+        // include student_id so we can store the reason into students table
+        $stmt = $conn->prepare("SELECT s.student_id, s.email, s.first_name, s.last_name
                                 FROM ojt_applications oa
                                 JOIN students s ON oa.student_id = s.student_id
                                 WHERE oa.application_id = ?");
@@ -657,6 +659,7 @@ if ($action === 'reject' || $action === 'approve') {
         $row = $stmt->get_result()->fetch_assoc();
         $stmt->close();
         if ($row) {
+            $student_id = (int)($row['student_id'] ?? 0);
             $student_email = $row['email'];
             $student_name = trim(($row['first_name'] ?? '') . ' ' . ($row['last_name'] ?? ''));
         }
@@ -672,6 +675,16 @@ if ($action === 'reject' || $action === 'approve') {
     }
     $ok = $stmt->execute();
     $stmt->close();
+
+    // store reject reason into students.reason when manual reject
+    if ($action === 'reject' && $ok && $student_id) {
+        $up = $conn->prepare("UPDATE students SET reason = ? WHERE student_id = ?");
+        if ($up) {
+            $up->bind_param("si", $remarks, $student_id);
+            $up->execute();
+            $up->close();
+        }
+    }
 
     // Send rejection email if needed
     $mailSent = null;
@@ -1002,6 +1015,84 @@ if ($action === 'get_dtr_by_date') {
     $stmt->close();
 
     respond(['success' => true, 'date' => $date, 'rows' => $rows]);
+}
+
+/* new: get_dtr_by_range action
+   Request body: { action: 'get_dtr_by_range', from: 'YYYY-MM-DD', to: 'YYYY-MM-DD' }
+   Response: { success: true, rows: [ { ...dtr details... } ] }
+*/
+if ($action === 'get_dtr_by_range') {
+    $from = trim($input['from'] ?? '');
+    $to = trim($input['to'] ?? '');
+    if ($from === '' || $to === '' || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $from) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $to)) {
+        respond(['success' => false, 'message' => 'Invalid date range. Use YYYY-MM-DD']);
+    }
+
+    $stmt = $conn->prepare("
+        SELECT d.dtr_id, d.log_date, d.am_in, d.am_out, d.pm_in, d.pm_out, d.hours, d.minutes,
+               u.user_id AS u_id, u.first_name AS u_first, u.last_name AS u_last, u.role AS u_role, u.office_name AS u_office,
+               su.student_id AS su_id, su.first_name AS su_first, su.last_name AS su_last, su.college AS su_college, su.course AS su_course,
+               si.student_id AS si_id, si.first_name AS si_first, si.last_name AS si_last, si.college AS si_college, si.course AS si_course
+        FROM dtr d
+        LEFT JOIN users u ON u.user_id = d.student_id
+        LEFT JOIN students su ON su.user_id = d.student_id        -- student linked to user account (preferred)
+        LEFT JOIN students si ON si.student_id = d.student_id    -- student by id (fallback)
+        WHERE d.log_date BETWEEN ? AND ?
+        ORDER BY d.log_date, COALESCE(su.last_name, si.last_name, u.last_name) ASC, COALESCE(su.first_name, si.first_name, u.first_name) ASC
+    ");
+    if (!$stmt) respond(['success' => false, 'message' => 'Prepare failed: '.$conn->error]);
+
+    $stmt->bind_param('ss', $from, $to);
+    $stmt->execute();
+    $res = $stmt->get_result();
+    $rows = [];
+    while ($r = $res->fetch_assoc()) {
+        // Priority for display name:
+        // 1) student record linked by students.user_id = d.student_id (su_)
+        // 2) student record where students.student_id = d.student_id (si_)
+        // 3) fallback to users table (u_)
+        $first = $last = $school = $course = '';
+
+        if (!empty($r['su_first']) || !empty($r['su_last'])) {
+            $first = $r['su_first'] ?? '';
+            $last  = $r['su_last'] ?? '';
+            $school = $r['su_college'] ?? '';
+            $course = $r['su_course'] ?? '';
+        } elseif (!empty($r['si_first']) || !empty($r['si_last'])) {
+            $first = $r['si_first'] ?? '';
+            $last  = $r['si_last'] ?? '';
+            $school = $r['si_college'] ?? '';
+            $course = $r['si_course'] ?? '';
+        } elseif (!empty($r['u_first']) || !empty($r['u_last'])) {
+            $first = $r['u_first'] ?? '';
+            $last  = $r['u_last'] ?? '';
+            // try to prefer school/course from linked student if any (already attempted), otherwise empty
+        }
+
+        // normalize times to HH:MM
+        foreach (['am_in','am_out','pm_in','pm_out'] as $t) {
+            if (!empty($r[$t])) $r[$t] = substr($r[$t], 0, 5);
+        }
+
+        $rows[] = [
+            'dtr_id' => (int)$r['dtr_id'],
+            'log_date' => $r['log_date'],
+            'am_in' => $r['am_in'] ?? '',
+            'am_out' => $r['am_out'] ?? '',
+            'pm_in' => $r['pm_in'] ?? '',
+            'pm_out' => $r['pm_out'] ?? '',
+            'hours' => (int)($r['hours'] ?? 0),
+            'minutes' => (int)($r['minutes'] ?? 0),
+            'first_name' => $first,
+            'last_name' => $last,
+            'school' => $school,
+            'course' => $course,
+            'office' => $r['u_office'] ?? ''
+        ];
+    }
+    $stmt->close();
+
+    respond(['success' => true, 'rows' => $rows]);
 }
 
 /* new: create_account action

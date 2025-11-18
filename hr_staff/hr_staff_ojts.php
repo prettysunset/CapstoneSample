@@ -19,48 +19,120 @@ $stmtUser->execute();
 $user = $stmtUser->get_result()->fetch_assoc() ?: [];
 $stmtUser->close();
 
-$full_name = trim(($user['first_name'] ?? '') . ' ' . ($user['last_name'] ?? '')); // show only first + last for sidebar
-$role_label = 'HR Staff'; // force label for staff OJTs page
+$full_name = trim(($user['first_name'] ?? '') . ' ' . ($user['middle_name'] ?? '') . ' ' . ($user['last_name'] ?? ''));
+$role_label = !empty($user['role']) ? ucwords(str_replace('_',' ', $user['role'])) : 'User';
 
-// fetch all OJT applications with status 'approved' or 'rejected'
-$q = "SELECT oa.application_id, oa.date_submitted, oa.status,
-             s.first_name, s.last_name, s.college, s.course, s.year_level,
-             oa.office_preference1, oa.office_preference2,
-             o1.office_name AS office1, o2.office_name AS office2,
-             oa.remarks,
-             s.hours_rendered, s.total_hours_required
-      FROM ojt_applications oa
-      LEFT JOIN students s ON oa.student_id = s.student_id
-      LEFT JOIN offices o1 ON oa.office_preference1 = o1.office_id
-      LEFT JOIN offices o2 ON oa.office_preference2 = o2.office_id
-      WHERE oa.status IN ('approved', 'rejected')
-      ORDER BY oa.date_submitted DESC, oa.application_id DESC";
+// --- CHANGED: fetch OJT trainees using users table (prepared statement with bound statuses)
+// Only include users whose status is 'approved', 'ongoing' or 'completed'.
+$visibleStatuses = ['approved', 'ongoing', 'completed'];
+// We'll use placeholders for the status list (repeated where needed).
+$q = "
+    SELECT
+        u.user_id,
+        u.first_name,
+        u.middle_name,
+        u.last_name,
+        u.office_name,
+        u.status AS user_status,
+        s.student_id,
+        s.first_name AS student_first_name,
+        s.middle_name AS student_middle_name,
+        s.last_name AS student_last_name,
+        s.college,
+        s.course,
+        s.year_level,
+        s.hours_rendered,
+        s.total_hours_required,
+        (SELECT oa.application_id
+         FROM ojt_applications oa
+         WHERE oa.student_id = s.student_id AND oa.status IN (?,?,?)
+         ORDER BY oa.date_submitted DESC, oa.application_id DESC
+         LIMIT 1
+        ) AS application_id
+    FROM users u
+    LEFT JOIN students s ON s.user_id = u.user_id
+    WHERE u.role = 'ojt'
+      AND u.status IN (?,?,?)
+    ORDER BY u.last_name ASC, u.first_name ASC
+";
 $stmt = $conn->prepare($q);
+if (!$stmt) {
+    // fail gracefully with DB error message (developer friendly)
+    throw new Exception('DB prepare failed: ' . $conn->error);
+}
+// bind statuses twice (for subquery and outer IN)
+$s1 = $visibleStatuses[0]; $s2 = $visibleStatuses[1]; $s3 = $visibleStatuses[2];
+$stmt->bind_param('ssssss', $s1, $s2, $s3, $s1, $s2, $s3);
 $stmt->execute();
 $result = $stmt->get_result();
 $students = $result->fetch_all(MYSQLI_ASSOC);
 $stmt->close();
+
+// load all offices for the dropdown (show every office in the DB)
+$officeList = [];
+$resAllOff = $conn->query("SELECT office_id, office_name FROM offices ORDER BY office_name");
+if ($resAllOff) {
+    while ($r = $resAllOff->fetch_assoc()) {
+        $officeList[] = $r;
+    }
+    $resAllOff->free();
+}
 
 $current_time = date("g:i A");
 $current_date = date("l, F j, Y");
 
 // --- NEW: fetch offices + requested limits + active OJTs count ---
 $offices_for_requests = [];
+
+// fetch latest pending request per office (map by office_id)
+$pendingMap = [];
+$qr = $conn->prepare("SELECT office_id, new_limit, reason, status, date_requested FROM office_requests WHERE LOWER(status) = 'pending' ORDER BY office_id, date_requested DESC");
+if ($qr) {
+    $qr->execute();
+    $resr = $qr->get_result();
+    while ($prow = $resr->fetch_assoc()) {
+        $oid = (int)$prow['office_id'];
+        // keep first (latest) pending per office because of ORDER BY date_requested DESC
+        if (!isset($pendingMap[$oid])) $pendingMap[$oid] = $prow;
+    }
+    $qr->close();
+}
+
+// load offices and compute active counts (existing logic) but merge pending request if any
 $off_q = $conn->query("SELECT office_id, office_name, current_limit, requested_limit, reason, status FROM offices ORDER BY office_name");
 if ($off_q) {
     $stmtCount = $conn->prepare("
-        SELECT COUNT(DISTINCT student_id) AS filled
-        FROM ojt_applications
-        WHERE (office_preference1 = ? OR office_preference2 = ?) AND status = 'approved'
+        SELECT COUNT(*) AS filled
+        FROM users u
+        WHERE u.role = 'ojt'
+          AND u.status IN ('approved','ongoing')
+          AND LOWER(TRIM(u.office_name)) LIKE ?
     ");
     while ($r = $off_q->fetch_assoc()) {
         $office_id = (int)$r['office_id'];
-        $stmtCount->bind_param("ii", $office_id, $office_id);
+
+        // count filled using normalized office_name (substring match)
+        $officeName = trim((string)($r['office_name'] ?? ''));
+        $like = '%' . mb_strtolower($officeName) . '%';
+        $stmtCount->bind_param("s", $like);
         $stmtCount->execute();
         $cnt = $stmtCount->get_result()->fetch_assoc();
         $filled = (int)($cnt['filled'] ?? 0);
         $capacity = is_null($r['current_limit']) ? null : (int)$r['current_limit'];
         $available = is_null($capacity) ? '—' : max(0, $capacity - $filled);
+
+        // merge pending request if exists for this office
+        $display_requested = is_null($r['requested_limit']) ? '' : (int)$r['requested_limit'];
+        $display_reason = $r['reason'] ?? '';
+        $display_status = $r['status'] ?? '';
+
+        if (isset($pendingMap[$office_id])) {
+            $pr = $pendingMap[$office_id];
+            // override display values with latest pending request
+            $display_requested = isset($pr['new_limit']) ? (int)$pr['new_limit'] : $display_requested;
+            $display_reason = $pr['reason'] ?? $display_reason;
+            $display_status = $pr['status'] ?? 'pending';
+        }
 
         $offices_for_requests[] = [
             'office_id' => $office_id,
@@ -68,32 +140,29 @@ if ($off_q) {
             'current_limit' => $capacity,
             'active_ojts' => $filled,
             'available_slots' => $available,
-            'requested_limit' => is_null($r['requested_limit']) ? '' : (int)$r['requested_limit'],
-            'reason' => $r['reason'] ?? '',
-            'status' => $r['status'] ?? ''
+            'requested_limit' => $display_requested,
+            'reason' => $display_reason,
+            'status' => $display_status
         ];
     }
     $stmtCount->close();
     $off_q->free();
 
-    // Ensure approved requests appear at the bottom of the table
-    if (!empty($offices_for_requests) && is_array($offices_for_requests)) {
-        usort($offices_for_requests, function($a, $b){
-            $rank = function($status){
-                $s = strtolower(trim((string)($status ?? '')));
-                if ($s === 'approved') return 2;
-                if ($s === 'declined' || $s === 'rejected') return 1;
-                return 0; // pending / other first
-            };
-            return $rank($a['status']) <=> $rank($b['status']);
-        });
-    }
+    // (optional) keep same sorting/filtering behavior as before
+    usort($offices_for_requests, function($a, $b){
+        $rank = function($status){
+            $s = strtolower(trim((string)($status ?? '')));
+            if ($s === 'approved') return 2;
+            if ($s === 'declined' || $s === 'rejected') return 1;
+            return 0;
+        };
+        return $rank($a['status']) <=> $rank($b['status']);
+    });
 
-    // Only show pending requests in the Requested OJTs table.
-    // Approved / Declined requests will no longer appear here.
+    // show only pending requests
     $offices_for_requests = array_values(array_filter($offices_for_requests, function($r){
         $s = strtolower(trim((string)($r['status'] ?? '')));
-        return $s === '' || $s === 'pending';
+        return $s === 'pending';
     }));
 }
 
@@ -143,19 +212,17 @@ if ($moa_q) {
     thead th {
                   background: #dadadaff;
                   color: black;
+                  text-align: center;
               }
     .ojt-table-searchbar select{
         padding:8px 12px;border-radius:8px;border:1px solid #ccc;font-size:15px;background:#f7f8fc;
     }
-    .ojt-table-searchbar .sort-btn{
-        padding:8px 12px;border-radius:8px;border:1px solid #ccc;background:#f7f8fc;cursor:pointer;font-size:15px;
-    }
     table{width:100%;border-collapse:collapse;font-size:14px}
-    th,td{padding:10px;border:1px solid #eee;text-align:left}
-    th{background:#f5f6fa}
+    td{padding:10px;border:1px solid #eee;text-align:left}
+    th{background:#f5f6fa;padding:10px;border:1px solid #eee;text-align:center}
     .view-btn{background:none;border:none;cursor:pointer;font-size:18px;color:#222}
     .empty{padding:20px;text-align:center;color:#666}
-    .status-approved{color:#0b7a3a;font-weight:600;}
+    .status-approved{ color: inherit; font-weight: normal; }
     .status-rejected{color:#a00;font-weight:600;}
     /* Responsive tweaks */
     @media (max-width:900px){
@@ -246,6 +313,16 @@ if ($moa_q) {
       .view-avatar { width:72px;height:72px; flex:0 0 72px; }
       .view-right{ width:100%; min-width:0; }
     }
+
+    /* remove underline under tabs/search bar (hidden) */
+    #tabsUnderline { display: none !important; }
+    /* also hide any similar thin rule just in case */
+    .tabs .tab.active { border-bottom: none !important; }
+    #controlsRow + #tabsUnderline { display: none !important; }
+    /* show underline under tabs (used by JS to position below active tab) */
+    #tabsUnderline { display: block !important; height:3px; background:#2f3850; border-radius:3px; transition:all .25s; margin-bottom:12px; }
+    /* keep per-tab active border removed since underline provides the visual */
+    .tabs .tab.active { border-bottom: none !important; }
 </style>
 </head>
 <body>
@@ -254,6 +331,9 @@ if ($moa_q) {
         <img src="https://cdn-icons-png.flaticon.com/512/149/149071.png" alt="Profile">
         <h3><?php echo htmlspecialchars($full_name ?: ($_SESSION['username'] ?? '')); ?></h3>
         <p><?php echo htmlspecialchars($role_label); ?></p>
+        <?php if(!empty($user['office_name'])): ?>
+            <p style="font-size:12px;color:#bfc4d1"><?php echo htmlspecialchars($user['office_name']); ?></p>
+        <?php endif; ?>
     </div>
 
     <div class="nav">
@@ -264,7 +344,7 @@ if ($moa_q) {
         </svg>
         Home
       </a>
-      <a href="#" class="active">
+      <a href="hr_staff_ojts.php" class="active">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px">
           <circle cx="12" cy="8" r="3"></circle>
           <path d="M5.5 20a6.5 6.5 0 0 1 13 0"></path>
@@ -300,7 +380,7 @@ if ($moa_q) {
         </svg>
         Reports
       </a>
-        </div>
+    </div>
     <div style="margin-top:auto;padding:18px 0;width:100%;text-align:center;">
       <p style="margin:0;font-weight:600">OJT-MS</p>
     </div>
@@ -321,7 +401,7 @@ if ($moa_q) {
       </div>
 
       <a href="settings.php" title="Settings" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06A2 2 0 1 1 2.28 16.8l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09c.7 0 1.3-.4 1.51-1A1.65 1.65 0 0 0 4.27 6.3L4.2 6.23A2 2 0 1 1 6 3.4l.06.06c.5.5 1.2.7 1.82.33.7-.4 1.51-.4 2.21 0 .62.37 1.32.17 1.82-.33L12.6 3.4a2 2 0 1 1 1.72 3.82l-.06.06c-.5.5-.7 1.2-.33 1.82.4.7.4 1.51 0 2.21-.37.62-.17 1.32.33 1.82l.06.06A2 2 0 1 1 19.4 15z"></path></svg>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06A2 2 0 1 1 2.28 16.8l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09c.7 0 1.3-.4 1.51-1A1.65 1.65 0 0 0 4.27 6.3L4.2 6.23A2 2 0 1 1 6 3.4l.06.06c.5.5 1.2.7 1.82.33.7-.4 1.51-.4 2.21 0 .62.37 1.32.17 1.82-.33L12.6 3.4a2 2 0 1 1 1.72 3.82l-.06.06c-.5.5-.7 1.2-.33 1.82.4.7.4 1.51 0 2.21-.37.62-.17 1.32.33 1.82l.06.06A2 2 0 1 1 19.4 15z"></path></svg>
       </a>
       <a id="top-logout" href="../logout.php" title="Logout" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
@@ -349,7 +429,7 @@ if ($moa_q) {
       </div>
 
       <!-- underline bar (moved under the buttons row) -->
-      <div id="tabsUnderline" aria-hidden="true" style="height:3px;background:#2f3850;border-radius:3px;width:180px;transition:all .25s;margin-bottom:12px;margin-top:6px;"></div>
+      <div id="tabsUnderline" aria-hidden="true" style="height:3px;background:#2f3850;border-radius:3px;width:180px;transition:all .25s;margin-bottom:12px;"></div>
 
       <!-- Second row: search / filters / sort (now spans full width with icons) -->
       <!-- Controls area: two containers (OJTs controls, Requested controls) share same position.
@@ -368,8 +448,8 @@ if ($moa_q) {
             </div>
             <select id="officeFilter" aria-label="Filter by office" style="padding:8px 10px;border-radius:8px;border:1px solid #ccc;background:#f7f8fc;font-size:15px;flex:0 0 220px;">
               <option value="">Office</option>
-              <?php foreach ($offices_for_requests as $of): ?>
-                <option value="<?php echo htmlspecialchars($of['office_name']); ?>"><?php echo htmlspecialchars($of['office_name']); ?></option>
+              <?php foreach ($officeList as $of): ?>
+                <option value="<?php echo htmlspecialchars(strtolower($of['office_name'])); ?>"><?php echo htmlspecialchars($of['office_name']); ?></option>
               <?php endforeach; ?>
             </select>
             <select id="statusFilter" aria-label="Filter by status" style="padding:8px 12px;border-radius:8px;border:1px solid #ccc;background:#f7f8fc;font-size:15px;width:160px;box-sizing:border-box;cursor:pointer;">
@@ -404,7 +484,7 @@ if ($moa_q) {
           </div>
         </div>
       </div>
-     <!-- underline bar -->
+     <!-- underline bar (moved under the buttons row) -->
      <div id="tabsUnderline" aria-hidden="true" style="height:3px;background:#2f3850;border-radius:3px;width:180px;transition:all .25s;margin-bottom:12px;"></div>
 
     <!-- Tab panels -->
@@ -427,32 +507,48 @@ if ($moa_q) {
             <?php if (empty($students)): ?>
                 <tr><td colspan="8" class="empty">No OJT trainees found.</td></tr>
             <?php else: foreach ($students as $row):
-                $office = $row['office1'] ?: ($row['office2'] ?: '—');
-                $name = trim(($row['first_name'] ?? '') . ' ' . ($row['last_name'] ?? ''));
-                $school = $row['college'] ?? '—';
-                $course = $row['course'] ?? '—';
-                $year = $row['year_level'] ?? '—';
-                $hours = (int)($row['hours_rendered'] ?? 0) . ' /' . (int)($row['total_hours_required'] ?? 500) . ' hrs';
-                $status = $row['status'] ?? '';
-                $statusClass = $status === 'approved' ? 'status-approved' : ($status === 'rejected' ? 'status-rejected' : '');
+                // Prefer student name from students table (matched by user_id). Fallback to users.* if missing.
+                $office = trim((string)($row['office_name'] ?? '—'));
+                $s_first = trim((string)($row['student_first_name'] ?? ''));
+                $s_middle = trim((string)($row['student_middle_name'] ?? ''));
+                $s_last = trim((string)($row['student_last_name'] ?? ''));
+                if ($s_first !== '' || $s_last !== '') {
+                    $name = trim($s_first . ' ' . ($s_middle ? ($s_middle . ' ') : '') . $s_last);
+                } else {
+                    $u_first = trim((string)($row['first_name'] ?? ''));
+                    $u_middle = trim((string)($row['middle_name'] ?? ''));
+                    $u_last = trim((string)($row['last_name'] ?? ''));
+                    $name = trim($u_first . ' ' . ($u_middle ? ($u_middle . ' ') : '') . $u_last);
+                }
+                if ($name === '') $name = '—';
+                 $school = $row['college'] ?? '—';
+                 $course = $row['course'] ?? '—';
+                 $year = $row['year_level'] ?? '—';
+                 $hours = (int)($row['hours_rendered'] ?? 0) . ' / ' . (int)($row['total_hours_required'] ?? 500) . ' hrs';
+                 // status comes from users.status in the query (alias user_status)
+                 $status = strtolower(trim((string)($row['user_status'] ?? '')));
+                 $statusClass = $status === 'approved' ? 'status-approved' : ($status === 'rejected' ? 'status-rejected' : ($status === 'ongoing' ? 'status-ongoing' : ($status === 'completed' ? 'status-completed' : '')));
+                 // application_id may be null if no application exists; user_id always present
+                 $appId = isset($row['application_id']) && $row['application_id'] ? (int)$row['application_id'] : 0;
+                 $userId = isset($row['user_id']) ? (int)$row['user_id'] : 0;
             ?>
-                <tr>
-                    <td><?= htmlspecialchars($name) ?></td>
-                    <td><?= htmlspecialchars($office) ?></td>
-                    <td><?= htmlspecialchars($school) ?></td>
-                    <td><?= htmlspecialchars($course) ?></td>
-                    <td><?= htmlspecialchars($year) ?></td>
-                    <td><?= htmlspecialchars($hours) ?></td>
-                    <td class="<?= $statusClass ?>"><?= ucfirst($status) ?></td>
-                    <td>
-                        <button class="view-btn" title="View" onclick="openViewModal(<?= (int)$row['application_id'] ?>)" aria-label="View">
-                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true">
-                            <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/>
-                            <circle cx="12" cy="12" r="3"/>
-                          </svg>
-                        </button>
-                    </td>
-                </tr>
+                 <tr>
+                     <td><?= htmlspecialchars($name) ?></td>
+                     <td><?= htmlspecialchars($office) ?></td>
+                     <td><?= htmlspecialchars($school) ?></td>
+                     <td><?= htmlspecialchars($course) ?></td>
+                     <td><?= htmlspecialchars($year) ?></td>
+                     <td><?= htmlspecialchars($hours) ?></td>
+                     <td class="<?= $statusClass ?>"><?= ucfirst($status) ?></td>
+                     <td>
+                         <button class="view-btn" title="View" onclick="openViewModal(<?= $appId ?>, <?= $userId ?>)" aria-label="View">
+                           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true">
+                             <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/>
+                             <circle cx="12" cy="12" r="3"/>
+                           </svg>
+                         </button>
+                     </td>
+                 </tr>
             <?php endforeach; endif; ?>
             </tbody>
         </table>
@@ -472,7 +568,6 @@ if ($moa_q) {
                 <tr>
                   <th>Office</th>
                   <th style="text-align:center">Current Limit</th>
-                  <th style="text-align:center">Active OJTs</th>
                   <th style="text-align:center">Available Slots</th>
                   <th style="text-align:center">Requested Limit</th>
                   <th>Reason</th>
@@ -484,22 +579,11 @@ if ($moa_q) {
                   <tr data-office="<?php echo htmlspecialchars(strtolower($of['office_name'] ?? '')); ?>">
                     <td><?= htmlspecialchars($of['office_name']) ?></td>
                     <td style="text-align:center"><?= $of['current_limit'] === null ? '—' : (int)$of['current_limit'] ?></td>
-                    <td style="text-align:center"><?= (int)$of['active_ojts'] ?></td>
                     <td style="text-align:center"><?= htmlspecialchars((string)$of['available_slots']) ?></td>
                     <td style="text-align:center"><?= $of['requested_limit'] === '' ? '—' : (int)$of['requested_limit'] ?></td>
                     <td><?= htmlspecialchars($of['reason'] ?: '—') ?></td>
                     <td style="text-align:center">
-                      <?php
-                        $st = strtolower(trim((string)($of['status'] ?? '')));
-                        if ($st === '' || $st === 'pending') {
-                          // show word "Pending" instead of action icons
-                          echo '<span style="color:#ff9800;font-weight:700">Pending</span>';
-                        } elseif ($st === 'approved') {
-                          echo '<span class="status-approved">Approved</span>';
-                        } else {
-                          echo '<span class="status-rejected">' . htmlspecialchars(ucfirst($st)) . '</span>';
-                        }
-                      ?>
+                      <?= htmlspecialchars(ucfirst(strtolower(trim((string)($of['status'] ?: 'pending'))))) ?>
                     </td>
                   </tr>
                 <?php endforeach; ?>
@@ -526,7 +610,7 @@ if ($moa_q) {
               <span style="width:10px;height:10px;background:#10b981;border-radius:50%;display:inline-block"></span>
               Active OJT
             </span>
-            <span id="view_department" style="display:flex;align-items:center;gap:6px;color:#6b7280">IT Department</span>
+            <span id="view_department" style="display:flex;align-items:center;gap=6px;color:#6b7280">IT Department</span>
           </div>
 
           <div class="view-tools" aria-hidden="true">
@@ -575,35 +659,40 @@ if ($moa_q) {
             </div>
           </div>
 
-          <div class="view-right">
+            <div class="view-right">
             <div style="display:flex;justify-content:space-between;align-items:center;">
               <div style="font-weight:700">Progress</div>
-              <div style="font-size:12px;color:#6b7280">Expected / Required</div>
             </div>
 
-            <div class="progress-wrap" style="display:flex;gap:12px;align-items:flex-start;margin-top:8px">
-              <div class="donut" id="view_donut">
-                <svg width="120" height="120" viewBox="0 0 120 120">
-                  <circle cx="60" cy="60" r="48" stroke="#eef2f6" stroke-width="18" fill="none"></circle>
-                  <circle id="donut_fore" cx="60" cy="60" r="48" stroke="#10b981" stroke-width="18" stroke-linecap="round" fill="none" stroke-dasharray="302" stroke-dashoffset="302"></circle>
-                </svg>
-                <div style="position:absolute;font-weight:800;color:#111827;font-size:16px" id="view_percent">0%</div>
+            <div class="progress-wrap" style="display:flex;flex-direction:row;gap:16px;align-items:center;justify-content:flex-start;margin-top:14px;">
+              <div class="donut" id="view_donut" style="position:relative;flex:0 0 auto;">
+              <svg width="120" height="120" viewBox="0 0 120 120">
+                <circle cx="60" cy="60" r="48" stroke="#eef2f6" stroke-width="18" fill="none"></circle>
+                <circle id="donut_fore" cx="60" cy="60" r="48" stroke="#10b981" stroke-width="18" stroke-linecap="round" fill="none" stroke-dasharray="302" stroke-dashoffset="302"></circle>
+              </svg>
+              <div id="view_percent" style="position:absolute;inset:0;display:grid;place-items:center;font-weight:800;color:#111827;font-size:16px;pointer-events:none">0%</div>
               </div>
-              <div style="flex:1">
-                <div style="font-size:14px;font-weight:700" id="view_hours_text">0 out of 500 hours</div>
-                <div style="font-size:12px;color:#6b7280;margin-top:6px" id="view_dates">Date Started: — <br> Expected End Date: —</div>
-                <div class="assigned" id="view_assigned" style="margin-top:10px">
-                  <div style="font-weight:700">Assigned Office:</div>
-                  <div id="view_assigned_office">—</div>
-                  <div style="margin-top:8px;font-weight:700">Office Head:</div>
-                  <div id="view_office_head">—</div>
-                  <div style="margin-top:8px;font-weight:700">Contact #:</div>
-                  <div id="view_office_contact">—</div>
-                </div>
+
+              <div style="flex:1;min-width:0;max-width:320px;margin-left:12px;">
+              <div style="font-size:14px;font-weight:700" id="view_hours_text">0 out of 500 hours</div>
+              <div style="font-size:12px;color:#6b7280;margin-top:6px;white-space:pre-line" id="view_dates">Date Started: — 
+              Expected End Date: —</div>
               </div>
             </div>
 
-          </div>
+            <!-- Assigned office moved below the progress block to avoid overlap -->
+            <div class="assigned" id="view_assigned" style="margin-top:18px;display:flex;flex-direction:column;gap:8px;text-align:left;">
+              <div style="font-weight:700">Assigned Office:</div>
+              <div id="view_assigned_office">—</div>
+
+              <div style="margin-top:6px;font-weight:700">Office Head:</div>
+              <div id="view_office_head">—</div>
+
+              <div style="margin-top:6px;font-weight:700">Contact #:</div>
+              <div id="view_office_contact">—</div>
+            </div>
+
+            </div>
         </div> <!-- .view-body -->
       </div> <!-- #panel-info -->
 
@@ -629,7 +718,7 @@ if ($moa_q) {
               </thead>
               <tbody id="late_dtr_tbody">
                 <tr class="empty">
-                  <td colspan="7" style="padding:18px;text-align:center;color:#6b7280">No DTR submissions found.</td>
+                  <td colspan="7" style="padding:18px;text-align:center;color:#6b7280"></td>
                 </tr>
               </tbody>
             </table>
@@ -656,6 +745,10 @@ if ($moa_q) {
 <script>
   window.moaBySchool = <?php echo json_encode($moa_rows, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_AMP|JSON_HEX_QUOT); ?>;
 </script>
+<script>
+  // embed mapping office_id => office_name for client-side usage
+  window.officeNames = <?= json_encode(array_column($offices_for_requests, 'office_name', 'office_id'), JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_AMP|JSON_HEX_QUOT) ?> || {};
+</script>
 
 <script>
 (function(){
@@ -669,8 +762,31 @@ if ($moa_q) {
         underline.style.transform = `translateX(${rect.left - containerRect.left}px)`;
     }
     // init
-    const active = document.querySelector('.tabs .tab.active') || tabs[0];
+    // allow selecting a tab via ?tab=<name> or #<name> so we can preserve tab after reload
+    let active = document.querySelector('.tabs .tab.active') || tabs[0];
+    const urlParams = new URLSearchParams(window.location.search);
+    const requestedTabFromUrl = urlParams.get('tab') || (location.hash ? location.hash.slice(1) : null);
+    if (requestedTabFromUrl) {
+      const found = tabs.find(t => t.getAttribute('data-tab') === requestedTabFromUrl);
+      if (found) {
+        tabs.forEach(t=>{ t.classList.remove('active'); t.setAttribute('aria-selected','false'); });
+        found.classList.add('active');
+        found.setAttribute('aria-selected','true');
+        active = found;
+      }
+    }
     if (active) positionUnderline(active);
+
+    // ensure the correct tab panel is shown on page load (honor ?tab=requested)
+    (function(){
+      const activeTabName = active ? active.getAttribute('data-tab') : 'ojts';
+      // set panels visibility to match active tab
+      document.querySelectorAll('.tab-panel').forEach(p=>{
+        p.style.display = (p.id === 'tab-' + activeTabName) ? 'block' : 'none';
+      });
+      // set aria-selected on tabs consistently
+      tabs.forEach(t => t.setAttribute('aria-selected', t.classList.contains('active') ? 'true' : 'false'));
+    })();
 
     // controls elements (top row)
     const controlsOJTs = document.getElementById('controlsOJTs');
@@ -693,37 +809,39 @@ if ($moa_q) {
       const search = document.getElementById('requestedSearch');
       const sortSel = document.getElementById('requestedSort');
       const sortDirBtn = document.getElementById('requestedSortDir');
-      const COL = { current_limit:1, active_ojts:2, available_slots:3, requested_limit:4 };
-      function parseNum(txt){
-        if (txt === null || txt === undefined) return null;
-        txt = txt.toString().trim();
-        if (txt === '—' || txt === '') return null;
-        const n = parseInt(txt.replace(/[^\d-]/g,''),10);
-        return isNaN(n) ? null : n;
-      }
-      function filterAndSort(){
-        const q = (search?.value || '').toLowerCase().trim();
-        const rows = Array.from(tbodyReq.querySelectorAll('tr'));
-        rows.forEach(r=>{
-          const office = (r.cells[0]?.textContent || '').toLowerCase();
-          const matches = q === '' || office.indexOf(q) !== -1;
-          r.style.display = matches ? '' : 'none';
-        });
-        const sortBy = sortSel?.value;
-        const dir = (sortDirBtn?.dataset.dir || 'desc') === 'asc' ? 1 : -1;
-        if (sortBy && COL.hasOwnProperty(sortBy)) {
-          const visible = rows.filter(r => r.style.display !== 'none');
-          visible.sort((a,b)=>{
-            const aVal = parseNum(a.cells[COL[sortBy]]?.textContent);
-            const bVal = parseNum(b.cells[COL[sortBy]]?.textContent);
-            if (aVal === null && bVal === null) return 0;
-            if (aVal === null) return 1 * dir;
-            if (bVal === null) return -1 * dir;
-            return (aVal - bVal) * dir;
-          });
-          visible.forEach(r => tbodyReq.appendChild(r));
+      // Updated column indexes after removing "Active OJTs" column:
+      // Office(0), Current Limit(1), Available Slots(2), Requested Limit(3), Reason(4), Action(5)
+      const COL = { current_limit:1, available_slots:2, requested_limit:3 };
+        function parseNum(txt){
+          if (txt === null || txt === undefined) return null;
+          txt = txt.toString().trim();
+          if (txt === '—' || txt === '') return null;
+          const n = parseInt(txt.replace(/[^\d-]/g,''),10);
+          return isNaN(n) ? null : n;
         }
-      }
+        function filterAndSort(){
+          const q = (search?.value || '').toLowerCase().trim();
+          const rows = Array.from(tbodyReq.querySelectorAll('tr'));
+          rows.forEach(r=>{
+            const office = (r.cells[0]?.textContent || '').toLowerCase();
+            const matches = q === '' || office.indexOf(q) !== -1;
+            r.style.display = matches ? '' : 'none';
+          });
+          const sortBy = sortSel?.value;
+          const dir = (sortDirBtn?.dataset.dir || 'desc') === 'asc' ? 1 : -1;
+          if (sortBy && COL.hasOwnProperty(sortBy)) {
+            const visible = rows.filter(r => r.style.display !== 'none');
+            visible.sort((a,b)=>{
+              const aVal = parseNum(a.cells[COL[sortBy]]?.textContent);
+              const bVal = parseNum(b.cells[COL[sortBy]]?.textContent);
+              if (aVal === null && bVal === null) return 0;
+              if (aVal === null) return 1 * dir;
+              if (bVal === null) return -1 * dir;
+              return (aVal - bVal) * dir;
+            });
+            visible.forEach(r => tbodyReq.appendChild(r));
+          }
+        }
       if (sortDirBtn) {
         if (!sortDirBtn.dataset.dir) sortDirBtn.dataset.dir = 'desc';
         sortDirBtn.addEventListener('click', function(){
@@ -780,27 +898,30 @@ if ($moa_q) {
 
     // call backend to approve/decline office requested limits
     window.handleOfficeRequest = async function(officeId, action) {
-      if (!confirm(`Are you sure you want to ${action} the requested limit for office #${officeId}?`)) return;
-      try {
-        const res = await fetch('../hr_actions.php', {
-          method: 'POST',
-          headers: {'Content-Type':'application/json'},
-          body: JSON.stringify({ action: 'respond_office_request', office_id: parseInt(officeId,10), response: action })
-        });
-        const j = await res.json();
-        if (!j || !j.success) {
-          alert('Failed: ' + (j?.message || 'Unknown error'));
-          return;
-        }
-        // success — reload so HR + Office Head pages reflect updated limits/status
-        alert('Request processed: ' + (j.message || 'OK'));
-        location.reload();
-      } catch (err) {
-        console.error(err);
-        alert('Request failed');
-      }
-    }
+    const displayName = (window.officeNames && window.officeNames[officeId]) ? window.officeNames[officeId] : ('office #' + officeId);
+    const verb = action === 'approve' ? 'approve' : (action === 'decline' ? 'decline' : action);
+    if (!confirm(`Are you sure you want to ${verb} the requested limit for ${displayName}?`)) return;
 
+    try {
+      const res = await fetch('../hr_actions.php', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ action: 'respond_office_request', office_id: parseInt(officeId,10), response: action })
+      });
+      const j = await res.json();
+      if (!j || !j.success) {
+        alert('Failed: ' + (j?.message || 'Unknown error'));
+        return;
+      }
+      // success — reload so HR + Office Head pages reflect updated limits/status
+      console.log('Office request processed:', j.message || 'OK');
+      // reload but keep the Requested tab active
+      location.href = window.location.pathname + '?tab=requested';
+    } catch (err) {
+      console.error(err);
+      alert('Request failed');
+    }
+  }
     /* tab switcher - show panel-* elements */
     function switchViewTab(e){
       // support being called either with an Event or with a tab name string
@@ -823,25 +944,37 @@ if ($moa_q) {
       t.addEventListener('click', switchViewTab);
     });
     // openViewModal: fetch application details and populate modal
-    window.openViewModal = async function(appId){
-      showViewOverlay();
-      // reset
-      ['view_name','view_age','view_birthday','view_address','view_phone','view_email','view_college','view_course','view_year','view_school_address','view_adviser','view_emg_name','view_emg_rel','view_emg_contact','view_hours_text','view_dates','view_assigned_office','view_office_head','view_office_contact','view_attachments_list'].forEach(id=>{
-        const el = document.getElementById(id);
-        if(el) el.textContent = '—';
-      });
-      // avatar
-      const avatarEl = document.getElementById('view_avatar');
-      avatarEl.innerHTML = '👤';
+    window.openViewModal = async function(appId, userId){
+       showViewOverlay();
+       // reset
+       ['view_name','view_age','view_birthday','view_address','view_phone','view_email','view_college','view_course','view_year','view_school_address','view_adviser','view_emg_name','view_emg_rel','view_emg_contact','view_hours_text','view_dates','view_assigned_office','view_office_head','view_office_contact','view_attachments_list'].forEach(id=>{
+         const el = document.getElementById(id);
+         if(el) el.textContent = '—';
+       });
+       // avatar
+       const avatarEl = document.getElementById('view_avatar');
+       avatarEl.innerHTML = '👤';
 
-      try{
+       try{
+        // decide which backend action to call
+        let payload;
+        if (parseInt(appId,10) > 0) {
+          payload = { action:'get_application', application_id: parseInt(appId,10) };
+        } else if (parseInt(userId,10) > 0) {
+          payload = { action:'get_user', user_id: parseInt(userId,10) };
+        } else {
+          alert('No application or user id available.');
+          closeViewModal();
+          return;
+        }
+
         const res = await fetch('../hr_actions.php', {
           method:'POST',
           headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ action:'get_application', application_id: parseInt(appId,10) })
+          body: JSON.stringify(payload)
         });
         const json = await res.json();
-        if (!json.success) { alert('Failed to load application'); closeViewModal(); return; }
+        if (!json.success) { alert('Failed to load details'); closeViewModal(); return; }
         const d = json.data;
         const s = d.student || {};
 
@@ -909,7 +1042,7 @@ if ($moa_q) {
 
         // prefer server-provided school_moa (if hr_actions returned it)
         if (d.school_moa && !attachments.some(a=>a.file === d.school_moa)) {
-          attachments.push({ label: 'MOA (school)', file: d.school_moa });
+          attachments.push({ label: 'MOA', file: d.school_moa });
         }
 
         // fallback: simple deterministic match against embedded MOA rows (logs for debugging)
@@ -928,7 +1061,7 @@ if ($moa_q) {
               // direct equality or substring match (both directions)
               if (eNorm === sNorm || eNorm.includes(sNorm) || sNorm.includes(eNorm)) {
                 if (!attachments.some(a=>a.file === entry.moa_file)) {
-                  attachments.push({ label: 'MOA (school)', file: entry.moa_file });
+                  attachments.push({ label: 'MOA', file: entry.moa_file });
                   console.log('MOA matched and added:', entry);
                 }
                 break;
@@ -1000,7 +1133,7 @@ if ($moa_q) {
   const searchInput = document.getElementById('searchInput');
   const officeFilter = document.getElementById('officeFilter');
   const statusFilter = document.getElementById('statusFilter');
-  const tbody = document.querySelector('#ojtTable tbody');
+   const tbody = document.querySelector('#ojtTable tbody');
   if (!tbody) return;
 
   const norm = s => (s||'').toString().toLowerCase().trim();
@@ -1026,6 +1159,7 @@ if ($moa_q) {
     const status = norm(statusFilter?.value || '');
 
     const rows = Array.from(tbody.querySelectorAll('tr'));
+
     let anyVisible = false;
     rows.forEach(tr => {
       // placeholder empty row handling (hide until no matches)
@@ -1056,11 +1190,11 @@ if ($moa_q) {
   if (officeFilter) officeFilter.addEventListener('change', filterRows);
   if (statusFilter) statusFilter.addEventListener('change', filterRows);
 
+ 
   // initial run
   filterRows();
-})();
+})(); 
 </script>
-
 <script>
   // attach confirm to top logout like hr_head_home.php
   (function(){
@@ -1070,6 +1204,7 @@ if ($moa_q) {
       e.preventDefault();
       if (confirm('Are you sure you want to logout?')) {
         window.location.href = this.getAttribute('href');
+
       }
     });
   })();

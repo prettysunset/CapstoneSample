@@ -158,7 +158,8 @@ $stmt = $conn->prepare("SELECT first_name, middle_name, last_name, role FROM use
 $stmt->bind_param("i",$uid); $stmt->execute();
 $user = $stmt->get_result()->fetch_assoc() ?: []; $stmt->close();
 $full_name = trim(($user['first_name'] ?? '') . ' ' . ($user['middle_name'] ?? '') . ' ' . ($user['last_name'] ?? ''));
-$role_label = ($user['role'] === 'hr_staff') ? 'HR Staff' : (!empty($user['role']) ? ucwords(str_replace('_',' ', $user['role'])) : 'HR Head');
+// changed default role label shown in sidebar from "HR Head" to "Hr Staff"
+$role_label = !empty($user['role']) ? ucwords(str_replace('_',' ', $user['role'])) : 'Hr Staff';
 
 // --- NEW: datetime for top-right (match DTR layout) ---
 $current_time = date("g:i A");
@@ -355,7 +356,7 @@ function fmtDate($d){ if (!$d) return '-'; $dt = date_create($d); return $dt ? d
         </div>
 
         <a href="settings.php" title="Settings" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06A2 2 0 1 1 2.28 16.8l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09c.7 0 1.3-.4 1.51-1A1.65 1.65 0 0 0 4.27 6.3L4.2 6.23A2 2 0 1 1 6 3.4l.06.06c.5.5 1.2.7 1.82.33.7-.4 1.51-.4 2.21 0 .62.37 1.32.17 1.82-.33L12.6 3.4a2 2 0 1 1 1.72 3.82l-.06.06c-.5.5-.7 1.2-.33 1.82.4.7.4 1.51 0 2.21-.37.62-.17 1.32.33 1.82l.06.06A2 2 0 1 1 19.4 15z"></path></svg>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06A2 2 0 1 1 2.28 16.8l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09c.7 0 1.3-.4 1.51-1A1.65 1.65 0 0 0 4.27 6.3L4.2 6.23A2 2 0 1 1 6 3.4l.06.06c.5.5 1.2.7 1.82.33.7-.4 1.51-.4 2.21 0 .62.37 1.32.17 1.82-.33L12.6 3.4a2 2 0 1 1 1.72 3.82l-.06.06c-.5.5-.7 1.2-.33 1.82.4.7.4 1.51 0 2.21-.37.62-.17 1.32.33 1.82l.06.06A2 2 0 1 1 19.4 15z"></path></svg>
         </a>
         <a id="top-logout" href="../logout.php" title="Logout" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
@@ -446,8 +447,8 @@ function fmtDate($d){ if (!$d) return '-'; $dt = date_create($d); return $dt ? d
               <input type="date" name="valid_until" required>
             </div>
             <div class="form-row">
-              <label>Upload a copy (pdf)</label>
-              <input type="file" name="moa_file" accept=".pdf,.jpg,.jpeg,.png">
+              <label>Upload a copy (pdf/jpg/jpeg)</label>
+              <input type="file" name="moa_file" accept=".pdf,.jpg,.jpeg">
             </div>
             <div class="modal-actions">
               <button type="button" class="btn-ghost" id="moaCancel">Cancel</button>
@@ -508,10 +509,6 @@ function fmtDate($d){ if (!$d) return '-'; $dt = date_create($d); return $dt ? d
     ds.setDate(ds.getDate() + 1);
     const minISO = ds.toISOString().slice(0,10);
     validUntilInput.setAttribute('min', minISO);
-    // if current validUntil is on/before dateSigned, adjust to min
-    if (!validUntilInput.value || new Date(validUntilInput.value) <= new Date(dateSignedInput.value)) {
-      validUntilInput.value = minISO;
-    }
   }
   if (dateSignedInput) dateSignedInput.addEventListener('change', setValidUntilMin);
 
