@@ -177,16 +177,36 @@ $stmtOff->close();
     <div class="table-container">
       <div style="display:flex;flex-direction:column;gap:12px;">
         <div class="tabs" role="tablist" aria-label="DTR Tabs"
-           style="display:flex;justify-content:center;align-items:flex-end;gap:24px;font-size:18px;border-bottom:2px solid #eee;padding-bottom:12px;position:relative;">
+           style="display:flex;justify-content:space-between;align-items:flex-end;gap:24px;font-size:18px;border-bottom:2px solid #eee;padding-bottom:12px;position:relative;">
           <!-- Only Daily Logs retained -->
           <div style="font-size:18px;font-weight:700;color:#2f3850">Daily Logs</div>
+
+          <!-- sort controls moved here -->
+          <div style="display:flex;gap:6px;align-items:center;">
+            <label for="sortBy" style="font-weight:600">Sort by</label>
+            <select id="sortBy" style="padding:8px;border:1px solid #ddd;border-radius:8px">
+              <option value="none">None</option>
+              <option value="am_in">A.M. Arrival</option>
+              <option value="am_out">A.M. Departure</option>
+              <option value="pm_in">P.M. Arrival</option>
+              <option value="pm_out">P.M. Departure</option>
+            </select>
+
+            <select id="sortDir" style="padding:8px;border:1px solid #ddd;border-radius:8px">
+              <option value="asc">Asc</option>
+              <option value="desc">Desc</option>
+            </select>
+          </div>
         </div>
       </div>
 
       <div id="panel-daily" class="panel" style="display:block">
         <div class="controls" style="margin-bottom:16px">
-          <label for="dtrDate" style="font-weight:600">Date</label>
-          <input type="date" id="dtrDate">
+          <label for="fromDate" style="font-weight:600">From Date</label>
+          <input type="date" id="fromDate" max="<?= date('Y-m-d') ?>">
+
+          <label for="toDate" style="font-weight:600">To Date</label>
+          <input type="date" id="toDate" max="<?= date('Y-m-d') ?>">
 
           <!-- office filter dropdown -->
           <label for="officeFilter" style="font-weight:600;margin-left:12px">Office</label>
@@ -197,23 +217,6 @@ $stmtOff->close();
             <?php endforeach; ?>
           </select>
 
-          <!-- sort controls -->
-          <label for="sortBy" style="font-weight:600;margin-left:12px">Sort by</label>
-          <select id="sortBy" style="padding:10px;border:1px solid #ddd;border-radius:8px">
-            <option value="none">None</option>
-            <option value="am_in">A.M. Arrival</option>
-            <option value="am_out">A.M. Departure</option>
-            <option value="pm_in">P.M. Arrival</option>
-            <option value="pm_out">P.M. Departure</option>
-          </select>
-
-          <select id="sortDir" style="padding:10px;border:1px solid #ddd;border-radius:8px;margin-left:6px">
-            <option value="asc">Asc</option>
-            <option value="desc">Desc</option>
-          </select>
-
-          <!-- reload button removed: table updates automatically when controls change -->
- 
           <div style="flex:1"></div>
           <div style="position:relative;display:inline-block">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"
@@ -249,41 +252,68 @@ $stmtOff->close();
   });
 
   // controls + elements
-  const dateInput = document.getElementById('dtrDate');
+  const fromDateInput = document.getElementById('fromDate');
+  const toDateInput = document.getElementById('toDate');
   const tableWrap = document.getElementById('tableWrap');
   const search = document.getElementById('search');
   const officeFilter = document.getElementById('officeFilter');
-  const sortBy = document.getElementById('sortBy');
-  const sortDir = document.getElementById('sortDir');
 
   const today = new Date().toISOString().slice(0,10);
-  dateInput.value = today;
+  // prevent picking future dates (set max on inputs) and initialize values
+  fromDateInput.max = today;
+  toDateInput.max = today;
+  if (!fromDateInput.value) fromDateInput.value = today;
+  // Do NOT set a default for toDate; leave blank so user can choose a range.
+  // If toDate is blank, loadForDate will treat toDate = fromDate (single-day).
+
+  // ensure to-date is not before from-date
+  function ensureValidRange() {
+    if (!fromDateInput.value || !toDateInput.value) return;
+    if (toDateInput.value < fromDateInput.value) {
+      // auto-correct to-date and inform user
+      toDateInput.value = fromDateInput.value;
+      alert('To Date cannot be earlier than From Date. Adjusted To Date to match From Date.');
+    }
+  }
 
   // automatically load when the date is changed via the calendar
-  dateInput.addEventListener('change', loadForDate);
+  fromDateInput.addEventListener('change', function(){
+    // update max of toDate in case user changed fromDate (not strictly necessary but keeps UX consistent)
+    if (fromDateInput.value) {
+      // if user set fromDate in the future (shouldn't happen because of max), clamp to max
+      if (fromDateInput.value > today) fromDateInput.value = today;
+    }
+    ensureValidRange();
+    loadForDate();
+  });
+  toDateInput.addEventListener('change', function(){
+    // clamp to max
+    if (toDateInput.value > today) toDateInput.value = today;
+    ensureValidRange();
+    loadForDate();
+  });
   // support Enter key as well
-  dateInput.addEventListener('keydown', (e)=>{ if(e.key==='Enter') loadForDate(); });
+  fromDateInput.addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ ensureValidRange(); loadForDate(); } });
+  toDateInput.addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ ensureValidRange(); loadForDate(); } });
   search.addEventListener('input', filterRows);
   officeFilter.addEventListener('change', loadForDate);
-  sortBy.addEventListener('change', loadForDate);
-  sortDir.addEventListener('change', loadForDate);
 
   // DAILY: always render headers; fill rows if backend returns data
   async function loadForDate(){
-    const dt = dateInput.value || today;
+    const fromDt = fromDateInput.value || today;
+    // if toDate is empty, treat as single-day = fromDt (preserves existing behavior)
+    const toDt = toDateInput.value || fromDt;
     const office = (officeFilter && officeFilter.value) ? officeFilter.value : 'all';
-    const sortKey = (sortBy && sortBy.value) ? sortBy.value : 'none';
-    const dir = (sortDir && sortDir.value === 'desc') ? -1 : 1;
 
     // render header immediately with empty tbody
     tableWrap.innerHTML = renderDailyHeader() + '<tbody id="dtrRows"></tbody></table>';
 
     try {
-      // request only by date; apply office filter & sort on client
+      // request by date range; apply office filter on client
       const res = await fetch('../hr_actions.php', {
         method:'POST',
         headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ action: 'get_dtr_by_date', date: dt })
+        body: JSON.stringify({ action: 'get_dtr_by_range', from: fromDt, to: toDt })
       });
       const json = await res.json();
       let rows = (json && json.success) ? (json.rows || []) : [];
@@ -294,21 +324,12 @@ $stmtOff->close();
         rows = rows.filter(r => String(r.office || '').toLowerCase() === offLower);
       }
 
-      // client-side sort by selected time column (am_in, am_out, pm_in, pm_out)
-      if (sortKey && sortKey !== 'none') {
-        rows.sort((a,b)=>{
-          const va = timeToMinutes(a[sortKey] || '');
-          const vb = timeToMinutes(b[sortKey] || '');
-          return (va - vb) * dir;
-        });
-      }
-
-      renderDailyRows(rows, dt);
+      renderDailyRows(rows, fromDt + ' to ' + toDt);
       // re-apply current search filter after new rows are rendered
       filterRows();
     } catch (err) {
       // backend failed — show empty table (renderDailyRows handles empty)
-      renderDailyRows([], dt);
+      renderDailyRows([], fromDt + ' to ' + toDt);
       filterRows();
     }
   }

@@ -1017,6 +1017,84 @@ if ($action === 'get_dtr_by_date') {
     respond(['success' => true, 'date' => $date, 'rows' => $rows]);
 }
 
+/* new: get_dtr_by_range action
+   Request body: { action: 'get_dtr_by_range', from: 'YYYY-MM-DD', to: 'YYYY-MM-DD' }
+   Response: { success: true, rows: [ { ...dtr details... } ] }
+*/
+if ($action === 'get_dtr_by_range') {
+    $from = trim($input['from'] ?? '');
+    $to = trim($input['to'] ?? '');
+    if ($from === '' || $to === '' || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $from) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $to)) {
+        respond(['success' => false, 'message' => 'Invalid date range. Use YYYY-MM-DD']);
+    }
+
+    $stmt = $conn->prepare("
+        SELECT d.dtr_id, d.log_date, d.am_in, d.am_out, d.pm_in, d.pm_out, d.hours, d.minutes,
+               u.user_id AS u_id, u.first_name AS u_first, u.last_name AS u_last, u.role AS u_role, u.office_name AS u_office,
+               su.student_id AS su_id, su.first_name AS su_first, su.last_name AS su_last, su.college AS su_college, su.course AS su_course,
+               si.student_id AS si_id, si.first_name AS si_first, si.last_name AS si_last, si.college AS si_college, si.course AS si_course
+        FROM dtr d
+        LEFT JOIN users u ON u.user_id = d.student_id
+        LEFT JOIN students su ON su.user_id = d.student_id        -- student linked to user account (preferred)
+        LEFT JOIN students si ON si.student_id = d.student_id    -- student by id (fallback)
+        WHERE d.log_date BETWEEN ? AND ?
+        ORDER BY d.log_date, COALESCE(su.last_name, si.last_name, u.last_name) ASC, COALESCE(su.first_name, si.first_name, u.first_name) ASC
+    ");
+    if (!$stmt) respond(['success' => false, 'message' => 'Prepare failed: '.$conn->error]);
+
+    $stmt->bind_param('ss', $from, $to);
+    $stmt->execute();
+    $res = $stmt->get_result();
+    $rows = [];
+    while ($r = $res->fetch_assoc()) {
+        // Priority for display name:
+        // 1) student record linked by students.user_id = d.student_id (su_)
+        // 2) student record where students.student_id = d.student_id (si_)
+        // 3) fallback to users table (u_)
+        $first = $last = $school = $course = '';
+
+        if (!empty($r['su_first']) || !empty($r['su_last'])) {
+            $first = $r['su_first'] ?? '';
+            $last  = $r['su_last'] ?? '';
+            $school = $r['su_college'] ?? '';
+            $course = $r['su_course'] ?? '';
+        } elseif (!empty($r['si_first']) || !empty($r['si_last'])) {
+            $first = $r['si_first'] ?? '';
+            $last  = $r['si_last'] ?? '';
+            $school = $r['si_college'] ?? '';
+            $course = $r['si_course'] ?? '';
+        } elseif (!empty($r['u_first']) || !empty($r['u_last'])) {
+            $first = $r['u_first'] ?? '';
+            $last  = $r['u_last'] ?? '';
+            // try to prefer school/course from linked student if any (already attempted), otherwise empty
+        }
+
+        // normalize times to HH:MM
+        foreach (['am_in','am_out','pm_in','pm_out'] as $t) {
+            if (!empty($r[$t])) $r[$t] = substr($r[$t], 0, 5);
+        }
+
+        $rows[] = [
+            'dtr_id' => (int)$r['dtr_id'],
+            'log_date' => $r['log_date'],
+            'am_in' => $r['am_in'] ?? '',
+            'am_out' => $r['am_out'] ?? '',
+            'pm_in' => $r['pm_in'] ?? '',
+            'pm_out' => $r['pm_out'] ?? '',
+            'hours' => (int)($r['hours'] ?? 0),
+            'minutes' => (int)($r['minutes'] ?? 0),
+            'first_name' => $first,
+            'last_name' => $last,
+            'school' => $school,
+            'course' => $course,
+            'office' => $r['u_office'] ?? ''
+        ];
+    }
+    $stmt->close();
+
+    respond(['success' => true, 'rows' => $rows]);
+}
+
 /* new: create_account action
    Request body: { action: 'create_account', username: <string>, password: <string>, first_name: <string>, last_name: <string>, email: <string|null>, role: <string>, office: <string|null> }
    Response: { success: true, user_id: <int> } or error details

@@ -446,8 +446,8 @@ function fmtDate($d){ if (!$d) return '-'; $dt = date_create($d); return $dt ? d
               <input type="date" name="valid_until" required>
             </div>
             <div class="form-row">
-              <label>Upload a copy (pdf)</label>
-              <input type="file" name="moa_file" accept=".pdf,.jpg,.jpeg,.png">
+              <label>Upload a copy (pdf/jpg/jpeg)</label>
+              <input type="file" name="moa_file" accept=".pdf,.jpg,.jpeg">
             </div>
             <div class="modal-actions">
               <button type="button" class="btn-ghost" id="moaCancel">Cancel</button>
