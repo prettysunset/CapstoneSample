@@ -284,6 +284,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     $conn->rollback();
                     json_resp(['success'=>false,'message'=>'AM Time Out must be between 06:00 and 12:30']);
                 }
+                // enforce minimum session length: at least 30 minutes between IN and OUT
+                $diffSec = $clickDt->getTimestamp() - $inDt->getTimestamp();
+                if ($diffSec < 30 * 60) {
+                    $conn->rollback();
+                    json_resp(['success'=>false,'message'=>'Minimum AM session is 30 minutes before Time Out']);
+                }
                 // if PM already has in, ensure AM out < PM in
                 if (!empty($dtr['pm_in'])) {
                     $pmInDt = $parseTime($dtr['pm_in']);
@@ -299,6 +305,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 if ($clickDt < $PM_START || $clickDt > $PM_END) {
                     $conn->rollback();
                     json_resp(['success'=>false,'message'=>'PM Time Out must be between 12:30 and 17:30']);
+                }
+                // enforce minimum session length: at least 30 minutes between IN and OUT
+                $diffSec = $clickDt->getTimestamp() - $inDt->getTimestamp();
+                if ($diffSec < 30 * 60) {
+                    $conn->rollback();
+                    json_resp(['success'=>false,'message'=>'Minimum PM session is 30 minutes before Time Out']);
                 }
             }
         }
