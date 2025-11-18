@@ -350,6 +350,7 @@ $evaluations = fetch_evaluations($conn);
               <option value="approved">Approved</option>
               <option value="ongoing">Ongoing</option>
               <option value="completed">Completed</option>
+              <option value="evaluated">Evaluated</option>
               <option value="rejected">Rejected</option>
               <option value="deactivated">Deactivated</option>
             </select>
@@ -383,7 +384,8 @@ $evaluations = fetch_evaluations($conn);
           <table class="tbl" id="tblStudents">
             <thead>
                 <tr style="background:#2f3850;color:#black;font-weight:600">
-                <th>Name</th><th>Office</th><th>School</th><th>Course</th><th>Start Date</th><th>End Date</th><th style="text-align:center">Hours Rendered</th><th style="text-align:center">Required Hours</th><th>Status</th>
+                <th>Name</th><th>Office</th><th>School</th><th>Course</th>
+                <th style="text-align:center">Hours Rendered</th><th style="text-align:center">Required Hours</th><th>Status</th>
                 </tr>
             </thead>
             <tbody>
@@ -396,18 +398,12 @@ $evaluations = fetch_evaluations($conn);
                 $course = $s['course'] ?: '-';
                 $hours = (int)($s['hours_rendered'] ?? 0);
                 $req = (int)($s['total_hours_required'] ?? 0);
-                // try extract dates from remarks (Orientation/Start: YYYY-MM-DD | Assigned Office: ...)
-                $start = $end = '';
-                if (!empty($s['app_remarks']) && preg_match('/Orientation\/Start\s*:\s*([0-9]{4}-[0-9]{2}-[0-9]{2})/i',$s['app_remarks'],$m)) $start = $m[1];
-                if (!empty($s['app_remarks']) && preg_match('/(End Date|Expected End Date)\s*:\s*([0-9]{4}-[0-9]{2}-[0-9]{2})/i',$s['app_remarks'],$m2)) $end = $m2[2];
               ?>
                 <tr data-search="<?= htmlspecialchars(strtolower($name.' '.$office.' '.$school.' '.$course)) ?>">
                   <td><?= htmlspecialchars($name ?: 'N/A') ?></td>
                   <td><?= htmlspecialchars($office) ?></td>
                   <td><?= htmlspecialchars($school) ?></td>
                   <td><?= htmlspecialchars($course) ?></td>
-                  <td><?= htmlspecialchars($start ? fmtDate($start) : '-') ?></td>
-                  <td><?= htmlspecialchars($end ? fmtDate($end) : '-') ?></td>
                   <td style="text-align:center"><?= $hours ?></td>
                   <td style="text-align:center"><?= $req ?></td>
                   <td><?= htmlspecialchars(ucfirst($s['student_status'] ?: '')) ?></td>
@@ -613,7 +609,7 @@ $evaluations = fetch_evaluations($conn);
         if (isStudents) {
           const tds = tr.querySelectorAll('td');
           const officeText = norm(tds[1]?.textContent || '');
-          const statusText = norm(tds[8]?.textContent || '');
+          const statusText = norm(tds[6]?.textContent || '');
 
           if (officeVal) visibleByOffice = officeText.indexOf(officeVal) !== -1;
           if (statusVal) visibleByStatus = statusText.indexOf(statusVal) !== -1;

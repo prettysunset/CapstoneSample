@@ -371,7 +371,7 @@ $stmtOff->close();
      // build tbody based on rows; keep header rendered separately
      let tbody = '';
      if (!rows || rows.length === 0) {
-       tbody = '<tbody id="dtrRows"><tr><td colspan="11" style="text-align:center;padding:20px;color:#777">No logs for ' + escapeHtml(dt) + '.</td></tr></tbody></table>';
+       tbody = '<tbody id="dtrRows"><tr><td colspan="11" style="text-align:center;padding:20px;color:#777">No logs</td></tr></tbody></table>';
        tableWrap.innerHTML = renderDailyHeader() + tbody;
        return;
      }
