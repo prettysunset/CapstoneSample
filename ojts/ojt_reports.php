@@ -102,20 +102,28 @@ $hours_rendered = 0.0;
 $percent = 0;
 $expected_end_date = 'N/A';
 
-if (!empty($student_id)) {
-    // find earliest time-in as start date (same logic as ojt_home.php)
+// choose id used in DTR/journals: prefer users.user_id (DTR in this schema stores users.user_id) but fall back to students.student_id
+$dtrUserId = null;
+if (!empty($user_id)) {
+    $dtrUserId = (int)$user_id;
+} elseif (!empty($student_id)) {
+    $dtrUserId = (int)$student_id;
+}
+
+if (!empty($dtrUserId)) {
+    // find earliest time-in as start date (same logic as ojt_profile.php)
     $startDateSql = null;
     $qf = $conn->prepare("SELECT log_date FROM dtr WHERE student_id = ? AND ((am_in IS NOT NULL AND am_in<>'') OR (pm_in IS NOT NULL AND pm_in<>'')) ORDER BY log_date ASC LIMIT 1");
-    $qf->bind_param('i', $student_id);
+    $qf->bind_param('i', $dtrUserId);
     $qf->execute();
     $fr = $qf->get_result()->fetch_assoc();
     $qf->close();
     if ($fr && !empty($fr['log_date'])) {
         $startDateSql = $fr['log_date'];
     } else {
-        // fallback: try parse Orientation/Start from latest application remarks
+        // fallback: parse Orientation/Start from latest application remarks
         $qa = $conn->prepare("SELECT remarks FROM ojt_applications WHERE student_id = ? ORDER BY date_updated DESC, application_id DESC LIMIT 1");
-        $qa->bind_param('i', $student_id);
+        $qa->bind_param('i', $dtrUserId);
         $qa->execute();
         $ar = $qa->get_result()->fetch_assoc();
         $qa->close();
@@ -136,10 +144,10 @@ if (!empty($student_id)) {
     // sum hours + minutes/60 from dtr (optionally from startDate)
     if ($startDateSql) {
         $q = $conn->prepare("SELECT IFNULL(SUM(hours + minutes/60),0) AS total FROM dtr WHERE student_id = ? AND log_date >= ?");
-        $q->bind_param("is", $student_id, $startDateSql);
+        $q->bind_param("is", $dtrUserId, $startDateSql);
     } else {
         $q = $conn->prepare("SELECT IFNULL(SUM(hours + minutes/60),0) AS total FROM dtr WHERE student_id = ?");
-        $q->bind_param("i", $student_id);
+        $q->bind_param("i", $dtrUserId);
     }
     $q->execute();
     $tr = $q->get_result()->fetch_assoc();
@@ -152,7 +160,20 @@ if (!empty($student_id)) {
     $remaining = max(0, $total_required - $hours_rendered);
 
     if ($remaining <= 0) {
-        $expected_end_date = 'Completed';
+        // completed: use last DTR log_date as end date if available
+        $lastDateSql = null;
+        $qld = $conn->prepare("SELECT MAX(log_date) AS last_date FROM dtr WHERE student_id = ?");
+        $qld->bind_param("i", $dtrUserId);
+        if ($qld->execute()) {
+            $ld = $qld->get_result()->fetch_assoc();
+            if ($ld && !empty($ld['last_date'])) $lastDateSql = $ld['last_date'];
+        }
+        $qld->close();
+        if ($lastDateSql) {
+            $expected_end_date = (new DateTime($lastDateSql))->format('F j, Y');
+        } else {
+            $expected_end_date = 'Completed';
+        }
     } elseif ($startDateSql) {
         $daysNeeded = (int)ceil($remaining / 8); // 8 hrs/day
         $dt = new DateTime($startDateSql);
@@ -175,7 +196,44 @@ if (!empty($student_id)) {
         }
         $expected_end_date = $dt->format('F j, Y');
     }
-}
+
+    // fetch last 3 weekly summaries (group by ISO week) using same dtrUserId
+    $q = "
+      SELECT YEARWEEK(log_date,1) AS yw,
+             MIN(log_date) AS start_date,
+             MAX(log_date) AS end_date,
+             COUNT(DISTINCT log_date) AS days,
+             COALESCE(SUM(hours),0) AS hours
+      FROM dtr
+      WHERE student_id = ?
+      GROUP BY yw
+      ORDER BY start_date DESC
+      LIMIT 3
+    ";
+    $s2 = $conn->prepare($q);
+    $s2->bind_param("i", $dtrUserId);
+    $s2->execute();
+    $res = $s2->get_result();
+    $weeks = [];
+    while ($r = $res->fetch_assoc()) {
+        $start = $r['start_date'];
+        $end = $r['end_date'];
+        if (date('M', strtotime($start)) === date('M', strtotime($end))) {
+            $range = date('M j', strtotime($start)) . '-' . date('j, Y', strtotime($end));
+        } else {
+            $range = date('M j', strtotime($start)) . ' - ' . date('M j, Y', strtotime($end));
+        }
+        $weeks[] = [
+            'coverage' => $range,
+            'days' => (int)$r['days'],
+            'hours' => (int)$r['hours'],
+            'progress' => $total_required > 0 ? round(($r['hours'] / $total_required) * 100) : 0
+        ];
+    }
+    $s2->close();
+} // end if (!empty($dtrUserId))
+
+// if no dtrUserId then $hours_rendered/$percent remain 0 and weeks falls back later
 
     // fetch last 3 weekly summaries (group by ISO week) if student_id present
     if ($student_id) {
@@ -212,7 +270,8 @@ if (!empty($student_id)) {
         }
         $s2->close();
     }
-}
+
+} // end if ($user_id)
 
 // fallback sample rows if none found (to match image)
 if (empty($weeks)) {
@@ -385,13 +444,13 @@ if (empty($weeks)) {
           <button class="tab-btn" data-panel="journals" type="button">Journals</button>
         </div>
 
-        <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
-          <button onclick="window.print()" style="background:#fff;border:1px solid #e0e0e0;padding:8px 10px;border-radius:8px;cursor:pointer">⤓ Export</button>
-          <select style="padding:8px;border-radius:8px;border:1px solid #e6e6e6;background:#fff">
-            <option>Sort by</option>
-            <option value="date">Date</option>
-            <option value="hours">Hours</option>
-          </select>
+        <!-- DTR controls (same line as tabs). Sort dropdown removed per request -->
+        <div id="dtrControls" style="margin-left:auto;display:flex;gap:8px;align-items:center">
+          <label for="dtr_from" style="font-weight:600;margin-right:6px">From</label>
+          <input id="dtr_from" type="date" style="padding:8px;border-radius:8px;border:1px solid #e6e6e6;background:#fff">
+          <label for="dtr_to" style="font-weight:600;margin-left:8px;margin-right:6px">To</label>
+          <input id="dtr_to" type="date" style="padding:8px;border-radius:8px;border:1px solid #e6e6e6;background:#fff">
+          <button id="btnExport" onclick="window.print()" style="background:#fff;border:1px solid #e0e0e0;padding:8px 10px;border-radius:8px;cursor:pointer">⤓ Export</button>
         </div>
       </div>
 
@@ -411,16 +470,20 @@ if (empty($weeks)) {
             </thead>
             <tbody>
 <?php
-if (!empty($student_id)) {
+if (!empty($dtrUserId)) {
     $stmt = $conn->prepare("SELECT log_date, am_in, am_out, pm_in, pm_out, hours FROM dtr WHERE student_id = ? ORDER BY log_date DESC LIMIT 30");
     if ($stmt) {
-        $stmt->bind_param("i", $student_id);
+        $stmt->bind_param("i", $dtrUserId);
         if ($stmt->execute()) {
             $res = $stmt->get_result();
             if ($res && $res->num_rows) {
                 while ($r = $res->fetch_assoc()) {
-                    echo '<tr>';
-                    echo '<td style="padding:10px 14px">'.htmlspecialchars($r['log_date']).'</td>';
+                    // expose raw ISO log_date for client-side filtering
+                    $iso = htmlspecialchars($r['log_date'] ?: '');
+                    echo '<tr data-log-date="'.$iso.'">';
+                    // format log_date as "November 17, 2025"
+                    $logDate = (!empty($r['log_date']) && strtotime($r['log_date'])) ? date('F j, Y', strtotime($r['log_date'])) : ($r['log_date'] ?: '—');
+                    echo '<td style="padding:10px 14px">'.htmlspecialchars($logDate).'</td>';
                     echo '<td style="padding:10px 14px">'.htmlspecialchars($r['am_in'] ?: '—').'</td>';
                     echo '<td style="padding:10px 14px">'.htmlspecialchars($r['am_out'] ?: '—').'</td>';
                     echo '<td style="padding:10px 14px">'.htmlspecialchars($r['pm_in'] ?: '—').'</td>';
@@ -460,17 +523,30 @@ if (!empty($student_id)) {
             </thead>
             <tbody>
               <?php
-              if (!empty($student_id)) {
+              if (!empty($student_id) || !empty($user_id)) {
+                // weekly_journal.user_id normally references students.student_id. prefer that, but allow fallback.
+                $journalUserId = !empty($student_id) ? (int)$student_id : (int)$user_id;
                 $qj = $conn->prepare("SELECT week_coverage, date_uploaded, attachment FROM weekly_journal WHERE user_id = ? ORDER BY date_uploaded DESC LIMIT 20");
-                $qj->bind_param("i", $student_id);
+                $qj->bind_param("i", $journalUserId);
                 $qj->execute();
                 $rj = $qj->get_result();
-                if ($rj->num_rows) {
+                if ($rj && $rj->num_rows) {
                   while ($row = $rj->fetch_assoc()) {
                     echo '<tr>';
-                    echo '<td style="padding:10px 14px">'.htmlspecialchars($row['date_uploaded']).'</td>';
+                    $dUploaded = (!empty($row['date_uploaded']) && strtotime($row['date_uploaded'])) ? date('F j, Y', strtotime($row['date_uploaded'])) : ($row['date_uploaded'] ?: '—');
+                    echo '<td style="padding:10px 14px">'.htmlspecialchars($dUploaded).'</td>';
                     echo '<td style="padding:10px 14px">'.htmlspecialchars($row['week_coverage'] ?: '—').'</td>';
-                    $att = $row['attachment'] ? '<a href="../'.htmlspecialchars($row['attachment']).'" target="_blank">View</a>' : '—';
+
+                    // show view icon only (open in new tab, no download)
+                    if (!empty($row['attachment'])) {
+                        $url = '../' . ltrim($row['attachment'], "/\\");
+                        $eye = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8S1 12 1 12z"></path><circle cx="12" cy="12" r="3"></circle></svg>';
+                        $att = '<a href="'.htmlspecialchars($url).'" target="_blank" rel="noopener noreferrer" title="Open attachment" style="display:inline-flex;align-items:center;justify-content:center;width:36px;height:32px;text-decoration:none;color:#2f3459">';
+                        $att .= $eye;
+                        $att .= '</a>';
+                    } else {
+                        $att = '—';
+                    }
                     echo '<td style="padding:10px 14px">'.$att.'</td>';
                     echo '</tr>';
                   }
@@ -500,8 +576,42 @@ if (!empty($student_id)) {
           b.classList.add('active');
           const target = b.getAttribute('data-panel');
           panels.forEach(p=> p.style.display = p.getAttribute('data-panel') === target ? 'block' : 'none');
+          // show/hide DTR controls when DTR tab active
+          const dtrControls = document.getElementById('dtrControls');
+          if (dtrControls) dtrControls.style.display = (target === 'dtr') ? 'flex' : 'none';
         });
       });
+      // initialize controls visibility
+      (function(){ const active = document.querySelector('.tab-btn.active'); if (active) {
+        document.getElementById('dtrControls').style.display = active.getAttribute('data-panel') === 'dtr' ? 'flex' : 'none';
+      }})();
+
+      // date-range filtering (applies immediately on change)
+      const fromInp = document.getElementById('dtr_from');
+      const toInp = document.getElementById('dtr_to');
+      function filterDtrRows(){
+        const from = fromInp && fromInp.value ? new Date(fromInp.value) : null;
+        const to = toInp && toInp.value ? new Date(toInp.value) : null;
+        const tbody = document.querySelector('.reports-body [data-panel="dtr"] tbody');
+        if (!tbody) return;
+        Array.from(tbody.querySelectorAll('tr')).forEach(tr=>{
+          const iso = tr.getAttribute('data-log-date') || '';
+          if (!iso) { tr.style.display = ''; return; }
+          const d = new Date(iso);
+          let show = true;
+          if (from && d < from) show = false;
+          if (to) {
+            // include end date (set to end of day)
+            const endOfTo = new Date(to);
+            endOfTo.setHours(23,59,59,999);
+            if (d > endOfTo) show = false;
+          }
+          tr.style.display = show ? '' : 'none';
+        });
+      }
+      if (fromInp) fromInp.addEventListener('change', filterDtrRows);
+      if (toInp) toInp.addEventListener('change', filterDtrRows);
+
       const logout = document.getElementById('top-logout');
       if (logout) logout.addEventListener('click', function(e){ e.preventDefault(); if (confirm('Logout?')) location.href = this.getAttribute('href'); });
     })();
@@ -530,6 +640,29 @@ if (!empty($student_id)) {
     })();
   
     </script>
-   
+   <script>
+    // confirm logout (both top icon and sidebar) — use replace so back can't restore protected pages
+    (function(){
+      function attachConfirm(id){
+        var el = document.getElementById(id);
+        if (!el) return;
+        el.addEventListener('click', function(e){
+          e.preventDefault();
+          if (confirm('Log out?')) {
+            // replace history entry so back button won't return to protected page
+            window.location.replace(el.getAttribute('href') || '../logout.php');
+          }
+        });
+      }
+      attachConfirm('btnLogout');
+      attachConfirm('sidebar-logout');
+      // keep small handlers for notif/settings
+      var n = document.getElementById('btnNotif');
+      if (n) n.addEventListener('click', function(e){ e.preventDefault(); alert('Walang bagong notification ngayon.'); });
+      var s = document.getElementById('btnSettings');
+      if (s) s.addEventListener('click', function(e){ e.preventDefault(); window.location.href = 'settings.php'; });
+    })();
+  </script>
+
  </body>
  </html>

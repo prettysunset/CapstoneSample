@@ -182,6 +182,15 @@ if ($user_id) {
     .sidebar a.active {
         background-color: #b3b7d6;
     }
+
+    /* ADDED: make main-area fonts black, but keep sidebar text and OJT name color unchanged */
+    .main-content, .main-content * {
+        color: #000 !important;
+    }
+    /* keep OJT main name color as before */
+    .main-content h1 {
+        color: #2f3459 !important;
+    }
     </style>
 </head>
 <body>
@@ -478,29 +487,70 @@ if ($user_id) {
                                     $total_required = $total_required ?? 500;
                                     $percent = $total_required > 0 ? round(($hours_rendered / $total_required) * 100) : 0;
                                     $orientation_display = $orientation ? (preg_match('/^\d{4}-\d{2}-\d{2}$/', $orientation) ? date('F j, Y', strtotime($orientation)) : $orientation) : '-';
-                                    // expected end (8 hrs/day, 5-day workweek) based on remaining hours
+                                    // expected end date logic:
+                                    // - If student has already completed required hours, use first and last DTR log dates:
+                                    //     start = first DTR log_date, end = last DTR log_date
+                                    // - Otherwise, if we have an orientation date (YYYY-MM-DD), estimate end date using working days.
                                     $expected_end_display = '-';
-                                    if (!empty($orientation) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $orientation)) {
-                                        $hoursPerDay = 8;
-                                        $remaining = max(0, (float)$total_required - (float)$hours_rendered);
-                                        $daysNeeded = (int)ceil($remaining / $hoursPerDay);
-                                        $dt = new DateTime($orientation);
-                                        $added = 0;
-                                        while ($added < $daysNeeded) {
-                                            $dt->modify('+1 day');
-                                            $dow = (int)$dt->format('N');
-                                            if ($dow < 6) $added++;
+                                    if (!empty($hours_rendered) && !empty($total_required) && $hours_rendered >= $total_required) {
+                                        // try to use DTR records for the user. DTR.student_id stores users.user_id in this project.
+                                        $dtrFirst = null;
+                                        $dtrLast = null;
+                                        $dtrUserId = !empty($user_id) ? (int)$user_id : null;
+                                        if (!$dtrUserId && !empty($student_id)) {
+                                            // fallback: sometimes DTR uses student_id numeric -- attempt student_id
+                                            $dtrUserId = (int)$student_id;
                                         }
-                                        $expected_end_display = $dt->format('F j, Y');
-                                    } elseif (!empty($orientation) && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $orientation)) {
-                                        $expected_end_display = '-';
+                                        if (!empty($dtrUserId)) {
+                                            $qf = $conn->prepare("SELECT log_date FROM dtr WHERE student_id = ? AND COALESCE(log_date,'') <> '' ORDER BY log_date ASC LIMIT 1");
+                                            if ($qf) {
+                                                $qf->bind_param('i', $dtrUserId);
+                                                $qf->execute();
+                                                $r1 = $qf->get_result()->fetch_assoc();
+                                                $qf->close();
+                                                if ($r1 && !empty($r1['log_date'])) $dtrFirst = $r1['log_date'];
+                                            }
+                                            $ql = $conn->prepare("SELECT log_date FROM dtr WHERE student_id = ? AND COALESCE(log_date,'') <> '' ORDER BY log_date DESC LIMIT 1");
+                                            if ($ql) {
+                                                $ql->bind_param('i', $dtrUserId);
+                                                $ql->execute();
+                                                $r2 = $ql->get_result()->fetch_assoc();
+                                                $ql->close();
+                                                if ($r2 && !empty($r2['log_date'])) $dtrLast = $r2['log_date'];
+                                            }
+                                        }
+                                        if (!empty($dtrFirst)) {
+                                            $orientation_display = date('F j, Y', strtotime($dtrFirst));
+                                        }
+                                        if (!empty($dtrLast)) {
+                                            $expected_end_display = date('F j, Y', strtotime($dtrLast));
+                                        } else {
+                                            $expected_end_display = '-';
+                                        }
+                                    } else {
+                                        // estimate using orientation date if valid ISO date
+                                        if (!empty($orientation) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $orientation)) {
+                                            $hoursPerDay = 8;
+                                            $remaining = max(0, (float)$total_required - (float)$hours_rendered);
+                                            $daysNeeded = (int)ceil($remaining / $hoursPerDay);
+                                            $dt = new DateTime($orientation);
+                                            $added = 0;
+                                            while ($added < $daysNeeded) {
+                                                $dt->modify('+1 day');
+                                                $dow = (int)$dt->format('N');
+                                                if ($dow < 6) $added++;
+                                            }
+                                            $expected_end_display = $dt->format('F j, Y');
+                                        } elseif (!empty($orientation) && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $orientation)) {
+                                            $expected_end_display = '-';
+                                        }
                                     }
                                     ?>
 
                                     <div style="display:flex; align-items:center; justify-content:space-between; gap:20px; flex-wrap:wrap;">
                                         <div style="flex:1 1 320px; min-width:220px;">
                                             <p style="margin:0; color:#6b6f8b; line-height:1.6; font-size:16px;">
-                                            Age: <?php echo htmlspecialchars($sinfo['age'] ?: '-'); ?><br>
+                                            Age: <b><?php echo htmlspecialchars($sinfo['age'] ?: '-'); ?></b><br>
                                             Birthday: <b><?php echo htmlspecialchars($sinfo['birthday_fmt'] ?? ($sinfo['birthday'] ?: '-')); ?></b><br>
                                             Address: <b><?php echo htmlspecialchars($sinfo['address'] ?: '-'); ?></b><br>
                                             Phone: <b><?php echo htmlspecialchars($sinfo['phone'] ?: '-'); ?></b><br>
@@ -508,15 +558,15 @@ if ($user_id) {
                                             </p>
                                             <hr style="margin:12px 0;border:none;border-top:1px solid #eee">
                                             <p style="margin:0; color:#6b6f8b; line-height:1.4; font-size:15px;">
-                                              <strong>College/University</strong> &nbsp; <?php echo htmlspecialchars($sinfo['college'] ?: '-'); ?><br>
-                                              <strong>Course</strong> &nbsp; <?php echo htmlspecialchars($sinfo['course'] ?: '-'); ?><br>
-                                              <strong>Year level</strong> &nbsp; <?php echo htmlspecialchars($sinfo['year_level'] ?: '-'); ?><br>
-                                              <strong>School Address</strong> &nbsp; <?php echo htmlspecialchars($sinfo['school_address'] ?: '-'); ?>
+                                              College/University: &nbsp; <b><?php echo htmlspecialchars($sinfo['college'] ?: '-'); ?></b><br>
+                                              Course: &nbsp; <b><?php echo htmlspecialchars($sinfo['course'] ?: '-'); ?></b><br>
+                                              Year level: &nbsp; <b><?php echo htmlspecialchars($sinfo['year_level'] ?: '-'); ?></b><br>
+                                              School Address: &nbsp; <b><?php echo htmlspecialchars($sinfo['school_address'] ?: '-'); ?></b>
                                             </p>
                                             <hr style="margin:12px 0;border:none;border-top:1px solid #eee">
                                             <p style="margin:0; color:#6b6f8b; line-height:1.4; font-size:15px;">
-                                              <strong>OJT Adviser</strong> &nbsp; <?php echo htmlspecialchars($sinfo['ojt_adviser'] ?: '-'); ?><br>
-                                              <strong>Contact #</strong> &nbsp; <?php echo htmlspecialchars($sinfo['adviser_contact'] ?: '-'); ?>
+                                              OJT Adviser: &nbsp; <b><?php echo htmlspecialchars($sinfo['ojt_adviser'] ?: '-'); ?></b><br>
+                                              Contact #: &nbsp; <b><?php echo htmlspecialchars($sinfo['adviser_contact'] ?: '-'); ?></b>
                                             </p>
                                             <hr style="margin:12px 0;border:none;border-top:1px solid #eee">
                                             <p style="margin:0; color:#2f3459; font-weight:700; font-size:15px;">Emergency Contact</p>
@@ -531,7 +581,7 @@ if ($user_id) {
                                           <div style="width:100%;display:flex;justify-content:flex-start;">
                                             <div class="ojt-circle" data-percent="<?php echo $percent; ?>" style="width:88px;height:88px;border-radius:50%;
                                                  display:flex;align-items:center;justify-content:center;color:#2f3459;font-weight:700;font-size:18px;
-                                                 background:conic-gradient(#2f3459 0deg, #e6e9f2 0deg);">
+                                                 background:conic-gradient(rgba(47,52,89,0.22) 0deg, #e6e9f2 0deg);">
                                               <?php echo $percent; ?>%
                                             </div>
                                           </div>
@@ -540,7 +590,7 @@ if ($user_id) {
                                             <div style="color:#2f3459;font-weight:700;font-size:16px;"><?php echo htmlspecialchars((int)$hours_rendered . ' out of ' . (int)$total_required . ' hours'); ?></div>
                                             <div style="color:#6b6f8b;font-size:13px;"><?php echo $percent; ?>% complete</div>
                                             <div style="color:#6b6f8b;font-size:13px; margin-top:4px;">Date Started: <b style="color:#2f3459;"><?php echo htmlspecialchars($orientation_display); ?></b></div>
-                                            <div style="color:#6b6f8b;font-size:13px;">Expected End Date: <b style="color:#2f3459;"><?php echo htmlspecialchars($expected_end_display); ?></b></div>
+                                            <div style="color:#6b6f8b;font-size:13px;">Estimated End Date: <b style="color:#2f3459;"><?php echo htmlspecialchars($expected_end_display); ?></b></div>
 
                                                 <div style="width:100%;height:8px"></div>
 
@@ -563,9 +613,13 @@ if ($user_id) {
                                         var percent = <?php echo json_encode($percent); ?>;
                                         var circle = document.querySelector('#tab-info .ojt-circle');
                                         if (circle) {
-                                            var deg = Math.max(0, Math.min(100, percent)) * 3.6;
-                                            circle.style.background = 'conic-gradient(#2f3459 0deg ' + deg + 'deg, #e6e9f2 ' + deg + 'deg 360deg)';
-                                            circle.textContent = percent + '%';
+                                            var p = Math.max(0, Math.min(100, parseInt(percent, 10) || 0));
+                                            var deg = p * 3.6;
+                                            // lighter / semi-transparent progress arc so dark percentage text is readable
+                                            circle.style.background = 'conic-gradient(rgba(47,52,89,0.22) 0deg ' + deg + 'deg, #e6e9f2 ' + deg + 'deg 360deg)';
+                                            circle.textContent = p + '%';
+                                            // use dark text for contrast against the lighter arc
+                                            circle.style.color = '#2f3459';
                                         }
                                      })();
                                      </script>
@@ -588,8 +642,8 @@ if ($user_id) {
                                 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
                                     <div style="color:#6b6f8b;font-size:16px;">Weekly Journals (<?php echo count($journals); ?>)</div>
                                     <?php if (!empty($student_id)): ?>
-                                        <button id="btn-upload-journal" type="button" style="display:inline-flex;gap:8px;align-items:center;padding:8px 12px;border-radius:8px;border:0;background:#2f3459;color:#fff;cursor:pointer;font-size:14px;">
-                                            <span style="font-weight:700;font-size:18px;line-height:0;">+</span> Upload Journal
+                                        <button id="btn-upload-journal" type="button" style="display:inline-flex;gap:8px;align-items:center;padding:8px 12px;border-radius:8px;border:0;background:#2f3459;color:#fff !important;cursor:pointer;font-size:14px;">
+                                            <span style="color:#fff;font-weight:700;font-size:18px;line-height:0;">+</span> Upload Journal
                                         </button>
                                     <?php endif; ?>
                                 </div>
@@ -625,7 +679,7 @@ if ($user_id) {
                                             </div>
                                             <div style="display:flex;justify-content:flex-end;gap=10px;margin-top:12px;">
                                                 <button type="button" id="modal-cancel" style="padding:8px 12px;border-radius:8px;border:1px solid #e6e9f2;background:transparent;color:#2f3459;cursor:pointer;">Cancel</button>
-                                                <button type="submit" id="modal-upload" style="padding:8px 14px;border-radius:18px;border:0;background:#2f3459;color:#fff;cursor:pointer;">Upload</button>
+                                                <button type="submit" id="modal-upload" style="padding:8px 14px;border-radius:18px;border:0;background:#2f3459;color:#fff !important;cursor:pointer;">Upload</button>
                                             </div>
                                         </div>
                                     </div>
@@ -779,7 +833,7 @@ if ($user_id) {
                                                 foreach ($requirements as $r) if (basename($r['file']) === basename($moa_record['moa_file'])) $found = true;
                                                 if (!$found) {
                                                     array_unshift($requirements, [
-                                                        'label' => 'MOA (' . ($moa_record['school_name'] ?? 'School') . ')',
+                                                        'label' => 'MOA',
                                                         'file' => $moa_record['moa_file'],
                                                         'date' => $moa_record['date_uploaded'] ?? null
                                                     ]);
@@ -823,93 +877,104 @@ if ($user_id) {
 
                             <section id="tab-eval" class="tab-panel" style="display:none;">
                                     <h4 style="margin:0 0 10px 0; color:#2f3459; font-size:20px;">Evaluation</h4>
-                                    <p style="margin:0; color:#6b6f8b; font-size:16px;">No evaluation recorded yet.</p>
-                            </section>
+                                    <?php
+                                    $evaluations = [];
+                                    if (!empty($student_id)) {
+                                        $qe = $conn->prepare("
+                                            SELECT e.eval_id, e.rating, e.rating_desc, e.feedback, e.date_evaluated,
+                                                   COALESCE(u.first_name,'') AS ev_first, COALESCE(u.last_name,'') AS ev_last
+                                            FROM evaluations e
+                                            LEFT JOIN users u ON e.user_id = u.user_id
+                                            WHERE e.student_id = ?
+                                            ORDER BY e.date_evaluated DESC, e.eval_id DESC
+                                        ");
+                                        if ($qe) {
+                                            $qe->bind_param('i', $student_id);
+                                            $qe->execute();
+                                            $resE = $qe->get_result();
+                                            while ($r = $resE->fetch_assoc()) $evaluations[] = $r;
+                                            $qe->close();
+                                        }
+                                    }
+                                    ?>
+                                    <?php if (empty($evaluations)): ?>
+                                        <p style="margin:0; color:#6b6f8b; font-size:16px;">No evaluation recorded yet.</p>
+                                    <?php else: ?>
+                                        <div style="margin-top:8px; overflow:auto; background:#fff; border:1px solid #eceff5; padding:12px; border-radius:8px;">
+                                            <table style="width:100%;border-collapse:collapse;font-size:14px;">
+                                                <thead style="background:#f5f7fb;color:#2f3459">
+                                                    <tr>
+                                                        <th style="text-align:left;padding:10px;border-bottom:1px solid #eef1f6;">Date</th>
+                                                        <th style="text-align:left;padding:10px;border-bottom:1px solid #eef1f6;">Rating</th>
+                                                        <th style="text-align:left;padding:10px;border-bottom:1px solid #eef1f6;">Rating Description</th>
+                                                        <th style="text-align:left;padding:10px;border-bottom:1px solid #eef1f6;">Feedback</th>
+                                                        <th style="text-align:left;padding:10px;border-bottom:1px solid #eef1f6;">Evaluated By</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                <?php foreach ($evaluations as $ev): ?>
+                                                    <tr>
+                                                        <td style="padding:8px;border-top:1px solid #f1f4f8;color:#6b6f8b;"><?php echo !empty($ev['date_evaluated']) ? date('M j, Y', strtotime($ev['date_evaluated'])) : '-'; ?></td>
+                                                        <td style="padding:8px;border-top:1px solid #f1f4f8;color:#2f3459;"><?php echo $ev['rating'] !== null ? htmlspecialchars($ev['rating']) : '-'; ?></td>
+                                                        <td style="padding:8px;border-top:1px solid #f1f4f8;color:#2f3459;"><?php echo htmlspecialchars($ev['rating_desc'] ?? '-'); ?></td>
+                                                        <td style="padding:8px;border-top:1px solid #f1f4f8;color:#2f3459;"><?php echo !empty($ev['feedback']) ? nl2br(htmlspecialchars($ev['feedback'])) : '-'; ?></td>
+                                                        <td style="padding:8px;border-top:1px solid #f1f4f8;color:#6b6f8b;">
+                                                            <?php
+                                                            $ename = trim(($ev['ev_first'] ?? '') . ' ' . ($ev['ev_last'] ?? ''));
+                                                            echo $ename !== '' ? htmlspecialchars($ename) : '-';
+                                                            ?>
+                                                        </td>
+                                                    </tr>
+                                                <?php endforeach; ?>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    <?php endif; ?>
+                                </section>
                             </div>
+                        </div>
                     </div>
-                    </div>
+                </div>
             </div>
-
-            <script>
-                    (function(){
-                    // robust tabs: run after DOM ready, ensure pointer-events and keyboard nav
-                    document.addEventListener('DOMContentLoaded', function(){
-                      (function(){
-                        const tabs = Array.from(document.querySelectorAll('.tab-btn'));
-                        const panels = Array.from(document.querySelectorAll('.tab-panel'));
-                        if (!tabs.length || !panels.length) return;
-
-                        // ensure tab buttons are clickable
-                        tabs.forEach(t => { t.style.pointerEvents = 'auto'; t.tabIndex = 0; });
-
-                        function activate(btn){
-                          const target = btn && btn.dataset && btn.dataset.tab;
-                          if (!target) return;
-                          tabs.forEach(b=>{
-                            const active = b === btn;
-                            b.classList.toggle('active', active);
-                            b.setAttribute('aria-selected', active ? 'true' : 'false');
-                            b.style.background = active ? '#2f3459' : 'transparent';
-                            b.style.color = active ? '#fff' : '#2f3459';
-                            b.style.border = active ? '0' : '1px solid #e6e9f2';
-                          });
-                          panels.forEach(p => p.style.display = (p.id === target) ? 'block' : 'none');
-                        }
-
-                        // initial state
-                        // prefer tab indicated by URL fragment (e.g. #tab-journals), else fall back to default
-                        var hash = (window.location && window.location.hash) ? window.location.hash : '';
-                        var initial = null;
-                        if (hash) {
-                          var target = hash.substring(1); // remove leading '#'
-                          initial = tabs.find(t => t.dataset && t.dataset.tab === target) || null;
-                        }
-                        if (!initial) initial = tabs.find(t=>t.classList.contains('active')) || tabs[0];
-                        if (initial) activate(initial);
-
-                        tabs.forEach((btn, idx) => {
-                          btn.addEventListener('click', function(e){ e.preventDefault(); activate(btn); });
-                          btn.addEventListener('keydown', function(e){
-                            if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); tabs[(idx+1)%tabs.length].focus(); tabs[(idx+1)%tabs.length].click(); }
-                            if (e.key === 'ArrowLeft'  || e.key === 'ArrowUp')   { e.preventDefault(); tabs[(idx-1+tabs.length)%tabs.length].focus(); tabs[(idx-1+tabs.length)%tabs.length].click(); }
-                            if (e.key === 'Home') { e.preventDefault(); tabs[0].focus(); tabs[0].click(); }
-                            if (e.key === 'End')  { e.preventDefault(); tabs[tabs.length-1].focus(); tabs[tabs.length-1].click(); }
-                          });
-                        });
-
-                        // defensive: if some overlay element blocks clicks, make it non-intercepting
-                        try {
-                          const overlays = document.querySelectorAll('#upload-modal-overlay, .overlay, [data-overlay]');
-                          overlays.forEach(o => { if (o && getComputedStyle(o).display === 'none') return; o.style.pointerEvents = 'none'; });
-                        } catch(e){}
-                      })();
-                    });
-                     </script>
-            </div>
+        </div>
     </div>
-
+    
     <script>
-    (function(){
-      function attachConfirm(id){
-        var el = document.getElementById(id);
-        if (!el) return;
-        el.addEventListener('click', function(e){
-          e.preventDefault();
-          if (confirm('Log out?')) {
-            // replace history entry so back button won't return to protected page
-            window.location.replace(el.getAttribute('href') || '../logout.php');
-          }
-        });
-      }
-      attachConfirm('btnLogout');
-      attachConfirm('sidebar-logout');
-      // keep small handlers for notif/settings
-      var n = document.getElementById('btnNotif');
-      if (n) n.addEventListener('click', function(e){ e.preventDefault(); alert('Walang bagong notification ngayon.'); });
-      var s = document.getElementById('btnSettings');
-      if (s) s.addEventListener('click', function(e){ e.preventDefault(); window.location.href = 'settings.php'; });
-    })();
-  
+      (function(){
+        function attachConfirm(id){
+          var el = document.getElementById(id);
+          if (!el) return;
+          el.addEventListener('click', function(e){
+            e.preventDefault();
+            if (confirm('Log out?')) {
+              // replace history entry so back button won't return to protected page
+              window.location.replace(el.getAttribute('href') || '../logout.php');
+            }
+          });
+        }
+        attachConfirm('btnLogout');
+        attachConfirm('sidebar-logout');
+        // keep small handlers for notif/settings
+        var n = document.getElementById('btnNotif');
+        if (n) n.addEventListener('click', function(e){ e.preventDefault(); alert('Walang bagong notification ngayon.'); });
+        var s = document.getElementById('btnSettings');
+        if (s) s.addEventListener('click', function(e){ e.preventDefault(); window.location.href = 'settings.php'; });
+      })();
+    </script>
+
+    <!-- ADDED: confirm for top-right logout icon (matches ojt_reports.php behavior) -->
+    <script>
+      (function(){
+        var topLogout = document.getElementById('top-logout');
+        if (topLogout) {
+          topLogout.addEventListener('click', function(e){
+            e.preventDefault();
+            if (confirm('Logout?')) {
+              window.location.replace(this.getAttribute('href') || '../logout.php');
+            }
+          });
+        }
+      })();
     </script>
 </body>
 </html>
