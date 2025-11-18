@@ -108,9 +108,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-// defaults: last 7 days
-$default_end = date('Y-m-d');
-$default_start = date('Y-m-d', strtotime('-6 days', strtotime($default_end)));
+// defaults: start = today, end = empty (no automatic fetch)
+$default_start = date('Y-m-d');
+$default_end = '';
 ?>
 <!doctype html>
 <html>
@@ -166,6 +166,8 @@ $default_start = date('Y-m-d', strtotime('-6 days', strtotime($default_end)));
   .center{text-align:center}
   input[type="date"]{padding:8px;border:1px solid #e6e9f2;border-radius:8px}
   .small-note{color:#6b7180;font-size:13px}
+  /* keep date on one line and give a bit of right padding so it doesn't wrap */
+  .date-cell{white-space:nowrap;padding-right:12px;width:110px}
 </style>
 </head>
 <body>
@@ -247,19 +249,23 @@ $user_name = $display_name ?? 'Office Head';
     <div id="panel-daily" class="panel" style="display:block">
       <div class="controls" style="margin-bottom:8px">
         <label for="startDate" class="small-note" style="margin-right:6px">Start</label>
-        <input id="startDate" type="date" value="<?= htmlspecialchars($default_start) ?>" />
+        <input id="startDate" type="date" value="<?= htmlspecialchars($default_start) ?>" max="<?= date('Y-m-d') ?>" />
         <label for="endDate" class="small-note" style="margin-left:8px;margin-right:6px">End</label>
-        <input id="endDate" type="date" value="<?= htmlspecialchars($default_end) ?>" />
+        <input id="endDate" type="date" value="<?= htmlspecialchars($default_end) ?>" max="<?= date('Y-m-d') ?>" />
 
         <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
-          <input id="searchDaily" type="text" placeholder="Search name / school / course" style="padding:10px;border-radius:8px;border:1px solid #ddd" />
+          <!-- take remaining space and push contents to the right -->
+          <div style="display:flex;gap:8px;align-items:center;flex:1;justify-content:flex-end">
+            <input id="searchDaily" type="text" placeholder="Search name / school / course"
+                   style="padding:10px;border-radius:8px;border:1px solid #ddd;flex:0 0 520px;min-width:260px;max-width:60%;" />
+          </div>
         </div>
       </div>
       <div style="overflow:auto">
         <table id="dailyTable">
           <thead>
             <tr>
-              <th class="center">Date</th>
+              <th class="center date-cell">Date</th>
               <th>Name</th>
               <th>School</th>
               <th>Course</th>
@@ -272,7 +278,7 @@ $user_name = $display_name ?? 'Office Head';
             </tr>
           </thead>
           <tbody id="dtrBody">
-            <tr><td colspan="10" style="text-align:center;color:#8a8f9d;padding:18px">Loading…</td></tr>
+            <tr><td colspan="10" style="text-align:center;color:#8a8f9d;padding:18px"></td></tr>
           </tbody>
         </table>
       </div>
@@ -287,7 +293,20 @@ $user_name = $display_name ?? 'Office Head';
   const searchDaily = document.getElementById('searchDaily');
   const startDateInp = document.getElementById('startDate');
   const endDateInp = document.getElementById('endDate');
-
+ 
+  // helper: format ISO YYYY-MM-DD -> MM/DD/YYYY
+  function formatISOToMDY(iso) {
+    if (!iso || typeof iso !== 'string') return '';
+    const p = iso.split('-');
+    if (p.length !== 3) return iso;
+    return p[1] + '/' + p[2] + '/' + p[0];
+  }
+ 
+  // disable future dates client-side (extra safety)
+  const today = new Date().toISOString().slice(0,10);
+  if (startDateInp) startDateInp.max = today;
+  if (endDateInp) endDateInp.max = today;
+ 
   function renderDaily(rows){
     dtrBody.innerHTML = '';
     if (!rows || rows.length === 0) {
@@ -298,7 +317,7 @@ $user_name = $display_name ?? 'Office Head';
       const tr = document.createElement('tr');
       const name = ((r.first_name||'')+' '+(r.last_name||'')).trim();
       tr.setAttribute('data-search', ((name)+' '+(r.school||'')+' '+(r.course||'')).toLowerCase());
-      tr.innerHTML = '<td class="center">'+ (r.log_date||'') +'</td>'
+      tr.innerHTML = '<td class="center date-cell">'+ (formatISOToMDY(r.log_date) || '') +'</td>'
                    + '<td>'+ (name||'') +'</td>'
                    + '<td>'+ (r.school||'-') +'</td>'
                    + '<td>'+ (r.course||'-') +'</td>'
@@ -329,13 +348,21 @@ $user_name = $display_name ?? 'Office Head';
   function loadIfValid() {
     const s = startDateInp.value;
     const e = endDateInp.value;
-    if (!s || !e) return;
-    if (s > e) {
-      // show a small client-side alert and do not request
+    // prevent future dates
+    if (s && s > today) { alert('Start date cannot be in the future'); startDateInp.value = today; return; }
+    if (e && e > today) { alert('End date cannot be in the future'); endDateInp.value = ''; return; }
+
+    // if start is set but end is empty, load only the start day (end = start)
+    if (!s) return;
+    const effectiveEnd = e || s;
+    // if end was provided, validate order
+    if (e && s > e) {
       alert('Start date must be before or equal to end date');
+      // set end to start so the range becomes that single day
+      endDateInp.value = s;
       return;
     }
-    fetchDailyRange(s, e);
+    fetchDailyRange(s, effectiveEnd);
   }
 
   // auto-load when either date changes (no Load button)
@@ -355,7 +382,10 @@ $user_name = $display_name ?? 'Office Head';
   (function init(){
     const s = startDateInp.value;
     const e = endDateInp.value;
-    if (s && e) fetchDailyRange(s, e);
+    // no automatic fetch if end date empty; ensure inputs cannot select future dates
+    if (s && s > today) startDateInp.value = today;
+    if (e && e > today) endDateInp.value = '';
+    if (s) fetchDailyRange(s, e || s);
   })();
 
   // confirm logout (top-right)

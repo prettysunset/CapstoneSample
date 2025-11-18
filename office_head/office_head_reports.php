@@ -58,7 +58,7 @@ if ($office_id) {
 }
 
 // status filter from querystring — include "all" and default to all
-$allowed = ['all','pending','approved','ongoing','completed','no_response','rejected'];
+$allowed = ['all','pending','approved','ongoing','completed','evaluated','no_response','rejected'];
 $statusFilter = isset($_GET['status']) ? strtolower(trim($_GET['status'])) : 'all';
 if (!in_array($statusFilter, $allowed, true)) $statusFilter = 'all';
 
@@ -96,7 +96,7 @@ $sql = "
 /* Always include OJTs that are active in the office (approved / ongoing / completed).
    Additional status filters (from the dropdown) are applied below and will further
    narrow results when selected. */
-$sql .= " AND (COALESCE(s.status, u.status, oa.status) IN ('approved','ongoing','completed'))";
+$sql .= " AND (COALESCE(s.status, u.status, oa.status) IN ('approved','ongoing','completed','evaluated'))";
 
 // apply status filter only when not "all"
 if ($statusFilter !== 'all') {
@@ -108,6 +108,8 @@ if ($statusFilter !== 'all') {
         $sql .= " AND (COALESCE(oa.status,'') = 'ongoing' OR COALESCE(s.status,'') = 'ongoing' OR COALESCE(u.status,'') = 'ongoing')";
     } elseif ($statusFilter === 'completed') {
         $sql .= " AND (COALESCE(s.status,'') = 'completed' OR COALESCE(u.status,'') = 'completed')";
+    } elseif ($statusFilter === 'evaluated') {
+        $sql .= " AND (COALESCE(oa.status,'') = 'evaluated' OR COALESCE(s.status,'') = 'evaluated' OR COALESCE(u.status,'') = 'evaluated')";
     } elseif ($statusFilter === 'rejected') {
         $sql .= " AND COALESCE(oa.status,'') = 'rejected'";
     } elseif ($statusFilter === 'no_response') {
@@ -124,6 +126,153 @@ $stmt->execute();
 $res = $stmt->get_result();
 while ($r = $res->fetch_assoc()) $ojts[] = $r;
 $stmt->close();
+
+// --- calculate expected_end_date / date_started for each OJT (mirror logic from ojt_profile.php) ---
+foreach ($ojts as &$o) {
+    $o['expected_end_date'] = '';
+    $o['date_started'] = '';
+
+    $userId = (int)($o['user_id'] ?? 0);
+    $hours_rendered = (float)($o['hours_rendered'] ?? 0);
+    $total_required = (float)($o['total_hours_required'] ?? 500);
+
+    // if already completed required hours, try to use DTR first/last log dates
+    if ($total_required > 0 && $hours_rendered >= $total_required && $userId) {
+        // first log
+        $qf = $conn->prepare("SELECT log_date FROM dtr WHERE student_id = ? AND COALESCE(log_date,'') <> '' ORDER BY log_date ASC LIMIT 1");
+        if ($qf) {
+            $qf->bind_param('i', $userId);
+            $qf->execute();
+            $r1 = $qf->get_result()->fetch_assoc();
+            $qf->close();
+            if ($r1 && !empty($r1['log_date'])) $o['date_started'] = $r1['log_date'];
+        }
+        // last log
+        $ql = $conn->prepare("SELECT log_date FROM dtr WHERE student_id = ? AND COALESCE(log_date,'') <> '' ORDER BY log_date DESC LIMIT 1");
+        if ($ql) {
+            $ql->bind_param('i', $userId);
+            $ql->execute();
+            $r2 = $ql->get_result()->fetch_assoc();
+            $ql->close();
+            if ($r2 && !empty($r2['log_date'])) $o['expected_end_date'] = $r2['log_date'];
+        }
+        // leave as ISO (Y-m-d) so existing view formatting with date() works
+        continue;
+    }
+
+    // otherwise try to estimate from latest application orientation/remarks
+    // first resolve student_id (students.user_id -> students.student_id)
+    $studentId = null;
+    if ($userId) {
+        $qsid = $conn->prepare("SELECT student_id FROM students WHERE user_id = ? LIMIT 1");
+        if ($qsid) {
+            $qsid->bind_param('i', $userId);
+            $qsid->execute();
+            $tmp = $qsid->get_result()->fetch_assoc();
+            $qsid->close();
+            if ($tmp && !empty($tmp['student_id'])) $studentId = (int)$tmp['student_id'];
+        }
+    }
+
+    // fetch latest application remarks for that student (if any)
+    $orientation = '';
+    if ($studentId) {
+        $qa = $conn->prepare("SELECT remarks FROM ojt_applications WHERE student_id = ? ORDER BY date_updated DESC, application_id DESC LIMIT 1");
+        if ($qa) {
+            $qa->bind_param('i', $studentId);
+            $qa->execute();
+            $arow = $qa->get_result()->fetch_assoc();
+            $qa->close();
+            if ($arow && !empty($arow['remarks'])) {
+                $r = $arow['remarks'];
+                if (preg_match('/Orientation\/Start:\s*([0-9]{4}-[0-9]{2}-[0-9]{2})/i', $r, $m)) {
+                    $orientation = $m[1];
+                } elseif (preg_match('/Orientation\/Start:\s*([^|]+)/i', $r, $m2)) {
+                    // non-ISO orientation (leave as non-ISO string; cannot reliably compute)
+                    $orientation = trim($m2[1]);
+                }
+            }
+        }
+    }
+
+    // if orientation is an ISO date, estimate end date by adding working days based on remaining hours
+    if ($orientation && preg_match('/^\d{4}-\d{2}-\d{2}$/', $orientation)) {
+        $o['date_started'] = $orientation;
+        $hoursPerDay = 8;
+        $remaining = max(0, $total_required - $hours_rendered);
+        $daysNeeded = (int)ceil($remaining / $hoursPerDay);
+        $dt = DateTime::createFromFormat('Y-m-d', $orientation);
+        if ($dt && $daysNeeded > 0) {
+            $added = 0;
+            while ($added < $daysNeeded) {
+                $dt->modify('+1 day');
+                $dow = (int)$dt->format('N'); // 1 (Mon) - 7 (Sun)
+                if ($dow < 6) $added++;
+            }
+            // store ISO date for consistent formatting later
+            $o['expected_end_date'] = $dt->format('Y-m-d');
+        } else {
+            // if daysNeeded is 0 (already met) set expected to orientation
+            if ($daysNeeded === 0) $o['expected_end_date'] = $orientation;
+        }
+    } else {
+        // non-ISO orientation or none: use earliest DTR row (first time-in).
+        // If the first DTR has 0 worked hours (missing time-out), treat the first full 8-hr day
+        // as the next weekday (skip Sat/Sun) and start counting from there. Otherwise count
+        // from the first log date (shift forward if it falls on weekend).
+        if ($userId) {
+            $qfirst = $conn->prepare("SELECT log_date, COALESCE(hours,0) AS hours, COALESCE(minutes,0) AS minutes FROM dtr WHERE student_id = ? AND COALESCE(log_date,'') <> '' ORDER BY log_date ASC LIMIT 1");
+            if ($qfirst) {
+                $qfirst->bind_param('i', $userId);
+                $qfirst->execute();
+                $frow = $qfirst->get_result()->fetch_assoc();
+                $qfirst->close();
+                if ($frow && !empty($frow['log_date'])) {
+                    $startLog = $frow['log_date'];
+                    $o['date_started'] = $startLog;
+                    $hoursPerDay = 8;
+                    $remaining = max(0, $total_required - $hours_rendered);
+                    $daysNeeded = (int)ceil($remaining / $hoursPerDay);
+
+                    // determine counting start date
+                    $countStart = DateTime::createFromFormat('Y-m-d', $startLog);
+                    $firstWorkedHours = (int)$frow['hours'];
+                    $firstWorkedMinutes = (int)$frow['minutes'];
+
+                    if ($firstWorkedHours === 0 && $firstWorkedMinutes === 0) {
+                        // first log has no worked hours -> shift to next weekday (Mon-Fri)
+                        do {
+                            $countStart->modify('+1 day');
+                            $dow = (int)$countStart->format('N');
+                        } while ($dow >= 6); // skip Sat(6)/Sun(7)
+                    } else {
+                        // if the first log falls on weekend, start from next weekday
+                        while ((int)$countStart->format('N') >= 6) {
+                            $countStart->modify('+1 day');
+                        }
+                    }
+
+                    if ($daysNeeded > 0) {
+                        // count working days inclusive from $countStart
+                        $dt = clone $countStart;
+                        $added = 0;
+                        while ($added < $daysNeeded) {
+                            if ((int)$dt->format('N') < 6) $added++;
+                            if ($added >= $daysNeeded) break;
+                            $dt->modify('+1 day');
+                        }
+                        $o['expected_end_date'] = $dt->format('Y-m-d');
+                    } else {
+                        // already met required hours -> use start/countStart as expected end
+                        $o['expected_end_date'] = $countStart->format('Y-m-d');
+                    }
+                }
+            }
+        }
+        // otherwise leave expected_end_date empty (view will show '-')
+    }
+}
+unset($o); // break reference
 ?>
 <!doctype html>
 <html>
@@ -301,6 +450,7 @@ $current = basename($_SERVER['SCRIPT_NAME']);
             <option value="approved" <?= $statusFilter === 'approved' ? 'selected' : '' ?>>approved</option>
             <option value="ongoing" <?= $statusFilter === 'ongoing' ? 'selected' : '' ?>>ongoing</option>
             <option value="completed" <?= $statusFilter === 'completed' ? 'selected' : '' ?>>completed</option>
+            <option value="evaluated" <?= $statusFilter === 'evaluated' ? 'selected' : '' ?>>evaluated</option>
           </select>
         </div>
       </div>
@@ -345,8 +495,21 @@ $current = basename($_SERVER['SCRIPT_NAME']);
 
     <!-- PANEL: DTR -->
     <div id="panel-dtr" class="panel" style="display:none">
-      <div style="overflow:auto">
-        <table id="dailyTable">
+      <div class="controls" style="margin-bottom:8px">
+        <label for="startDateRpt" class="small-note" style="margin-right:6px">Start</label>
+        <input id="startDateRpt" type="date" value="<?= date('Y-m-d') ?>" max="<?= date('Y-m-d') ?>" />
+        <label for="endDateRpt" class="small-note" style="margin-left:8px;margin-right:6px">End</label>
+        <input id="endDateRpt" type="date" value="" max="<?= date('Y-m-d') ?>" />
+
+        <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+          <div style="display:flex;gap:8px;align-items:center;flex:1;justify-content:flex-end">
+            <input id="searchDtrRpt" type="text" placeholder="Search name / school / course"
+                   style="padding:10px;border-radius:8px;border:1px solid #ddd;flex:0 0 520px;min-width:200px;max-width:60%;" />
+          </div>
+        </div>
+      </div>
+       <div style="overflow:auto">
+         <table id="dailyTable">
           <thead>
             <tr>
               <th>Date</th>
@@ -383,9 +546,17 @@ $current = basename($_SERVER['SCRIPT_NAME']);
           <tbody id="requestsBody">
             <?php if (empty($office_requests)): ?>
               <tr><td colspan="4" style="text-align:center;color:#8a8f9d;padding:18px">No requests found.</td></tr>
-            <?php else: foreach ($office_requests as $req): ?>
-              <tr data-req-id="<?= (int)($req['request_id'] ?? 0) ?>" data-processed-at="<?= htmlspecialchars($req['date_of_action'] ?? '') ?>">
-                <td><?= htmlspecialchars($req['date_requested'] ?? '-') ?></td>
+            <?php else: foreach ($office_requests as $req):
+                // format PHP-side dates to MM/DD/YYYY when possible
+                $rq_date = $req['date_requested'] ?? '';
+                $rq_disp = '-';
+                if (!empty($rq_date) && strtotime($rq_date) !== false) $rq_disp = date('m/d/Y', strtotime($rq_date));
+                $proc_at = $req['date_of_action'] ?? '';
+                $proc_disp = '';
+                if (!empty($proc_at) && strtotime($proc_at) !== false) $proc_disp = date('m/d/Y', strtotime($proc_at));
+            ?>
+              <tr data-req-id="<?= (int)($req['request_id'] ?? 0) ?>" data-processed-at="<?= htmlspecialchars($proc_disp) ?>">
+                <td><?= htmlspecialchars($rq_disp) ?></td>
                 <td style="text-align:center"><?= htmlspecialchars($req['new_limit'] ?? '-') ?></td>
                 <td><?= htmlspecialchars($req['reason'] ?? '-') ?></td>
                 <td class="req-status"><?= htmlspecialchars($req['status'] ?? '-') ?></td>
@@ -453,6 +624,24 @@ $current = basename($_SERVER['SCRIPT_NAME']);
   // --- ADD: load DTR rows from server (office_head_dtr.php -> action 'get_daily_logs') ---
   function fmtDate(d){ return d.toISOString().slice(0,10); }
   function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  // format date string to MM/DD/YYYY for display (handles ISO yyyy-mm-dd and datetimes)
+  function formatDateDisplay(s){
+    if(!s) return '';
+    const d = new Date(s);
+    if(!isNaN(d.getTime())){
+      const mm = String(d.getMonth()+1).padStart(2,'0');
+      const dd = String(d.getDate()).padStart(2,'0');
+      const yyyy = d.getFullYear();
+      return `${mm}/${dd}/${yyyy}`;
+    }
+    // fallback: try to extract yyyy-mm-dd
+    const datePart = String(s).split(' ')[0];
+    const parts = datePart.split('-');
+    if(parts.length === 3 && parts[0].length === 4){
+      return `${parts[1].padStart(2,'0')}/${parts[2].padStart(2,'0')}/${parts[0]}`;
+    }
+    return s;
+  }
 
   async function loadDtr(startDate, endDate){
     const tbody = document.getElementById('dtrBody');
@@ -477,9 +666,12 @@ $current = basename($_SERVER['SCRIPT_NAME']);
        tbody.innerHTML = '';
        rows.forEach(r=>{
          const tr = document.createElement('tr');
+         const displayLogDate = formatDateDisplay(r.log_date || '');
+         const name = ((r.first_name||'') + ' ' + (r.last_name||'')).trim();
+         tr.dataset.search = ((name) + ' ' + (r.school||'') + ' ' + (r.course||'')).toLowerCase();
          tr.innerHTML = [
-           `<td>${esc(r.log_date||'')}</td>`,
-           `<td>${esc((r.first_name||'') + ' ' + (r.last_name||''))}</td>`,
+           `<td>${esc(displayLogDate)}</td>`,
+           `<td>${esc(name)}</td>`,
            `<td>${esc(r.school || '-')}</td>`,
            `<td>${esc(r.course || '-')}</td>`,
            `<td>${esc(r.am_in || '-')}</td>`,
@@ -497,30 +689,66 @@ $current = basename($_SERVER['SCRIPT_NAME']);
     }
   }
 
-  // load when switching to the DTR tab (default range: last 14 days)
+  // DATE RANGE + VALIDATIONS for DTR tab (mimic office_head_dtr.php)
+  const startDateRpt = document.getElementById('startDateRpt');
+  const endDateRpt = document.getElementById('endDateRpt');
+  const searchDtrRpt = document.getElementById('searchDtrRpt');
+  const todayIso = new Date().toISOString().slice(0,10);
+  if (startDateRpt) startDateRpt.max = todayIso;
+  if (endDateRpt) endDateRpt.max = todayIso;
+
+  function loadDtrIfValid() {
+    if (!startDateRpt) return;
+    const s = startDateRpt.value;
+    const e = endDateRpt.value;
+    if (!s) return;
+    if (s > todayIso) { alert('Start date cannot be in the future'); startDateRpt.value = todayIso; return; }
+    if (e && e > todayIso) { alert('End date cannot be in the future'); endDateRpt.value = ''; return; }
+    if (e && s > e) {
+      alert('Start date must be before or equal to end date');
+      endDateRpt.value = s;
+      return;
+    }
+    const effEnd = e || s;
+    loadDtr(s, effEnd);
+  }
+
+  // wire date inputs
+  if (startDateRpt) startDateRpt.addEventListener('change', loadDtrIfValid);
+  if (endDateRpt) endDateRpt.addEventListener('change', loadDtrIfValid);
+  // search filter for DTR table
+  if (searchDtrRpt) {
+    searchDtrRpt.addEventListener('input', function(){
+      const q = (this.value||'').toLowerCase().trim();
+      document.querySelectorAll('#dtrBody tr').forEach(tr=>{
+        const hay = tr.dataset.search || '';
+        tr.style.display = q === '' || hay.indexOf(q) !== -1 ? '' : 'none';
+      });
+    });
+  }
+
+  // when switching to DTR tab, trigger load with current date inputs (or default start)
   document.querySelectorAll('.tab-pill').forEach(btn=>{
     btn.addEventListener('click', function(){
       if (this.dataset.tab === 'dtr') {
-        const end = new Date();
-        const start = new Date();
-        start.setDate(end.getDate() - 14);
-        loadDtr(fmtDate(start), fmtDate(end));
+        // ensure start has default today if empty
+        if (startDateRpt && !startDateRpt.value) startDateRpt.value = todayIso;
+        loadDtrIfValid();
       }
     });
   });
 
-  // If DTR tab is active on page load, auto-load
+  // auto-load when DTR tab is active on page load
   (function initDtrIfActive(){
     const active = document.querySelector('.tab-pill.active');
     if (active && active.dataset.tab === 'dtr') {
-      const end = new Date();
-      const start = new Date(); start.setDate(end.getDate() - 14);
-      loadDtr(fmtDate(start), fmtDate(end));
+      if (startDateRpt && !startDateRpt.value) startDateRpt.value = todayIso;
+      loadDtrIfValid();
     }
   })();
-  // --- END ADD ---
-})();
-</script>
+   // --- END ADD ---
+ })();
+ </script>
 <script>
   // attach confirm to top logout like hr_head_ojts.php
   (function(){
