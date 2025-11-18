@@ -128,12 +128,34 @@ function fetch_office_requests($conn){
     return $rows;
 }
 
+function fetch_evaluations($conn){
+    $rows = [];
+    $sql = "
+      SELECT e.eval_id, e.rating, e.feedback, e.date_evaluated, e.rating_desc,
+             s.first_name AS student_first, s.last_name AS student_last,
+             u.first_name AS eval_first, u.last_name AS eval_last
+      FROM evaluations e
+      LEFT JOIN students s ON e.student_id = s.student_id
+      LEFT JOIN users u ON e.user_id = u.user_id
+      ORDER BY e.date_evaluated DESC
+    ";
+    $res = $conn->query($sql);
+    if ($res){
+        while ($r = $res->fetch_assoc()) {
+            $rows[] = $r;
+        }
+        $res->free();
+    }
+    return $rows;
+}
+
 function fmtDate($d){ if (!$d) return '-'; $dt = date_create($d); return $dt ? $dt->format('M j, Y') : '-'; }
 
 $students = fetch_students($conn);
 $offices = fetch_offices($conn);
 $moa = fetch_moa($conn);
 $office_requests = fetch_office_requests($conn);
+$evaluations = fetch_evaluations($conn);
 ?>
 <!doctype html>
 <html lang="en">
@@ -296,6 +318,9 @@ $office_requests = fetch_office_requests($conn);
             <button class="tab" data-tab="requests" role="tab" aria-selected="false" aria-controls="panel-requests">
               <span>Office Requests (<?= count($office_requests) ?>)</span>
             </button>
+            <button class="tab" data-tab="evaluations" role="tab" aria-selected="false" aria-controls="panel-evaluations">
+              <span>Evaluations (<?= count($evaluations) ?>)</span>
+            </button>
           </div>
         </div>
 
@@ -428,7 +453,7 @@ $office_requests = fetch_office_requests($conn);
         <div style="overflow-x:auto">
           <table class="tbl" id="tblMoa">
             <thead>
-              <tr><th>School</th><th style="text-align:center">Students</th><th>MOA File</th><th>Date Signed</th><th>Valid Until</th><th style="text-align:center">Status</th></tr>
+              <tr><th>School</th><th style="text-align:center">Students</th><th>MOA File</th><th>Date Signed</th><th style="text-align:center">Valid Until</th><th style="text-align:center">Status</th></tr>
             </thead>
             <tbody>
               <?php if (empty($moa)): ?>
@@ -482,7 +507,7 @@ $office_requests = fetch_office_requests($conn);
           <table class="tbl" id="tblRequests">
             <thead>
               <tr>
-                <th>Date Requested</th>
+                <th style="text-align:center">Date Requested</th>
                 <th>Office</th>
                 <th style="text-align:center">New Limit</th>
                 <th>Reason</th>
@@ -499,6 +524,55 @@ $office_requests = fetch_office_requests($conn);
                   <td style="text-align:center"><?= is_null($req['new_limit']) ? '—' : (int)$req['new_limit'] ?></td>
                   <td><?= htmlspecialchars($req['reason'] ?? '-') ?></td>
                   <td style="text-align:center"><?= htmlspecialchars(ucfirst($req['status'] ?? '')) ?></td>
+                </tr>
+              <?php endforeach; endif; ?>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- NEW: Evaluations panel -->
+      <div id="panel-evaluations" class="panel" style="display:none">
+        <div style="overflow-x:auto">
+          <table class="tbl" id="tblEvaluations">
+            <thead>
+              <tr>
+                <th style="text-align:center">Date Evaluated</th>
+                <th style="text-align:center">Student Name</th>
+                <th style="text-align:center">Rating</th>
+                <th style="text-align:center">Feedback</th>
+                <th style="text-align:center">Evaluator</th>
+                <th style="text-align:center">View</th>
+                <th style="text-align:center">Print Certificate</th>
+              </tr>
+            </thead>
+            <tbody>
+              <?php if (empty($evaluations)): ?>
+                <tr><td colspan="7" class="empty">No evaluations found.</td></tr>
+              <?php else: foreach ($evaluations as $e): ?>
+                <tr data-search="<?= htmlspecialchars(strtolower(($e['student_first'] ?? '') . ' ' . ($e['student_last'] ?? '') . ' ' . ($e['eval_first'] ?? '') . ' ' . ($e['eval_last'] ?? '') . ' ' . ($e['feedback'] ?? ''))) ?>">
+                  <td style="text-align:center"><?= htmlspecialchars(fmtDate($e['date_evaluated'] ?? '')) ?></td>
+                  <td style="text-align:center"><?= htmlspecialchars(trim(($e['student_first'] ?? '') . ' ' . ($e['student_last'] ?? ''))) ?: 'N/A' ?></td>
+                  <td style="text-align:center"><?= htmlspecialchars($e['rating_desc'] ?? '') ?></td>
+                  <td style="text-align:center"><?= htmlspecialchars($e['feedback'] ?? '') ?></td>
+                  <td style="text-align:center"><?= htmlspecialchars(trim(($e['eval_first'] ?? '') . ' ' . ($e['eval_last'] ?? ''))) ?: 'N/A' ?></td>
+                  <td style="text-align:center">
+                    <button class="view-btn" data-eval-id="<?= htmlspecialchars($e['eval_id'] ?? '') ?>" title="View Evaluation" style="background:none;border:none;cursor:pointer;color:#0b74de;">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                        <circle cx="12" cy="12" r="3"></circle>
+                      </svg>
+                    </button>
+                  </td>
+                  <td style="text-align:center">
+                    <button class="print-btn" data-eval-id="<?= htmlspecialchars($e['eval_id'] ?? '') ?>" title="Print Certificate of Completion" style="background:none;border:none;cursor:pointer;color:#0b74de;">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="6 9 6 2 18 2 18 9"></polyline>
+                        <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path>
+                        <rect x="6" y="14" width="12" height="8"></rect>
+                      </svg>
+                    </button>
+                  </td>
                 </tr>
               <?php endforeach; endif; ?>
             </tbody>
@@ -526,6 +600,7 @@ $office_requests = fetch_office_requests($conn);
       const isOffices  = visible.id === 'panel-offices';
       const isMoa      = visible.id === 'panel-moa';
       const isRequests = visible.id === 'panel-requests';
+      const isEvaluations = visible.id === 'panel-evaluations';
 
       visible.querySelectorAll('tbody tr').forEach(tr=>{
         // placeholder rows have no data-search attribute
@@ -555,6 +630,10 @@ $office_requests = fetch_office_requests($conn);
           // office requests: rely on data-search (office, reason, status)
           visibleByOffice = true;
           visibleByStatus = true;
+        } else if (isEvaluations) {
+          // evaluations: rely on data-search (student name, evaluator name, feedback)
+          visibleByOffice = true;
+          visibleByStatus = true;
         }
 
         tr.style.display = (visibleBySearch && visibleByOffice && visibleByStatus) ? '' : 'none';
@@ -573,6 +652,7 @@ $office_requests = fetch_office_requests($conn);
        document.getElementById('panel-offices').style.display = tab==='offices' ? 'block' : 'none';
        document.getElementById('panel-moa').style.display = tab==='moa' ? 'block' : 'none';
        document.getElementById('panel-requests').style.display = tab==='requests' ? 'block' : 'none';
+       document.getElementById('panel-evaluations').style.display = tab==='evaluations' ? 'block' : 'none';
 
        // show/hide students-only filters
        const sf = document.getElementById('studentsFilters');
