@@ -707,7 +707,7 @@ $late_dtr_res = $late_dtr->get_result();
               <?php else: ?>
                 <?php foreach ($reqs as $r): ?>
                   <tr>
-                    <td style="padding:8px; border:1px solid #e0e0e0;"><?php echo htmlspecialchars($r['date_requested']); ?></td>
+                    <td style="padding:8px; border:1px solid #e0e0e0;"><?php echo !empty($r['date_requested']) ? htmlspecialchars(date('m/d/Y', strtotime($r['date_requested']))) : '-'; ?></td>
                     <td style="padding:8px; border:1px solid #e0e0e0;"><?php echo htmlspecialchars($r['new_limit']); ?></td>
                     <td style="padding:8px; border:1px solid #e0e0e0; max-width:360px;"><?php echo htmlspecialchars($r['reason']); ?></td>
                     <td style="padding:8px; border:1px solid #e0e0e0;"><?php echo htmlspecialchars(ucfirst($r['status'])); ?></td>

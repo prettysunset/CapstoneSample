@@ -343,7 +343,9 @@ $af1 = isset($_SESSION['af1']) ? $_SESSION['af1'] : [];
       const today = new Date();
       // cutoff = today - 18 years
       const cutoff = new Date(today.getFullYear() - 18, today.getMonth(), today.getDate());
-      const cutoffIso = cutoff.toISOString().split('T')[0];
+      // build ISO date in local time (avoid toISOString timezone shift)
+      const pad = (n) => (n < 10 ? '0' + n : n);
+      const cutoffIso = cutoff.getFullYear() + '-' + pad(cutoff.getMonth() + 1) + '-' + pad(cutoff.getDate());
 
       const birthdayInput = document.getElementById('birthday');
       if (birthdayInput) {
