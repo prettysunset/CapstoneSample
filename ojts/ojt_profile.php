@@ -683,7 +683,7 @@ if ($user_id) {
 
                                           <div style="display:flex; flex-direction:column; align-items:flex-start; gap:6px; min-width:220px;">
                                             <div style="color:#2f3459;font-weight:700;font-size:16px;"><?php echo htmlspecialchars((int)$hours_rendered . ' out of ' . (int)$total_required . ' hours'); ?></div>
-                                            <div style="color:#6b6f8b;font-size:13px;"><?php echo $percent; ?>% complete</div>
+                                            
                                             <div style="color:#6b6f8b;font-size:13px; margin-top:4px;">Date Started: <b style="color:#2f3459;"><?php echo htmlspecialchars($orientation_display); ?></b></div>
                                             <div style="color:#6b6f8b;font-size:13px;">Estimated End Date: <b style="color:#2f3459;"><?php echo htmlspecialchars($expected_end_display); ?></b></div>
 
