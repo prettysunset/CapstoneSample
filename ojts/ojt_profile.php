@@ -482,25 +482,62 @@ if ($user_id) {
                                         }
                                     }
 
-                                    // compute progress and expected end date
-                                    $hours_rendered = $hours_rendered ?? 0;
-                                    $total_required = $total_required ?? 500;
-                                    $percent = $total_required > 0 ? round(($hours_rendered / $total_required) * 100) : 0;
-                                    $orientation_display = $orientation ? (preg_match('/^\d{4}-\d{2}-\d{2}$/', $orientation) ? date('F j, Y', strtotime($orientation)) : $orientation) : '-';
-                                    // expected end date logic:
-                                    // - If student has already completed required hours, use first and last DTR log dates:
-                                    //     start = first DTR log_date, end = last DTR log_date
-                                    // - Otherwise, if we have an orientation date (YYYY-MM-DD), estimate end date using working days.
+                                    // compute progress from DTR (hours + minutes/60) and expected end date
+                                    $hours_rendered = 0.0;
+                                    $percent = 0;
                                     $expected_end_display = '-';
-                                    if (!empty($hours_rendered) && !empty($total_required) && $hours_rendered >= $total_required) {
-                                        // try to use DTR records for the user. DTR.student_id stores users.user_id in this project.
-                                        $dtrFirst = null;
-                                        $dtrLast = null;
-                                        $dtrUserId = !empty($user_id) ? (int)$user_id : null;
-                                        if (!$dtrUserId && !empty($student_id)) {
-                                            // fallback: sometimes DTR uses student_id numeric -- attempt student_id
-                                            $dtrUserId = (int)$student_id;
+                                    $total_required = $total_required ?? 500;
+
+                                    // determine DTR id: prefer users.user_id (dtr.student_id stores users.user_id) then fallback to students.student_id
+                                    $dtrUserId = null;
+                                    if (!empty($user_id)) {
+                                        $dtrUserId = (int)$user_id;
+                                    } elseif (!empty($student_id)) {
+                                        $dtrUserId = (int)$student_id;
+                                    }
+
+                                    if (!empty($dtrUserId)) {
+                                        $qSum = $conn->prepare("SELECT IFNULL(SUM(hours + minutes/60),0) AS total FROM dtr WHERE student_id = ?");
+                                        if ($qSum) {
+                                            $qSum->bind_param('i', $dtrUserId);
+                                            $qSum->execute();
+                                            $trSum = $qSum->get_result()->fetch_assoc();
+                                            $qSum->close();
+                                            $hours_rendered = isset($trSum['total']) ? (float)$trSum['total'] : 0.0;
+                                        } else {
+                                            error_log('ojt_profile: failed prepare SUM(dtr): ' . $conn->error);
                                         }
+                                    }
+
+                                    // compute percent (cap at 100)
+                                    if ($total_required > 0) {
+                                        $pct = ($hours_rendered / (float)$total_required) * 100.0;
+                                        $percent = (int) round(min(100, max(0, $pct)));
+                                    } else {
+                                        $percent = 0;
+                                    }
+                                    $remaining = max(0, $total_required - $hours_rendered);
+
+                                    // Default displays
+                                    $orientation_display = '-';
+                                    $expected_end_display = '-';
+
+                                    // Behavior:
+                                    // - users.status = 'approved' => leave both fields as '-'
+                                    // - users.status = 'ongoing'  => Date Started = earliest dtr.log_date (dtr.student_id stores users.user_id)
+                                    //                                Estimated End = start + required weekdays (Mon-Fri) assuming 8 hrs/day
+                                    // - otherwise => keep existing fallback: completed uses DTR first/last; else use orientation estimate
+                                    $user_status = strtolower($ur['status'] ?? '');
+
+                                    if ($user_status === 'approved') {
+                                        // intentionally leave dashes
+                                        $orientation_display = '-';
+                                        $expected_end_display = '-';
+                                    } elseif ($user_status === 'ongoing') {
+                                        // find earliest DTR log_date for this user (dtr.student_id references users.user_id)
+                                        $dtrFirst = null;
+                                        $dtrUserId = !empty($user_id) ? (int)$user_id : null;
+                                        if (!$dtrUserId && !empty($student_id)) $dtrUserId = (int)$student_id;
                                         if (!empty($dtrUserId)) {
                                             $qf = $conn->prepare("SELECT log_date FROM dtr WHERE student_id = ? AND COALESCE(log_date,'') <> '' ORDER BY log_date ASC LIMIT 1");
                                             if ($qf) {
@@ -510,39 +547,97 @@ if ($user_id) {
                                                 $qf->close();
                                                 if ($r1 && !empty($r1['log_date'])) $dtrFirst = $r1['log_date'];
                                             }
-                                            $ql = $conn->prepare("SELECT log_date FROM dtr WHERE student_id = ? AND COALESCE(log_date,'') <> '' ORDER BY log_date DESC LIMIT 1");
-                                            if ($ql) {
-                                                $ql->bind_param('i', $dtrUserId);
-                                                $ql->execute();
-                                                $r2 = $ql->get_result()->fetch_assoc();
-                                                $ql->close();
-                                                if ($r2 && !empty($r2['log_date'])) $dtrLast = $r2['log_date'];
-                                            }
                                         }
+
                                         if (!empty($dtrFirst)) {
                                             $orientation_display = date('F j, Y', strtotime($dtrFirst));
-                                        }
-                                        if (!empty($dtrLast)) {
-                                            $expected_end_display = date('F j, Y', strtotime($dtrLast));
+
+                                            // estimate end date inclusive of start day:
+                                            $remaining = max(0, (float)$total_required - (float)$hours_rendered);
+                                            $hoursPerDay = 8;
+                                            $daysNeeded = (int)ceil($remaining / $hoursPerDay);
+
+                                            if ($daysNeeded <= 0) {
+                                                $expected_end_display = $orientation_display;
+                                            } else {
+                                                // count start day as day 1 if it's a weekday
+                                                $dt = new DateTime($dtrFirst);
+                                                $counted = 0;
+                                                // advance day-by-day and count only Mon-Fri; stop when counted == daysNeeded
+                                                while ($counted < $daysNeeded) {
+                                                    $dow = (int)$dt->format('N'); // 1..7
+                                                    if ($dow <= 5) $counted++;
+                                                    if ($counted >= $daysNeeded) break;
+                                                    $dt->modify('+1 day');
+                                                }
+                                                $expected_end_display = $dt->format('F j, Y');
+                                            }
                                         } else {
-                                            $expected_end_display = '-';
+                                            // no DTR yet: fallback to orientation from application (if valid date) and estimate from that
+                                            if (!empty($orientation) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $orientation)) {
+                                                $orientation_display = date('F j, Y', strtotime($orientation));
+                                                $remaining = max(0, (float)$total_required - (float)$hours_rendered);
+                                                $hoursPerDay = 8;
+                                                $daysNeeded = (int)ceil($remaining / $hoursPerDay);
+                                                if ($daysNeeded <= 0) {
+                                                    $expected_end_display = $orientation_display;
+                                                } else {
+                                                    $dt = new DateTime($orientation);
+                                                    $counted = 0;
+                                                    while ($counted < $daysNeeded) {
+                                                        $dow = (int)$dt->format('N');
+                                                        if ($dow <= 5) $counted++;
+                                                        if ($counted >= $daysNeeded) break;
+                                                        $dt->modify('+1 day');
+                                                    }
+                                                    $expected_end_display = $dt->format('F j, Y');
+                                                }
+                                            } else {
+                                                $orientation_display = '-';
+                                                $expected_end_display = '-';
+                                            }
                                         }
                                     } else {
-                                        // estimate using orientation date if valid ISO date
-                                        if (!empty($orientation) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $orientation)) {
-                                            $hoursPerDay = 8;
-                                            $remaining = max(0, (float)$total_required - (float)$hours_rendered);
-                                            $daysNeeded = (int)ceil($remaining / $hoursPerDay);
-                                            $dt = new DateTime($orientation);
-                                            $added = 0;
-                                            while ($added < $daysNeeded) {
-                                                $dt->modify('+1 day');
-                                                $dow = (int)$dt->format('N');
-                                                if ($dow < 6) $added++;
+                                        // completed or other statuses: keep prior behavior
+                                        if (!empty($hours_rendered) && !empty($total_required) && $hours_rendered >= $total_required) {
+                                            // use DTR first/last for start/end
+                                            $dtrFirst = null;
+                                            $dtrLast = null;
+                                            $dtrUserId = !empty($user_id) ? (int)$user_id : null;
+                                            if (!$dtrUserId && !empty($student_id)) $dtrUserId = (int)$student_id;
+                                            if (!empty($dtrUserId)) {
+                                                $qf = $conn->prepare("SELECT log_date FROM dtr WHERE student_id = ? AND COALESCE(log_date,'') <> '' ORDER BY log_date ASC LIMIT 1");
+                                                if ($qf) { $qf->bind_param('i', $dtrUserId); $qf->execute(); $r1 = $qf->get_result()->fetch_assoc(); $qf->close(); if ($r1 && !empty($r1['log_date'])) $dtrFirst = $r1['log_date']; }
+                                                $ql = $conn->prepare("SELECT log_date FROM dtr WHERE student_id = ? AND COALESCE(log_date,'') <> '' ORDER BY log_date DESC LIMIT 1");
+                                                if ($ql) { $ql->bind_param('i', $dtrUserId); $ql->execute(); $r2 = $ql->get_result()->fetch_assoc(); $ql->close(); if ($r2 && !empty($r2['log_date'])) $dtrLast = $r2['log_date']; }
                                             }
-                                            $expected_end_display = $dt->format('F j, Y');
-                                        } elseif (!empty($orientation) && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $orientation)) {
-                                            $expected_end_display = '-';
+                                            if (!empty($dtrFirst)) $orientation_display = date('F j, Y', strtotime($dtrFirst));
+                                            if (!empty($dtrLast)) $expected_end_display = date('F j, Y', strtotime($dtrLast));
+                                            else $expected_end_display = '-';
+                                        } else {
+                                            // fallback: use orientation from application and estimate end date from it (Mon-Fri, 8hrs/day)
+                                            if (!empty($orientation) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $orientation)) {
+                                                $orientation_display = date('F j, Y', strtotime($orientation));
+                                                $remaining = max(0, (float)$total_required - (float)$hours_rendered);
+                                                $hoursPerDay = 8;
+                                                $daysNeeded = (int)ceil($remaining / $hoursPerDay);
+                                                if ($daysNeeded <= 0) {
+                                                    $expected_end_display = $orientation_display;
+                                                } else {
+                                                    $dt = new DateTime($orientation);
+                                                    $counted = 0;
+                                                    while ($counted < $daysNeeded) {
+                                                        $dow = (int)$dt->format('N');
+                                                        if ($dow <= 5) $counted++;
+                                                        if ($counted >= $daysNeeded) break;
+                                                        $dt->modify('+1 day');
+                                                    }
+                                                    $expected_end_display = $dt->format('F j, Y');
+                                                }
+                                            } else {
+                                                $orientation_display = $orientation ? (preg_match('/^\d{4}-\d{2}-\d{2}$/', $orientation) ? date('F j, Y', strtotime($orientation)) : $orientation) : '-';
+                                                $expected_end_display = '-';
+                                            }
                                         }
                                     }
                                     ?>

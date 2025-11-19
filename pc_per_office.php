@@ -60,7 +60,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     }
 
     // 1) Find user in users table
-    $u = $conn->prepare("SELECT user_id, password, role FROM users WHERE username = ? LIMIT 1");
+    $u = $conn->prepare("SELECT user_id, password, role, status FROM users WHERE username = ? LIMIT 1");
     $u->bind_param('s', $username);
     $u->execute();
     $user = $u->get_result()->fetch_assoc();
@@ -112,7 +112,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     // role must be ojt
     if (($user['role'] ?? '') !== 'ojt') json_resp(['success'=>false,'message'=>'User is not an OJT']);
 
-    // 3) Map user_id -> students.student_id
+    // block time-in if user's status is 'completed'
+    if ($action === 'time_in' && (($user['status'] ?? '') === 'completed')) {
+        json_resp(['success' => false, 'message' => 'Cannot time in: user status is completed']);
+    }
+
+    // 3) Map user_id -> students.student_id and determine DTR owner (users.user_id)
     $s = $conn->prepare("SELECT student_id FROM students WHERE user_id = ? LIMIT 1");
     $s->bind_param('i', $user['user_id']);
     $s->execute();
@@ -120,6 +125,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     $s->close();
     if (!$st) json_resp(['success'=>false,'message'=>'No student record found for this user']);
     $student_id = (int)$st['student_id'];
+
+    // dtr.student_id column references users.user_id in this schema — use user_id as the dtr owner
+    $dtr_owner = (int)$user['user_id'];
 
     // Prefer explicit client-local date/time (sent by browser). Fallback to ISO client_ts, then DB server time.
     $today = null; $now = null;
@@ -144,17 +152,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     try {
         $conn->begin_transaction();
 
-        // lock existing dtr row (if any) for this student/date
+        // lock existing dtr row (if any) for this user/date
         $q = $conn->prepare("SELECT dtr_id, am_in, am_out, pm_in, pm_out FROM dtr WHERE student_id = ? AND log_date = ? LIMIT 1 FOR UPDATE");
-        $q->bind_param('is', $student_id, $today);
+        $q->bind_param('is', $dtr_owner, $today);
         $q->execute();
         $dtr = $q->get_result()->fetch_assoc();
         $q->close();
 
-        // check if this is the first time-in ever for this student (no prior DTR records)
+        // check if this is the first time-in ever for this user (no prior DTR records)
         $isFirstTimeIn = false;
         $checkFirst = $conn->prepare("SELECT COUNT(*) AS cnt FROM dtr WHERE student_id = ?");
-        $checkFirst->bind_param('i', $student_id);
+        $checkFirst->bind_param('i', $dtr_owner);
         $checkFirst->execute();
         $firstRes = $checkFirst->get_result()->fetch_assoc();
         $checkFirst->close();
@@ -333,7 +341,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             } else {
                 if ($hasOfficeCol && $office_id) {
                     $ins = $conn->prepare("INSERT INTO dtr (student_id, log_date, am_in, office_id) VALUES (?, ?, ?, ?)");
-                    $ins->bind_param('issi', $student_id, $today, $now, $office_id);
+                    $ins->bind_param('issi', $dtr_owner, $today, $now, $office_id);
                 } else {
                     // determine hour using the $now value (client_ts preferred) so stored time/date
                     // matches the actual click time rather than server clock
@@ -350,7 +358,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     } else {
                         $ins = $conn->prepare("INSERT INTO dtr (student_id, log_date, pm_in) VALUES (?, ?, ?)");
                     }
-                    $ins->bind_param('iss', $student_id, $today, $now);
+                    $ins->bind_param('iss', $dtr_owner, $today, $now);
                 }
                 $ins->execute();
                 $ins->close();

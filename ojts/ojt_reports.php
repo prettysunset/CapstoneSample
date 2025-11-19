@@ -25,7 +25,7 @@ $weeks = [];
 
 if ($user_id) {
     // load user
-    $u = $conn->prepare("SELECT username, first_name, middle_name, last_name, role, office_name FROM users WHERE user_id = ? LIMIT 1");
+    $u = $conn->prepare("SELECT username, first_name, middle_name, last_name, role, office_name, status FROM users WHERE user_id = ? LIMIT 1");
     $u->bind_param("i", $user_id);
     $u->execute();
     $ur = $u->get_result()->fetch_assoc();
@@ -102,7 +102,7 @@ $hours_rendered = 0.0;
 $percent = 0;
 $expected_end_date = 'N/A';
 
-// choose id used in DTR/journals: prefer users.user_id (DTR in this schema stores users.user_id) but fall back to students.student_id
+// choose id used in DTR/journals: prefer users.user_id (DTR stores users.user_id) but fall back to students.student_id
 $dtrUserId = null;
 if (!empty($user_id)) {
     $dtrUserId = (int)$user_id;
@@ -110,9 +110,10 @@ if (!empty($user_id)) {
     $dtrUserId = (int)$student_id;
 }
 
+// Always compute actual hours from dtr (hours + minutes/60). Use optional startDate extraction only for expected-end logic.
+$startDateSql = null;
 if (!empty($dtrUserId)) {
-    // find earliest time-in as start date (same logic as ojt_profile.php)
-    $startDateSql = null;
+    // earliest recorded time-in (if any)
     $qf = $conn->prepare("SELECT log_date FROM dtr WHERE student_id = ? AND ((am_in IS NOT NULL AND am_in<>'') OR (pm_in IS NOT NULL AND pm_in<>'')) ORDER BY log_date ASC LIMIT 1");
     $qf->bind_param('i', $dtrUserId);
     $qf->execute();
@@ -121,7 +122,7 @@ if (!empty($dtrUserId)) {
     if ($fr && !empty($fr['log_date'])) {
         $startDateSql = $fr['log_date'];
     } else {
-        // fallback: parse Orientation/Start from latest application remarks
+        // fallback: parse Orientation/Start from latest application remarks (optional)
         $qa = $conn->prepare("SELECT remarks FROM ojt_applications WHERE student_id = ? ORDER BY date_updated DESC, application_id DESC LIMIT 1");
         $qa->bind_param('i', $dtrUserId);
         $qa->execute();
@@ -141,60 +142,104 @@ if (!empty($dtrUserId)) {
         }
     }
 
-    // sum hours + minutes/60 from dtr (optionally from startDate)
-    if ($startDateSql) {
-        $q = $conn->prepare("SELECT IFNULL(SUM(hours + minutes/60),0) AS total FROM dtr WHERE student_id = ? AND log_date >= ?");
-        $q->bind_param("is", $dtrUserId, $startDateSql);
+    // Sum hours from DTR: hours + minutes/60
+    $qSum = $conn->prepare("SELECT IFNULL(SUM(hours + minutes/60),0) AS total FROM dtr WHERE student_id = ?");
+    $qSum->bind_param("i", $dtrUserId);
+    $qSum->execute();
+    $trSum = $qSum->get_result()->fetch_assoc();
+    $qSum->close();
+    $hours_rendered = isset($trSum['total']) ? (float)$trSum['total'] : 0.0;
+
+    // percent (cap at 100)
+    if ($total_required > 0) {
+        $pct = ($hours_rendered / (float)$total_required) * 100.0;
+        $percent = (int) round(min(100, max(0, $pct)));
     } else {
-        $q = $conn->prepare("SELECT IFNULL(SUM(hours + minutes/60),0) AS total FROM dtr WHERE student_id = ?");
-        $q->bind_param("i", $dtrUserId);
+        $percent = 0;
     }
-    $q->execute();
-    $tr = $q->get_result()->fetch_assoc();
-    $q->close();
-
-    $hours_rendered = isset($tr['total']) ? (float)$tr['total'] : 0.0;
-
-    // percent and expected end date (8 hrs/day, count weekdays)
-    $percent = ($total_required > 0) ? round(($hours_rendered / $total_required) * 100) : 0;
     $remaining = max(0, $total_required - $hours_rendered);
 
-    if ($remaining <= 0) {
-        // completed: use last DTR log_date as end date if available
-        $lastDateSql = null;
-        $qld = $conn->prepare("SELECT MAX(log_date) AS last_date FROM dtr WHERE student_id = ?");
-        $qld->bind_param("i", $dtrUserId);
-        if ($qld->execute()) {
-            $ld = $qld->get_result()->fetch_assoc();
-            if ($ld && !empty($ld['last_date'])) $lastDateSql = $ld['last_date'];
-        }
-        $qld->close();
-        if ($lastDateSql) {
-            $expected_end_date = (new DateTime($lastDateSql))->format('F j, Y');
+    // NEW: respect users.status rules:
+    // - approved => expected end date = '-'
+    // - ongoing  => use earliest DTR log_date (startDateSql) as Date Started and estimate end date from that (Mon-Fri, 8hrs/day)
+    // - otherwise => existing behavior (completed => last dtr; fallback estimate from orientation)
+    $user_status = strtolower($ur['status'] ?? '');
+
+    if ($user_status === 'approved') {
+        $expected_end_date = '-';
+    } elseif ($user_status === 'ongoing') {
+        if ($remaining <= 0) {
+            // already finished — show last DTR as completed
+            $lastDateSql = null;
+            $qld = $conn->prepare("SELECT MAX(log_date) AS last_date FROM dtr WHERE student_id = ?");
+            $qld->bind_param("i", $dtrUserId);
+            if ($qld->execute()) {
+                $ld = $qld->get_result()->fetch_assoc();
+                if ($ld && !empty($ld['last_date'])) $lastDateSql = $ld['last_date'];
+            }
+            $qld->close();
+            if ($lastDateSql) {
+                $expected_end_date = (new DateTime($lastDateSql))->format('F j, Y');
+            } else {
+                $expected_end_date = 'Completed';
+            }
         } else {
-            $expected_end_date = 'Completed';
+            // need start date from DTR — if none, leave '-' (per request: use earliest dtr.log_date)
+            if (!empty($startDateSql)) {
+                $daysNeeded = (int)ceil($remaining / 8); // 8 hrs/day
+                $dt = new DateTime($startDateSql);
+                $counted = 0;
+                // count the start day if it's a weekday
+                while ($counted < $daysNeeded) {
+                    $dow = (int)$dt->format('N'); // 1..7
+                    if ($dow <= 5) $counted++;
+                    if ($counted >= $daysNeeded) break;
+                    $dt->modify('+1 day');
+                }
+                $expected_end_date = $dt->format('F j, Y');
+            } else {
+                // no DTR start -> cannot compute reliably per requirement
+                $expected_end_date = '-';
+            }
         }
-    } elseif ($startDateSql) {
-        $daysNeeded = (int)ceil($remaining / 8); // 8 hrs/day
-        $dt = new DateTime($startDateSql);
-        $added = 0;
-        while ($added < $daysNeeded) {
-            $dt->modify('+1 day');
-            $dow = (int)$dt->format('N'); // 1..7
-            if ($dow < 6) $added++;
-        }
-        $expected_end_date = $dt->format('F j, Y');
     } else {
-        // no start date known — estimate by today + daysNeeded (count weekdays)
-        $daysNeeded = (int)ceil($remaining / 8);
-        $dt = new DateTime(); // today
-        $added = 0;
-        while ($added < $daysNeeded) {
-            $dt->modify('+1 day');
-            $dow = (int)$dt->format('N');
-            if ($dow < 6) $added++;
+        // other statuses (including completed) — preserve previous behavior
+        if ($remaining <= 0) {
+            $lastDateSql = null;
+            $qld = $conn->prepare("SELECT MAX(log_date) AS last_date FROM dtr WHERE student_id = ?");
+            $qld->bind_param("i", $dtrUserId);
+            if ($qld->execute()) {
+                $ld = $qld->get_result()->fetch_assoc();
+                if ($ld && !empty($ld['last_date'])) $lastDateSql = $ld['last_date'];
+            }
+            $qld->close();
+            if ($lastDateSql) {
+                $expected_end_date = (new DateTime($lastDateSql))->format('F j, Y');
+            } else {
+                $expected_end_date = 'Completed';
+            }
+        } elseif ($startDateSql) {
+            $daysNeeded = (int)ceil($remaining / 8); // 8 hrs/day
+            $dt = new DateTime($startDateSql);
+            $added = 0;
+            while ($added < $daysNeeded) {
+                $dt->modify('+1 day');
+                $dow = (int)$dt->format('N'); // 1..7
+                if ($dow < 6) $added++;
+            }
+            $expected_end_date = $dt->format('F j, Y');
+        } else {
+            // no start date known — estimate by today + daysNeeded (count weekdays)
+            $daysNeeded = (int)ceil($remaining / 8);
+            $dt = new DateTime(); // today
+            $added = 0;
+            while ($added < $daysNeeded) {
+                $dt->modify('+1 day');
+                $dow = (int)$dt->format('N');
+                if ($dow < 6) $added++;
+            }
+            $expected_end_date = $dt->format('F j, Y');
         }
-        $expected_end_date = $dt->format('F j, Y');
     }
 
     // fetch last 3 weekly summaries (group by ISO week) using same dtrUserId
@@ -466,12 +511,14 @@ if (empty($weeks)) {
                 <th style="padding:10px 14px">PM In</th>
                 <th style="padding:10px 14px">PM Out</th>
                 <th style="padding:10px 14px">Hours</th>
+                <th style="padding:10px 14px">Minutes</th>
               </tr>
             </thead>
             <tbody>
 <?php
 if (!empty($dtrUserId)) {
-    $stmt = $conn->prepare("SELECT log_date, am_in, am_out, pm_in, pm_out, hours FROM dtr WHERE student_id = ? ORDER BY log_date DESC LIMIT 30");
+    // include minutes column from DB
+    $stmt = $conn->prepare("SELECT log_date, am_in, am_out, pm_in, pm_out, hours, minutes FROM dtr WHERE student_id = ? ORDER BY log_date DESC LIMIT 30");
     if ($stmt) {
         $stmt->bind_param("i", $dtrUserId);
         if ($stmt->execute()) {
@@ -489,22 +536,23 @@ if (!empty($dtrUserId)) {
                     echo '<td style="padding:10px 14px">'.htmlspecialchars($r['pm_in'] ?: '—').'</td>';
                     echo '<td style="padding:10px 14px">'.htmlspecialchars($r['pm_out'] ?: '—').'</td>';
                     echo '<td style="padding:10px 14px">'.((int)$r['hours']).'h</td>';
+                    echo '<td style="padding:10px 14px">'.(isset($r['minutes']) ? ((int)$r['minutes']).'m' : '—').'</td>';
                     echo '</tr>';
                 }
             } else {
-                echo '<tr><td colspan="6" style="padding:12px;color:#666">No records found.</td></tr>';
+                echo '<tr><td colspan="7" style="padding:12px;color:#666">No records found.</td></tr>';
             }
         } else {
             error_log('ojt_reports: execute failed (dtr): ' . $stmt->error);
-            echo '<tr><td colspan="6" style="padding:12px;color:#666">Unable to load records.</td></tr>';
+            echo '<tr><td colspan="7" style="padding:12px;color:#666">Unable to load records.</td></tr>';
         }
         $stmt->close();
     } else {
         error_log('ojt_reports: prepare failed (dtr): ' . $conn->error);
-        echo '<tr><td colspan="6" style="padding:12px;color:#666">Unable to load records.</td></tr>';
+        echo '<tr><td colspan="7" style="padding:12px;color:#666">Unable to load records.</td></tr>';
     }
 } else {
-    echo '<tr><td colspan="6" style="padding:12px;color:#666">No records available.</td></tr>';
+    echo '<tr><td colspan="7" style="padding:12px;color:#666">No records available.</td></tr>';
 }
 ?>
             </tbody>
