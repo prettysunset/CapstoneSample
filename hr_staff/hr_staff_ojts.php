@@ -595,7 +595,7 @@ if ($moa_q) {
                   <th style="text-align:center">Available Slots</th>
                   <th style="text-align:center">Requested Limit</th>
                   <th>Reason</th>
-                  <th style="text-align:center">Action</th>
+                  <th style="text-align:center">Status</th>
                 </tr>
               </thead>
               <tbody id="requested_tbody">
@@ -607,16 +607,18 @@ if ($moa_q) {
                     <td style="text-align:center"><?= $of['requested_limit'] === '' ? '—' : (int)$of['requested_limit'] ?></td>
                     <td><?= htmlspecialchars($of['reason'] ?: '—') ?></td>
                     <td style="text-align:center">
-                      <?php if (strtolower($of['status']) === 'approved'): ?>
-                        <span class="action-ok">Approved</span>
-                      <?php elseif (strtolower($of['status']) === 'declined'): ?>
-                        <span style="color:#a00;font-weight:700">Declined</span>
-                      <?php else: ?>
-                        <span class="action-pending">
-                          <button type="button" class="ok" onclick="handleOfficeRequest(<?= (int)$of['office_id'] ?>, 'approve')" title="Approve" aria-label="Approve">✔</button>
-                          <button type="button" class="no" onclick="handleOfficeRequest(<?= (int)$of['office_id'] ?>, 'decline')" title="Decline" aria-label="Decline">✖</button>
-                        </span>
-                      <?php endif; ?>
+                      <?php
+                        $st = strtolower(trim((string)($of['status'] ?? '')));
+                        if ($st === 'approved') {
+                          echo '<span class="action-ok">Approved</span>';
+                        } elseif ($st === 'declined' || $st === 'rejected') {
+                          echo '<span style="color:#a00;font-weight:700">Declined</span>';
+                        } elseif ($st === 'pending' || $st === '') {
+                          echo '<span style="color:#d97706;font-weight:700">Pending</span>';
+                        } else {
+                          echo '<span>' . htmlspecialchars(ucfirst($st)) . '</span>';
+                        }
+                      ?>
                     </td>
                   </tr>
                 <?php endforeach; ?>

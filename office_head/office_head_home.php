@@ -275,7 +275,8 @@ if (!empty($office_name_for_query)) {
 
     // Completed OJTs (treat 'completed' and 'inactive' as completed)
     $completed_ojts = 0;
-    $s3 = $conn->prepare("SELECT COUNT(*) AS total FROM users WHERE role = 'ojt' AND LOWER(TRIM(office_name)) LIKE ? AND status IN ('completed','inactive')");
+    // ONLY count users with status = 'completed' (per your request)
+    $s3 = $conn->prepare("SELECT COUNT(*) AS total FROM users WHERE role = 'ojt' AND LOWER(TRIM(office_name)) LIKE ? AND status = 'completed'");
     if ($s3) {
         $s3->bind_param('s', $officeLike);
         $s3->execute();
@@ -575,7 +576,7 @@ $late_dtr_res = $late_dtr->get_result();
 
       <!-- NEW: Approved card placed to the right of Ongoing -->
       <div class="card" style="height:110px;min-height:90px;max-height:140px;display:flex;flex-direction:column;justify-content:center;align-items:center;box-sizing:border-box;overflow:hidden;">
-        <p style="margin:0 0 6px 0">Approved</p>
+        <p style="margin:0 0 6px 0">Approved OJTs</p>
         <h2 style="margin:0"><?= $approved_ojts ?></h2>
       </div>
 
@@ -610,7 +611,7 @@ $late_dtr_res = $late_dtr->get_result();
                 <th style="padding:8px; background:#f7f7f7; border:1px solid #e0e0e0;">Capacity</th>
                 <th style="padding:8px; background:#f7f7f7; border:1px solid #e0e0e0;">Available Slots</th>
                 <th style="padding:8px; background:#f7f7f7; border:1px solid #e0e0e0;">Ongoing OJTs</th>
-                <th style="padding:8px; background:#f7f7f7; border:1px solid #e0e0e0;">Approved</th>
+                <th style="padding:8px; background:#f7f7f7; border:1px solid #e0e0e0;">Approved OJTs</th>
               </tr>
             </thead>
             <tbody>
@@ -646,12 +647,10 @@ $late_dtr_res = $late_dtr->get_result();
                 <h4 style="margin:0 0 8px 0">Request Change - <?= htmlspecialchars($office_display) ?></h4>
                 <div style="display:grid;gap:8px;margin-top:8px">
                     <label>Capacity <input id="m_current_limit" readonly style="width:100%;padding:8px;border-radius:6px;border:1px solid #ddd"></label>
-                    <label>Ongoing OJTs <input id="m_active_ojts" readonly style="width:100%;padding:8px;border-radius:6px;border:1px solid #ddd"></label>
-                    <label>Approved <input id="m_approved_ojts" readonly style="width:100%;padding:8px;border-radius:6px;border:1px solid #ddd"></label>
                     <label>Available Slots <input id="m_available_slots" readonly style="width:100%;padding:8px;border-radius:6px;border:1px solid #ddd"></label>
 
                     <!-- Editable fields required for submitting a request -->
-                    <label>Requested Limit <input id="m_requested_limit" type="number" min="0" style="width:100%;padding:8px;border-radius:6px;border:1px solid #ddd" required></label>
+                    <label>Requested Capacity <input id="m_requested_limit" type="number" min="0" style="width:100%;padding:8px;border-radius:6px;border:1px solid #ddd" required></label>
                     <label>Reason <textarea id="m_reason" rows="3" style="width:100%;padding:8px;border-radius:6px;border:1px solid #ddd" required></textarea></label>
                     
                     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:6px">
@@ -697,7 +696,7 @@ $late_dtr_res = $late_dtr->get_result();
             <thead>
               <tr>
                 <th style="padding:8px; background:#f7f7f7; border:1px solid #e0e0e0;">Date Requested</th>
-                <th style="padding:8px; background:#f7f7f7; border:1px solid #e0e0e0;">Requested Limit</th>
+                <th style="padding:8px; background:#f7f7f7; border:1px solid #e0e0e0;">Requested Capacity</th>
                 <th style="padding:8px; background:#f7f7f7; border:1px solid #e0e0e0;">Reason</th>
                 <th style="padding:8px; background:#f7f7f7; border:1px solid #e0e0e0;">Status</th>
               </tr>
@@ -896,10 +895,11 @@ $late_dtr_res = $late_dtr->get_result();
 
     // additional validations reinstated
     const current = Number((mCurrent && mCurrent.value) || 0);
-    const active = Number((mActive && mActive.value) || 0);
-    const approved = Number((mApproved && mApproved.value) || 0);
+    // use the visible page values (ci_active_ojts and ci_approved_ojts) since modal no longer displays them
+    const active = Number((fldActive && fldActive.value) || 0);
+    const approved = Number((fldApproved && fldApproved.value) || 0);
     const occupied = active + approved;
-
+    
     // prevent requesting a limit lower than existing people (active + approved)
     if (requested < occupied) {
       alert('Requested limit cannot be less than the current number of OJTs (' + occupied + ').');
