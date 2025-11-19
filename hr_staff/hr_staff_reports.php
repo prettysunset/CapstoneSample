@@ -152,6 +152,42 @@ function fetch_evaluations($conn){
 function fmtDate($d){ if (!$d) return '-'; $dt = date_create($d); return $dt ? $dt->format('M j, Y') : '-'; }
 
 $students = fetch_students($conn);
+
+// NEW: override students[].hours_rendered with sum from dtr (dtr.student_id = users.user_id).
+// Do not show any errors to users; log only on failure.
+if (!empty($students)) {
+    $stmtGetUser = $conn->prepare("SELECT user_id FROM students WHERE student_id = ? LIMIT 1");
+    $stmtDtr = $conn->prepare("SELECT IFNULL(SUM(hours + minutes/60),0) AS total FROM dtr WHERE student_id = ?");
+    if ($stmtGetUser && $stmtDtr) {
+        foreach ($students as &$st) {
+            $sid = (int)($st['student_id'] ?? 0);
+            $userId = null;
+            $stmtGetUser->bind_param('i', $sid);
+            if ($stmtGetUser->execute()) {
+                $res = $stmtGetUser->get_result();
+                $r = $res ? $res->fetch_assoc() : null;
+                if ($r && isset($r['user_id'])) $userId = (int)$r['user_id'];
+            }
+            if (!empty($userId)) {
+                $stmtDtr->bind_param('i', $userId);
+                if ($stmtDtr->execute()) {
+                    $resD = $stmtDtr->get_result();
+                    $rd = $resD ? $resD->fetch_assoc() : null;
+                    $total = isset($rd['total']) ? (float)$rd['total'] : 0.0;
+                    // overwrite so existing table rendering uses this value
+                    $st['hours_rendered'] = $total;
+                }
+            }
+        }
+        unset($st);
+        $stmtGetUser->close();
+        $stmtDtr->close();
+    } else {
+        // log only; do not show any UI message
+        error_log('hr_head_reports: failed prepare for DTR override - ' . $conn->error);
+    }
+}
+
 $offices = fetch_offices($conn);
 $moa = fetch_moa($conn);
 $office_requests = fetch_office_requests($conn);
