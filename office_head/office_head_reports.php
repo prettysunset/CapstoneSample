@@ -93,10 +93,9 @@ $sql = "
   WHERE u.role = 'ojt' AND u.office_name LIKE ?
 ";
 
-/* Always include OJTs that are active in the office (approved / ongoing / completed).
-   Additional status filters (from the dropdown) are applied below and will further
-   narrow results when selected. */
-$sql .= " AND (COALESCE(s.status, u.status, oa.status) IN ('approved','ongoing','completed','evaluated'))";
+/* Default: include all users with role='ojt' in this office (no status restriction).
+   Specific status filtering is applied only when the dropdown != 'all' below. */
+//$sql .= " AND (COALESCE(s.status, u.status, oa.status) IN ('approved','ongoing','completed','evaluated'))";
 
 // apply status filter only when not "all"
 if ($statusFilter !== 'all') {

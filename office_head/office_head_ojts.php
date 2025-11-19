@@ -199,7 +199,8 @@ $stmt = $conn->prepare("
            COALESCE(s.year_level, '') AS year_level,
            COALESCE(s.hours_rendered, 0) AS hours_completed,
            COALESCE(s.total_hours_required, 500) AS hours_required,
-           COALESCE(s.status, '') AS student_status
+           COALESCE(s.status, '') AS student_status,
+           COALESCE(u.status, '') AS user_status
     FROM users u
     LEFT JOIN students s ON s.user_id = u.user_id
     WHERE u.role = 'ojt' AND u.office_name LIKE ?
@@ -221,21 +222,26 @@ $for_eval = []; $active = []; $completedArr = [];
 foreach ($ojts as $r) {
     $hc = (int)($r['hours_completed'] ?? 0);
     $hr = (int)($r['hours_required'] ?? 0);
-    $status = strtolower(trim((string)($r['student_status'] ?? '')));
+    $student_status = strtolower(trim((string)($r['student_status'] ?? '')));
+    $user_status = strtolower(trim((string)($r['user_status'] ?? '')));
 
-    // If already evaluated, put to completedArr
-    if ($status === 'evaluated') {
+    // If already evaluated in students table, show under Evaluated
+    if ($student_status === 'evaluated') {
         $completedArr[] = $r;
         continue;
     }
 
-    // Treat students who are 'completed' OR who reached/surpassed required hours
-    // as For Evaluation first.
-    if ($status === 'completed' || ($hr > 0 && $hc >= $hr)) {
+    // For Evaluation: students explicitly marked 'completed' OR those who reached required hours
+    if ($student_status === 'completed' || ($hr > 0 && $hc >= $hr)) {
         $for_eval[] = $r;
-    } else {
+        continue;
+    }
+
+    // Active/Ongoing: include only if the user's users.status is 'ongoing'
+    if ($user_status === 'ongoing') {
         $active[] = $r;
     }
+    // otherwise do not include in Ongoing tab
 }
 
 // Load evaluated OJTs with latest evaluation remarks (override completedArr with richer rows)
@@ -436,7 +442,7 @@ if ($q) {
           </thead>
           <tbody>
             <?php if (empty($active)): ?>
-              <tr><td colspan="6" style="text-align:center;color:#8a8f9d;padding:18px;">No active OJTs.</td></tr>
+              <tr><td colspan="6" style="text-align:center;color:#8a8f9d;padding:18px;">No ongoing OJTs.</td></tr>
             <?php else: foreach ($active as $o): ?>
               <tr>
                 <td><?php echo htmlspecialchars(trim($o['first_name'] . ' ' . $o['last_name'])); ?></td>

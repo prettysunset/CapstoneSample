@@ -68,6 +68,27 @@ $result = $stmt->get_result();
 $students = $result->fetch_all(MYSQLI_ASSOC);
 $stmt->close();
 
+// NEW: override hours_rendered with DTR sums when DTR records exist
+// dtr.student_id references users.user_id — no UI errors shown, only server log on failure
+if (!empty($students)) {
+    $qDtr = $conn->prepare("SELECT IFNULL(SUM(hours + minutes/60),0) AS total FROM dtr WHERE student_id = ?");
+    if ($qDtr) {
+        foreach ($students as &$s) {
+            $sid = (int)($s['user_id'] ?? 0);
+            $qDtr->bind_param('i', $sid);
+            $qDtr->execute();
+            $resD = $qDtr->get_result();
+            $rowD = $resD ? $resD->fetch_assoc() : null;
+            $total = isset($rowD['total']) ? (float)$rowD['total'] : 0.0;
+            $s['hours_rendered'] = $total;
+        }
+        unset($s);
+        $qDtr->close();
+    } else {
+        error_log('hr_head_ojts: prepare failed for dtr sum - ' . $conn->error);
+    }
+}
+
 // load all offices for the dropdown (show every office in the DB)
 $officeList = [];
 $resAllOff = $conn->query("SELECT office_id, office_name FROM offices ORDER BY office_name");
@@ -159,10 +180,10 @@ if ($off_q) {
         return $rank($a['status']) <=> $rank($b['status']);
     });
 
-    // show only pending requests
+    // show only pending / empty-status items if that was intended
     $offices_for_requests = array_values(array_filter($offices_for_requests, function($r){
         $s = strtolower(trim((string)($r['status'] ?? '')));
-        return $s === 'pending';
+        return $s === '' || $s === 'pending';
     }));
 }
 
@@ -183,7 +204,7 @@ if ($moa_q) {
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>OJT-MS | HR Staff OJTs</title>
+<title>OJT-MS | HR Head OJTs</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>
     *{box-sizing:border-box;font-family:'Poppins',sans-serif}
@@ -344,7 +365,7 @@ if ($moa_q) {
         </svg>
         Home
       </a>
-      <a href="hr_staff_ojts.php" class="active">
+      <a href="#" class="active">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px">
           <circle cx="12" cy="8" r="3"></circle>
           <path d="M5.5 20a6.5 6.5 0 0 1 13 0"></path>
@@ -380,7 +401,7 @@ if ($moa_q) {
         </svg>
         Reports
       </a>
-    </div>
+        </div>
     <div style="margin-top:auto;padding:18px 0;width:100%;text-align:center;">
       <p style="margin:0;font-weight:600">OJT-MS</p>
     </div>
@@ -401,7 +422,8 @@ if ($moa_q) {
       </div>
 
       <a href="settings.php" title="Settings" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06A2 2 0 1 1 2.28 16.8l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09c.7 0 1.3-.4 1.51-1A1.65 1.65 0 0 0 4.27 6.3L4.2 6.23A2 2 0 1 1 6 3.4l.06.06c.5.5 1.2.7 1.82.33.7-.4 1.51-.4 2.21 0 .62.37 1.32.17 1.82-.33L12.6 3.4a2 2 0 1 1 1.72 3.82l-.06.06c-.5.5-.7 1.2-.33 1.82.4.7.4 1.51 0 2.21-.37.62-.17 1.32.33 1.82l.06.06A2 2 0 1 1 19.4 15z"></path></svg>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06A2 2 0 1 1 2.28 16.8l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09c.7 0 1.3-.4 1.51-1A1.65 1.65 0 0 0 4.27 6.3L4.2 6.23A2 2 0 1 1 6 3.4l.06.06c.5.5 1.2.7 1.82.33.7-.4 1.51-.4 2.21 0 .62.37 1.32.17 1.82-.33L12.6 3.4a2 2 0 1 1 1.72 3.82l-.06.06c-.5.5-.7 1.2-.33 1.82.4.7.4 1.51 0 2.21-.37.62-.17 1.32.33 1.82l.06.06A2 2 0 1 1 19.4 15z"></path>
+        </svg>
       </a>
       <a id="top-logout" href="../logout.php" title="Logout" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
@@ -524,7 +546,9 @@ if ($moa_q) {
                  $school = $row['college'] ?? '—';
                  $course = $row['course'] ?? '—';
                  $year = $row['year_level'] ?? '—';
-                 $hours = (int)($row['hours_rendered'] ?? 0) . ' / ' . (int)($row['total_hours_required'] ?? 500) . ' hrs';
+                 // show accurate total (sum of dtr hours + minutes/60 if available), rounded to 2 decimals
+                 $rendered = isset($row['hours_rendered']) ? (float)$row['hours_rendered'] : 0.0;
+                 $hours = rtrim(rtrim(number_format($rendered, 2, '.', ''), '0'), '.') . ' / ' . (int)($row['total_hours_required'] ?? 500) . ' hrs';
                  // status comes from users.status in the query (alias user_status)
                  $status = strtolower(trim((string)($row['user_status'] ?? '')));
                  $statusClass = $status === 'approved' ? 'status-approved' : ($status === 'rejected' ? 'status-rejected' : ($status === 'ongoing' ? 'status-ongoing' : ($status === 'completed' ? 'status-completed' : '')));
@@ -571,7 +595,7 @@ if ($moa_q) {
                   <th style="text-align:center">Available Slots</th>
                   <th style="text-align:center">Requested Limit</th>
                   <th>Reason</th>
-                  <th style="text-align:center">Status</th>
+                  <th style="text-align:center">Action</th>
                 </tr>
               </thead>
               <tbody id="requested_tbody">
@@ -583,7 +607,16 @@ if ($moa_q) {
                     <td style="text-align:center"><?= $of['requested_limit'] === '' ? '—' : (int)$of['requested_limit'] ?></td>
                     <td><?= htmlspecialchars($of['reason'] ?: '—') ?></td>
                     <td style="text-align:center">
-                      <?= htmlspecialchars(ucfirst(strtolower(trim((string)($of['status'] ?: 'pending'))))) ?>
+                      <?php if (strtolower($of['status']) === 'approved'): ?>
+                        <span class="action-ok">Approved</span>
+                      <?php elseif (strtolower($of['status']) === 'declined'): ?>
+                        <span style="color:#a00;font-weight:700">Declined</span>
+                      <?php else: ?>
+                        <span class="action-pending">
+                          <button type="button" class="ok" onclick="handleOfficeRequest(<?= (int)$of['office_id'] ?>, 'approve')" title="Approve" aria-label="Approve">✔</button>
+                          <button type="button" class="no" onclick="handleOfficeRequest(<?= (int)$of['office_id'] ?>, 'decline')" title="Decline" aria-label="Decline">✖</button>
+                        </span>
+                      <?php endif; ?>
                     </td>
                   </tr>
                 <?php endforeach; ?>
