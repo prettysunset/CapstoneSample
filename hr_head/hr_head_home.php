@@ -1448,10 +1448,11 @@ if (logoutBtn) {
 // Orientation counts injected server-side; render them inline as `18(3)`.
 const orientationCounts = <?php
     $counts = [];
-    $sql = "SELECT os.session_date AS dt, COUNT(oa.id) AS cnt
-            FROM orientation_sessions os
-            LEFT JOIN orientation_assignments oa ON oa.session_id = os.session_id
-            GROUP BY os.session_date";
+        // count how many assignment rows reference each session (count occurrences of session_id)
+        $sql = "SELECT os.session_date AS dt, COUNT(oa.session_id) AS cnt
+          FROM orientation_sessions os
+          LEFT JOIN orientation_assignments oa ON oa.session_id = os.session_id
+          GROUP BY os.session_date";
     if ($res = $conn->query($sql)) {
         while ($r = $res->fetch_assoc()) {
             $d = $r['dt'];
@@ -1462,8 +1463,7 @@ const orientationCounts = <?php
     echo json_encode($counts, JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE);
 ?>;
 
-// HARDCODED TEST: force January 18, 2026 to show (1)
-orientationCounts['2026-01-18'] = 1;
+// (removed hardcoded test) counts are now sourced from DB only
 
 (function(){
   const toIso = d => {
@@ -1498,8 +1498,10 @@ orientationCounts['2026-01-18'] = 1;
               const span = document.createElement('span');
               span.className = 'orient-count';
               span.textContent = `(${cnt})`;
-              span.style.cssText = 'color:#0b7a3a;font-weight:700;font-size:11px;margin-left:6px;';
+              span.style.cssText = 'color:#0b7a3a;font-weight:inherit;font-size:inherit;margin-left:0;vertical-align:baseline;line-height:1;';
               // append after day number text
+              // remove stray whitespace text nodes so span sits immediately after number
+              Array.from(dayElem.childNodes).forEach(n => { if (n.nodeType === Node.TEXT_NODE && n.textContent.trim() === '') n.remove(); });
               dayElem.appendChild(span);
             }
           }
@@ -1533,8 +1535,10 @@ orientationCounts['2026-01-18'] = 1;
               const span = document.createElement('span');
               span.className = 'orient-count';
               span.textContent = `(${cnt})`;
-              span.style.cssText = 'color:#0b7a3a;font-weight:700;font-size:11px;margin-left:6px;';
+              span.style.cssText = 'color:#0b7a3a;font-weight:inherit;font-size:inherit;margin-left:0;vertical-align:baseline;line-height:1;';
               // try to place after existing number span
+              // remove stray whitespace text nodes so span sits immediately after number
+              Array.from(dayElem.childNodes).forEach(n => { if (n.nodeType === Node.TEXT_NODE && n.textContent.trim() === '') n.remove(); });
               const numSpan = dayElem.querySelector('.flat-day-num');
               if (numSpan && numSpan.parentNode) numSpan.parentNode.insertBefore(span, numSpan.nextSibling);
               else dayElem.appendChild(span);
