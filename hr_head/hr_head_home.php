@@ -273,6 +273,9 @@ $current_date = date("l, F j, Y");
     .status-open{ color:#0b7a3a; font-weight:700; background:#e6f9ee; padding:6px 10px; border-radius:12px; display:inline-block; }
     .status-full{ color:#b22222; font-weight:700; background:#fff4f4; padding:6px 10px; border-radius:12px; display:inline-block; }
 </style>
+<!-- flatpickr (lightweight datepicker) -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
 </head>
 <body>
 
@@ -831,7 +834,7 @@ $stmtActive->close();
 
     <div class="row">
       <label>Orientation / Starting Date</label>
-      <input type="date" id="modal_date">
+      <input type="text" id="modal_date" placeholder="YYYY-MM-DD" readonly>
     </div>
     <div class="row">
       <label>Location</label>
@@ -1440,6 +1443,110 @@ if (logoutBtn) {
     }
   });
 }
+</script>
+<script>
+// Orientation counts injected server-side; render them inline as `18(3)`.
+const orientationCounts = <?php
+    $counts = [];
+    $sql = "SELECT os.session_date AS dt, COUNT(oa.id) AS cnt
+            FROM orientation_sessions os
+            LEFT JOIN orientation_assignments oa ON oa.session_id = os.session_id
+            GROUP BY os.session_date";
+    if ($res = $conn->query($sql)) {
+        while ($r = $res->fetch_assoc()) {
+            $d = $r['dt'];
+            if ($d) $counts[$d] = (int)$r['cnt'];
+        }
+        $res->free();
+    }
+    echo json_encode($counts, JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE);
+?>;
+
+// HARDCODED TEST: force January 18, 2026 to show (1)
+orientationCounts['2026-01-18'] = 1;
+
+(function(){
+  const toIso = d => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  };
+
+  function initFlatpickr() {
+    const el = document.getElementById('modal_date');
+    if (!el || typeof flatpickr === 'undefined') return;
+
+    flatpickr(el, {
+      dateFormat: 'Y-m-d',
+      allowInput: false,
+      // render the count badges reliably after calendar renders
+      onReady: function(selectedDates, dateStr, fp) { renderCounts(fp); },
+      onOpen: function(selectedDates, dateStr, fp) { renderCounts(fp); },
+      onMonthChange: function(selectedDates, dateStr, fp) { renderCounts(fp); },
+      onYearChange: function(selectedDates, dateStr, fp) { renderCounts(fp); },
+      onDayCreate: function(dObj, dStr, dayElem) {
+        // keep this lightweight; main work done by renderCounts
+        try {
+          const dateObj = dayElem.dateObj || (dayElem.__dateObj || null);
+          if (!dateObj) return;
+          const iso = toIso(dateObj);
+          const cnt = orientationCounts[iso] || 0;
+          if (cnt && cnt > 0) {
+            const existing = dayElem.querySelector('.orient-count');
+            if (!existing) {
+              const span = document.createElement('span');
+              span.className = 'orient-count';
+              span.textContent = `(${cnt})`;
+              span.style.cssText = 'color:#0b7a3a;font-weight:700;font-size:11px;margin-left:6px;';
+              // append after day number text
+              dayElem.appendChild(span);
+            }
+          }
+        } catch (err) { /* ignore */ }
+      }
+    });
+
+    function renderCounts(fp) {
+      try {
+        const days = fp.calendarContainer ? fp.calendarContainer.querySelectorAll('.flatpickr-day') : [];
+        days.forEach(dayElem => {
+          try {
+            // remove old badge
+            const old = dayElem.querySelector('.orient-count');
+            if (old) old.remove();
+
+            // get day number text
+            let dateObj = dayElem.dateObj || null;
+            if (!dateObj) {
+              // parse day number from element
+              const txt = (dayElem.textContent || '').trim();
+              const m = txt.match(/^(\d{1,2})/);
+              if (!m) return;
+              const dayNum = parseInt(m[1], 10);
+              // use current view month/year
+              dateObj = new Date(fp.currentYear, fp.currentMonth, dayNum);
+            }
+            const iso = toIso(dateObj);
+            const cnt = orientationCounts[iso] || 0;
+            if (cnt && cnt > 0) {
+              const span = document.createElement('span');
+              span.className = 'orient-count';
+              span.textContent = `(${cnt})`;
+              span.style.cssText = 'color:#0b7a3a;font-weight:700;font-size:11px;margin-left:6px;';
+              // try to place after existing number span
+              const numSpan = dayElem.querySelector('.flat-day-num');
+              if (numSpan && numSpan.parentNode) numSpan.parentNode.insertBefore(span, numSpan.nextSibling);
+              else dayElem.appendChild(span);
+            }
+          } catch (e) { /* ignore per-day errors */ }
+        });
+      } catch (e) { console.error('renderCounts failed', e); }
+    }
+  }
+
+  initFlatpickr();
+})();
 </script>
 <?php
 // --- AFTER you load $offices (right after the block that builds $offices) ---
