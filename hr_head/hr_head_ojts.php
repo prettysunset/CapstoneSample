@@ -548,7 +548,9 @@ if ($moa_q) {
                  $year = $row['year_level'] ?? '—';
                  // show accurate total (sum of dtr hours + minutes/60 if available), rounded to 2 decimals
                  $rendered = isset($row['hours_rendered']) ? (float)$row['hours_rendered'] : 0.0;
-                 $hours = rtrim(rtrim(number_format($rendered, 2, '.', ''), '0'), '.') . ' / ' . (int)($row['total_hours_required'] ?? 500) . ' hrs';
+                 $reqVal = isset($row['total_hours_required']) && $row['total_hours_required'] !== null ? (int)$row['total_hours_required'] : null;
+                 $reqText = is_null($reqVal) ? '—' : (string)$reqVal;
+                 $hours = rtrim(rtrim(number_format($rendered, 2, '.', ''), '0'), '.') . ' / ' . $reqText . ' hrs';
                  // status comes from users.status in the query (alias user_status)
                  $status = strtolower(trim((string)($row['user_status'] ?? '')));
                  $statusClass = $status === 'approved' ? 'status-approved' : ($status === 'rejected' ? 'status-rejected' : ($status === 'ongoing' ? 'status-ongoing' : ($status === 'completed' ? 'status-completed' : '')));
@@ -707,7 +709,7 @@ if ($moa_q) {
               </div>
 
               <div style="flex:1;min-width:0;max-width:320px;margin-left:12px;">
-              <div style="font-size:14px;font-weight:700" id="view_hours_text">0 out of 500 hours</div>
+              <div style="font-size:14px;font-weight:700" id="view_hours_text">0 out of — hours</div>
               <div style="font-size:12px;color:#6b7280;margin-top:6px;white-space:pre-line" id="view_dates">Date Started: — 
               Expected End Date: —</div>
               </div>
@@ -1048,12 +1050,14 @@ if ($moa_q) {
 
         // hours + progress
         const rendered = Number(s.hours_rendered || d.hours_rendered || 0);
-        const required = Number(s.total_hours_required || d.total_hours_required || 500);
-        document.getElementById('view_hours_text').textContent = `${rendered} out of ${required} hours`;
+        const requiredRaw = (s.total_hours_required !== undefined && s.total_hours_required !== null) ? s.total_hours_required : (d.total_hours_required !== undefined && d.total_hours_required !== null ? d.total_hours_required : null);
+        const required = Number(requiredRaw || 0);
+        const requiredDisplay = requiredRaw === null ? '—' : String(required);
+        document.getElementById('view_hours_text').textContent = `${rendered} out of ${requiredDisplay} hours`;
         const start = d.date_started || d.date_submitted || '—';
         const expected = d.expected_end_date || d.expected_end || '—';
         document.getElementById('view_dates').textContent = `Date Started: ${start}\nExpected End Date: ${expected}`;
-        const pct = required>0 ? (rendered / required * 100) : 0;
+        const pct = (requiredRaw !== null && required > 0) ? (rendered / required * 100) : 0;
         setDonut(pct);
 
         // assigned office block

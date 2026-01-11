@@ -8,9 +8,6 @@
 -- PHP Version: 7.2.34
 
 SET SQL_MODE = "NO_AUTO_VALUE_ON_ZERO";
-/* Ensure the target database exists and is selected for import */
-CREATE DATABASE IF NOT EXISTS `u389936701_capstone` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-USE `u389936701_capstone`;
 START TRANSACTION;
 SET time_zone = "+00:00";
 
@@ -34,7 +31,7 @@ CREATE TABLE `courses` (
   `course_id` int(11) NOT NULL,
   `course_code` varchar(50) DEFAULT NULL,
   `course_name` varchar(150) NOT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
 
 --
 -- Dumping data for table `courses`
@@ -272,7 +269,7 @@ CREATE TABLE `office_courses` (
   `id` int(11) NOT NULL,
   `office_id` int(11) NOT NULL,
   `course_id` int(11) NOT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
 
 --
 -- Dumping data for table `office_courses`

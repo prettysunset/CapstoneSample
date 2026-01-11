@@ -33,11 +33,12 @@ if (file_exists($localConfig)) {
             || (isset($_SERVER['SERVER_NAME']) && (stripos($_SERVER['SERVER_NAME'], 'localhost') !== false || $_SERVER['SERVER_NAME'] === '127.0.0.1'));
 
         if ($isLocalHost) {
-            // Local XAMPP credentials (as requested)
+            // Local XAMPP connection but use the production database by default
+            // (disable automatic fallback to a different local DB)
             $DB_HOST = '127.0.0.1';
             $DB_USER = 'root';
             $DB_PASS = '';
-            $DB_NAME = 'capstone';
+            $DB_NAME = 'u389936701_capstone';
         } else {
             // PRODUCTION (Hostinger) fallback
             $DB_HOST = 'localhost';
@@ -62,34 +63,12 @@ try {
     }
     $conn->set_charset('utf8mb4');
 } catch (Exception $e) {
-    // If we're on localhost, try the local XAMPP fallback credentials once
-    if ($isLocalHost && !$triedLocalFallback) {
-        $triedLocalFallback = true;
-        $DB_HOST = '127.0.0.1';
-        $DB_USER = 'root';
-        $DB_PASS = '';
-        $DB_NAME = 'capstone';
-        try {
-            $conn = @new mysqli($DB_HOST, $DB_USER, $DB_PASS, $DB_NAME);
-            if ($conn->connect_errno) {
-                throw new Exception('Connect error: ' . $conn->connect_error);
-            }
-            $conn->set_charset('utf8mb4');
-        } catch (Exception $e2) {
-            if (php_sapi_name() !== 'cli') {
-                header('Content-Type: application/json; charset=utf-8', true, 500);
-                echo json_encode(['success' => false, 'message' => 'DB connection failed (primary and local fallback): ' . $e2->getMessage()]);
-                exit;
-            }
-            throw $e2;
-        }
-    } else {
-        if (php_sapi_name() !== 'cli') {
-            header('Content-Type: application/json; charset=utf-8', true, 500);
-            echo json_encode(['success' => false, 'message' => 'DB connection failed: ' . $e->getMessage()]);
-            exit;
-        }
-        throw $e;
+    // Do not attempt automatic fallback to a different local DB.
+    if (php_sapi_name() !== 'cli') {
+        header('Content-Type: application/json; charset=utf-8', true, 500);
+        echo json_encode(['success' => false, 'message' => 'DB connection failed: ' . $e->getMessage()]);
+        exit;
     }
+    throw $e;
 }
 ?>

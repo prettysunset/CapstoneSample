@@ -232,7 +232,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 $af2 = $_SESSION['af2'] ?? [];
 
                 $emergency_name = trim(($af1['emg_first'] ?? '') . ' ' . ($af1['emg_last'] ?? ''));
-                $total_hours = 500;
+                // Use the user-provided required hours (validated earlier). Fallback to NULL if not set.
+                $total_hours = isset($required_hours) && $required_hours > 0 ? $required_hours : null;
                 $hours_rendered = 0;
                 $status = 'pending';
 
@@ -253,7 +254,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 $s_school_address = $af2['school_address'] ?? '';
                 $s_ojt_adviser = $af2['ojt_adviser'] ?? $af2['adviser'] ?? '';
                 $s_adviser_contact = $af2['adviser_contact'] ?? '';
-                $s_total_hours = (int)$total_hours;
+                // store null as DB NULL by passing PHP null, otherwise integer
+                $s_total_hours = is_null($total_hours) ? null : (int)$total_hours;
                 $s_hours_rendered = (int)$hours_rendered;
                 $s_status = $status;
 

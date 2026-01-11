@@ -23,6 +23,16 @@ if ($resOff = $conn->query($sql)) {
     if ($resOff) $resOff->free();
 }
 
+// fetch allowed courses per office (map office_id => [course_name,...])
+$officeCourses = [];
+$resOc = $conn->query("SELECT oc.office_id, c.course_name FROM office_courses oc JOIN courses c ON oc.course_id = c.course_id");
+if ($resOc) {
+    while ($row = $resOc->fetch_assoc()) {
+        $officeCourses[(int)$row['office_id']][] = $row['course_name'];
+    }
+    $resOc->free();
+}
+
 // prepare statement to count active/approved OJTs assigned to an office (same source as hr_head_home)
 $stmtFilled = $conn->prepare("
     SELECT COUNT(*) AS cnt
@@ -246,6 +256,18 @@ tr:hover td {
     background: rgba(220,38,38,0.04); /* subtle red tint */
     border-color:#ef4444; /* red stroke */
 }
+
+/* Course badges */
+.course-badge{
+    display:inline-block;
+    background:rgba(58,65,99,0.06);
+    color:#344265;
+    padding:6px 8px;
+    border-radius:999px;
+    font-size:13px;
+    margin:2px 4px 2px 0;
+    border:1px solid rgba(52,66,101,0.06);
+}
 </style>
 </head>
 <body>
@@ -281,6 +303,7 @@ tr:hover td {
                 <thead>
                     <tr>
                         <th style="text-align:left;padding:12px;border:1px solid #e6e9fb">Office</th>
+                                        <th style="text-align:left;padding:12px;border:1px solid #e6e9fb">Allowed Courses</th>
                         <th style="text-align:center;padding:12px;border:1px solid #e6e9fb">Available Slots</th>
                         <th style="text-align:center;padding:12px;border:1px solid #e6e9fb">Status</th>
                     </tr>
@@ -288,6 +311,7 @@ tr:hover td {
                 <tbody id="offices_tbody">
                 <?php foreach ($offices as $o):
                     $officeName = $o['office_name'] ?? '';
+                    $officeId = isset($o['office_id']) ? (int)$o['office_id'] : 0;
                     $cap = array_key_exists('capacity', $o) ? (is_null($o['capacity']) ? null : (int)$o['capacity']) : null;
 
                     $filled = 0;
@@ -318,6 +342,18 @@ tr:hover td {
                 ?>
                     <tr class="office-row">
                         <td class="col-office" style="padding:10px;border:1px solid #e6e9fb;"><?= htmlspecialchars($officeName ?: '—') ?></td>
+                        <td class="col-courses" style="padding:10px;border:1px solid #e6e9fb;">
+                            <?php
+                                $courseList = $officeCourses[$officeId] ?? [];
+                                if (empty($courseList)) {
+                                    echo '—';
+                                } else {
+                                    foreach ($courseList as $cn) {
+                                        echo '<span class="course-badge">'.htmlspecialchars($cn).'</span> ';
+                                    }
+                                }
+                            ?>
+                        </td>
                         <td class="col-available" style="text-align:center;padding:10px;border:1px solid #e6e9fb"><?= htmlspecialchars((string)$availableDisplay) ?></td>
                         <td class="col-status" style="text-align:center;padding:10px;border:1px solid #e6e9fb"><span class="<?= $statusClass ?>"><?= htmlspecialchars($statusLabel) ?></span></td>
                     </tr>
@@ -348,9 +384,12 @@ tr:hover td {
                 const office = norm(r.querySelector('.col-office')?.textContent);
                 const available = norm(r.querySelector('.col-available')?.textContent);
                 const status = norm(r.querySelector('.col-status')?.textContent);
+                    const courses = norm(r.querySelector('.col-courses')?.textContent);
                 const show = !q || office.indexOf(q) !== -1 || available.indexOf(q) !== -1 || status.indexOf(q) !== -1;
-                r.style.display = show ? '' : 'none';
-                if (show) any = true;
+                    // include courses in search
+                    const showWithCourses = !q || courses.indexOf(q) !== -1 || office.indexOf(q) !== -1 || available.indexOf(q) !== -1 || status.indexOf(q) !== -1;
+                    r.style.display = showWithCourses ? '' : 'none';
+                    if (showWithCourses) any = true;
             });
             if (!any) {
                 noResults && (noResults.style.display = '');
