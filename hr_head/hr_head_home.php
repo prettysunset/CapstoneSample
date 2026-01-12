@@ -828,21 +828,30 @@ $stmtActive->close();
     </div>
 
     <div class="row">
-      <label>Assigned Office (from applicant)</label>
+      <label>Assigned Office</label>
       <div class="values" id="modal_office">—</div>
     </div>
 
     <div class="row">
       <label>Orientation / Starting Date</label>
-      <input type="text" id="modal_date" placeholder="YYYY-MM-DD" readonly>
+      <div style="position:relative;">
+        <input type="text" id="modal_date" placeholder="YYYY-MM-DD" readonly style="width:100%;padding:8px;border-radius:6px;border:1px solid #ccc;">
+        <button type="button" id="modal_date_btn" aria-label="Open calendar" style="position:absolute;right:6px;top:50%;transform:translateY(-50%);border:none;background:transparent;cursor:pointer;padding:6px;">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#444" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+        </button>
+      </div>
     </div>
     <div class="row">
       <label>Location</label>
-      <input type="text" id="modal_location" value="CHRMO/3rd Floor" placeholder="CHRMO/3rd Floor">
+      <div style="position:relative;">
+        <input type="text" id="modal_location" value="CHRMO/3rd Floor" placeholder="CHRMO/3rd Floor" style="width:100%;padding:8px;border-radius:6px;border:1px solid #ccc;">
+      </div>
     </div>
     <div class="row">
       <label>Time</label>
-      <input type="time" id="modal_time" value="08:30">
+      <div style="position:relative;">
+        <input type="time" id="modal_time" value="08:30" style="width:100%;padding:8px;border-radius:6px;border:1px solid #ccc;">
+      </div>
     </div>
 
     <!-- status message area (hidden until send result) -->
@@ -961,27 +970,49 @@ async function openApproveModal(btn) {
     document.getElementById('modal_name').textContent = name;
     document.getElementById('modal_email').textContent = email;
 
-    // determine assigned office by asking server (pref1 if has capacity, else pref2, else show N/A)
-    let assigned = '';
-    try {
-        const payload = { action: 'check_capacity', office1: opt1Id, office2: opt2Id };
-        const res = await fetch('../hr_actions.php', {
-            method: 'POST',
-            headers: {'Content-Type':'application/json'},
-            body: JSON.stringify(payload)
-        });
-        const json = await res.json();
-        if (json && json.success) {
-            assigned = json.assigned || '';
-        } else {
-            // fallback display: prefer opt1 name then opt2
-            assigned = opt1Name || opt2Name || 'N/A';
-        }
-    } catch (e) {
-        assigned = opt1Name || opt2Name || 'N/A';
-    }
+    // show assigned office: if applicant provided a second choice, show a dropdown
+    // NOTE: per request, do not call server-side `hr_actions.php` here; this is purely client-side.
+    const modalOfficeEl = document.getElementById('modal_office');
+    modalOfficeEl.innerHTML = '';
+    // remove the .values background/padding here so assigned-office looks like the other inputs
+    modalOfficeEl.style.background = 'transparent';
+    modalOfficeEl.style.padding = '0';
+    modalOfficeEl.style.border = 'none';
+    modalOfficeEl.style.borderRadius = '0';
+    if (opt2Id && opt2Id !== 0) {
+      const sel = document.createElement('select');
+      sel.id = 'modal_office_select';
+      sel.style.width = '100%';
+      sel.style.padding = '8px';
+      sel.style.borderRadius = '6px';
+      sel.style.border = '1px solid #ccc';
 
-    document.getElementById('modal_office').textContent = assigned || 'N/A';
+      // opt1 option
+      const o1 = document.createElement('option');
+      o1.value = String(opt1Id || 0);
+      o1.text = opt1Name || 'Preference 1';
+      sel.appendChild(o1);
+
+      // opt2 option
+      const o2 = document.createElement('option');
+      o2.value = String(opt2Id || 0);
+      o2.text = opt2Name || 'Preference 2';
+      sel.appendChild(o2);
+
+      modalOfficeEl.appendChild(sel);
+    } else {
+      // render a readonly text input to match Location/Time styling
+      const textInput = document.createElement('input');
+      textInput.type = 'text';
+      textInput.id = 'modal_office_input';
+      textInput.value = opt1Name || 'N/A';
+      textInput.readOnly = true;
+      textInput.style.width = '100%';
+      textInput.style.padding = '8px';
+      textInput.style.borderRadius = '6px';
+      textInput.style.border = '1px solid #ccc';
+      modalOfficeEl.appendChild(textInput);
+    }
 
     const dateInput = document.getElementById('modal_date');
 
@@ -998,11 +1029,22 @@ async function openApproveModal(btn) {
     const allowedMin = new Date(today);
     allowedMin.setDate(allowedMin.getDate() + 8);
 
-    const toIsoDate = d => d.toISOString().split('T')[0];
+    const toIsoDate = d => {
+      const y = d.getFullYear();
+      const m = String(d.getMonth()+1).padStart(2,'0');
+      const day = String(d.getDate()).padStart(2,'0');
+      return `${y}-${m}-${day}`;
+    };
 
+    // set min/value on the native input for HTML semantics
     dateInput.min = toIsoDate(allowedMin);
-    // optionally prefill with the first allowed date
     dateInput.value = toIsoDate(allowedMin);
+
+    // also set minDate and selected date on the Flatpickr instance if available
+    if (window.modalDatePicker && typeof window.modalDatePicker.set === 'function') {
+      window.modalDatePicker.set('minDate', toIsoDate(allowedMin));
+      window.modalDatePicker.setDate(toIsoDate(allowedMin), true);
+    }
 
     // add user hint (shows on hover) about the disabled range
     dateInput.title = `Unavailable: ${toIsoDate(blockedStart)} — ${toIsoDate(blockedEnd)}. Earliest selectable: ${toIsoDate(allowedMin)}.`;
@@ -1070,11 +1112,20 @@ function sendApproval(){
         application_id: parseInt(currentAppId,10),
         orientation_date: date
     };
+    // include time/location and selected assigned office (if dropdown used)
+    try {
+      const timeVal = document.getElementById('modal_time') ? document.getElementById('modal_time').value : '';
+      const locVal = document.getElementById('modal_location') ? document.getElementById('modal_location').value : '';
+      payload.orientation_time = timeVal || '';
+      payload.orientation_location = locVal || '';
+      const sel = document.getElementById('modal_office_select');
+      if (sel && sel.value) payload.assigned_office_id = parseInt(sel.value,10) || 0;
+    } catch(e) { /* ignore */ }
 
     fetch('../hr_actions.php', {
-        method: 'POST',
-        headers: {'Content-Type':'application/json'},
-        body: JSON.stringify(payload)
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(payload)
     }).then(r => r.json())
       .then(res => {
           if (res.success) {
@@ -1477,9 +1528,11 @@ const orientationCounts = <?php
     const el = document.getElementById('modal_date');
     if (!el || typeof flatpickr === 'undefined') return;
 
-    flatpickr(el, {
+    // store instance on window so external button can open it
+    window.modalDatePicker = flatpickr(el, {
       dateFormat: 'Y-m-d',
       allowInput: false,
+      clickOpens: false,
       // render the count badges reliably after calendar renders
       onReady: function(selectedDates, dateStr, fp) { renderCounts(fp); },
       onOpen: function(selectedDates, dateStr, fp) { renderCounts(fp); },
@@ -1506,8 +1559,29 @@ const orientationCounts = <?php
             }
           }
         } catch (err) { /* ignore */ }
+      },
+      onChange: function(selectedDates, dateStr, fp) {
+        // enable send when a date is selected via the picker
+        try {
+          const btnSend = document.getElementById('btnSend');
+          if (btnSend) {
+            if (dateStr && dateStr >= (el.min || '')) {
+              btnSend.disabled = false;
+              btnSend.setAttribute('aria-disabled', 'false');
+            }
+          }
+        } catch (e) { /* ignore */ }
       }
     });
+
+    // wire calendar icon button to open the picker
+    const btn = document.getElementById('modal_date_btn');
+    if (btn) {
+      btn.addEventListener('click', function(e){
+        e.preventDefault();
+        if (window.modalDatePicker) window.modalDatePicker.open();
+      });
+    }
 
     function renderCounts(fp) {
       try {

@@ -768,6 +768,24 @@ if ($action === 'get_application') {
         } else $officeNames[$col] = '';
     }
 
+    // try to find the office head (user with role 'office_head') for the first preferred office
+    $office_head_email = '';
+    $office_head_name = '';
+    if (!empty($officeNames['office_preference1'])) {
+        $ohStmt = $conn->prepare("SELECT first_name, middle_name, last_name, email, office_name FROM users WHERE role = 'office_head' AND LOWER(TRIM(office_name)) = LOWER(TRIM(?)) LIMIT 1");
+        if ($ohStmt) {
+            $officeNameParam = $officeNames['office_preference1'];
+            $ohStmt->bind_param('s', $officeNameParam);
+            $ohStmt->execute();
+            $ohRow = $ohStmt->get_result()->fetch_assoc();
+            $ohStmt->close();
+            if ($ohRow) {
+                $office_head_email = $ohRow['email'] ?? '';
+                $office_head_name = trim(($ohRow['first_name'] ?? '') . ' ' . ($ohRow['middle_name'] ?? '') . ' ' . ($ohRow['last_name'] ?? ''));
+            }
+        }
+    }
+
     // compute age if birthday exists (expect YYYY-MM-DD)
     $age = null;
     if (!empty($row['birthday'])) {
@@ -824,6 +842,12 @@ if ($action === 'get_application') {
             'total_hours_required' => (int)($row['total_hours_required'] ?? 0),
         ]
     ];
+
+    // include office head info for the primary office (if any)
+    $data['office_head'] = $office_head_name;
+    $data['office_head_email'] = $office_head_email;
+    // keep legacy key for compatibility (populate with email if available)
+    $data['office_contact'] = $office_head_email ?: '';
 
     respond(['success' => true, 'data' => $data]);
 }
@@ -998,6 +1022,7 @@ if ($action === 'get_dtr_by_date') {
 
         $rows[] = [
             'dtr_id' => (int)$r['dtr_id'],
+            'student_id' => (int)($r['u_id'] ?? $r['su_id'] ?? $r['si_id'] ?? 0),
             'log_date' => $r['log_date'],
             'am_in' => $r['am_in'] ?? '',
             'am_out' => $r['am_out'] ?? '',
@@ -1083,6 +1108,7 @@ if ($action === 'get_dtr_by_range') {
             'pm_out' => $r['pm_out'] ?? '',
             'hours' => (int)($r['hours'] ?? 0),
             'minutes' => (int)($r['minutes'] ?? 0),
+            'student_id' => (int)($r['u_id'] ?? 0),
             'first_name' => $first,
             'last_name' => $last,
             'school' => $school,

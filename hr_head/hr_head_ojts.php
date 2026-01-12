@@ -641,10 +641,7 @@ if ($moa_q) {
         <div class="view-meta">
           <h2 class="view-name" id="view_name">Name Surname</h2>
           <div class="view-submeta" id="view_statusline">
-            <span id="view_status_badge" style="display:flex;align-items:center;gap:8px;font-weight:700;color:#0b7a3a">
-              <span style="width:10px;height:10px;background:#10b981;border-radius:50%;display:inline-block"></span>
-              Active OJT
-            </span>
+            <span id="view_status_badge" style="display:inline-flex;align-items:center;gap:8px;font-weight:700;color:inherit">—</span>
             <span id="view_department" style="display:flex;align-items:center;gap=6px;color:#6b7280">IT Department</span>
           </div>
 
@@ -723,7 +720,7 @@ if ($moa_q) {
               <div style="margin-top:6px;font-weight:700">Office Head:</div>
               <div id="view_office_head">—</div>
 
-              <div style="margin-top:6px;font-weight:700">Contact #:</div>
+              <div style="margin-top:6px;font-weight:700">Email:</div>
               <div id="view_office_contact">—</div>
             </div>
 
@@ -742,7 +739,7 @@ if ($moa_q) {
                   <th colspan="2" style="padding:10px;border:1px solid #eee;text-align:center">A.M.</th>
                   <th colspan="2" style="padding:10px;border:1px solid #eee;text-align:center">P.M.</th>
                   <th rowspan="2" style="padding:10px;border:1px solid #eee;text-align:center">HOURS</th>
-                  <th rowspan="2" style="padding:10px;border:1px solid #eee;text-align:left">STATUS</th>
+                    <th rowspan="2" style="padding:10px;border:1px solid #eee;text-align:center">MINUTES</th>
                 </tr>
                 <tr style="background:#f3f4f6;color:#111">
                   <th style="padding:8px;border:1px solid #eee;text-align:center;font-weight:700">ARRIVAL</th>
@@ -1015,7 +1012,24 @@ if ($moa_q) {
 
         // top meta
         document.getElementById('view_name').textContent = ((s.first_name||'') + ' ' + (s.last_name||'')).trim() || 'N/A';
-        document.getElementById('view_status_badge').style.display = d.status && d.status.toLowerCase()==='approved' ? 'inline-flex' : 'none';
+        // show an accurate status badge based on server-provided status
+        (function(){
+          const statusBadgeEl = document.getElementById('view_status_badge');
+          const st = (d.status || '').toString().trim().toLowerCase();
+          if (!st) {
+            statusBadgeEl.style.display = 'none';
+          } else {
+            let label = st.charAt(0).toUpperCase() + st.slice(1);
+            if (st === 'ongoing') { label = 'Ongoing'; }
+            else if (st === 'completed') { label = 'Completed'; }
+            else if (st === 'rejected' || st === 'declined') { label = 'Rejected'; }
+            else if (st === 'pending') { label = 'Pending'; }
+            else if (st === 'approved') { label = 'Approved'; }
+            statusBadgeEl.style.display = 'inline-flex';
+            statusBadgeEl.style.color = '';
+            statusBadgeEl.textContent = label;
+          }
+        })();
         document.getElementById('view_department').textContent = d.office1 || d.office || '—';
 
         // avatar image if available
@@ -1041,8 +1055,8 @@ if ($moa_q) {
         document.getElementById('view_school_address').textContent = s.school_address || '—';
         document.getElementById('view_adviser').textContent = (s.ojt_adviser || '') + (s.adviser_contact ? ' | ' + s.adviser_contact : '');
 
-        // emergency contact (if provided)
-        if (s.emg_name || s.emg_contact){
+        // emergency contact (if provided) — accept either emg_* or emergency_* naming from server
+        if (s.emg_name || s.emg_contact || s.emergency_name || s.emergency_contact) {
           document.getElementById('view_emg_name').textContent = s.emg_name || s.emergency_name || '—';
           document.getElementById('view_emg_rel').textContent = s.emg_relation || s.emergency_relation || '—';
           document.getElementById('view_emg_contact').textContent = s.emg_contact || s.emergency_contact || '—';
@@ -1054,16 +1068,16 @@ if ($moa_q) {
         const required = Number(requiredRaw || 0);
         const requiredDisplay = requiredRaw === null ? '—' : String(required);
         document.getElementById('view_hours_text').textContent = `${rendered} out of ${requiredDisplay} hours`;
-        const start = d.date_started || d.date_submitted || '—';
-        const expected = d.expected_end_date || d.expected_end || '—';
-        document.getElementById('view_dates').textContent = `Date Started: ${start}\nExpected End Date: ${expected}`;
+        // Date Started / Expected End will be computed after fetching DTR rows below
+        document.getElementById('view_dates').textContent = `Date Started: —\nExpected End Date: —`;
         const pct = (requiredRaw !== null && required > 0) ? (rendered / required * 100) : 0;
         setDonut(pct);
 
         // assigned office block
         document.getElementById('view_assigned_office').textContent = d.office1 || d.office || '—';
         document.getElementById('view_office_head').textContent = d.office_head || d.office_head_name || '—';
-        document.getElementById('view_office_contact').textContent = d.office_contact || '—';
+        // show office head email (fall back to legacy office_contact if server didn't provide email)
+        document.getElementById('view_office_contact').textContent = d.office_head_email || d.office_contact || '—';
 
         // attachments (existing attachments from application)
         const attRoot = document.getElementById('view_attachments_list');
@@ -1125,6 +1139,190 @@ if ($moa_q) {
                            </div>`;
           attRoot.appendChild(row);
         });
+
+        // Fetch and render DTR rows for the DTR tab (client-only; filter by name/office)
+        (async function(){
+          try{
+            const tbody = document.getElementById('late_dtr_tbody');
+            if (!tbody) return;
+            tbody.innerHTML = '<tr class="empty"><td colspan="7" style="padding:18px;text-align:center;color:#6b7280">Loading...</td></tr>';
+            const today = new Date().toISOString().slice(0,10);
+            const resp = await fetch('../hr_actions.php', {
+              method: 'POST',
+              headers: {'Content-Type':'application/json'},
+              body: JSON.stringify({ action: 'get_dtr_by_range', from: '1900-01-01', to: today })
+            });
+            const jr = await resp.json();
+            if (!jr || !jr.success) {
+              tbody.innerHTML = '<tr class="empty"><td colspan="7" style="padding:18px;text-align:center;color:#6b7280">Unable to load DTR.</td></tr>';
+              return;
+            }
+
+            const rows = Array.isArray(jr.rows) ? jr.rows : [];
+            const nameNorm = ((s.first_name||'') + ' ' + (s.last_name||'')).toLowerCase().trim();
+            const officeNorm = (d.office1 || d.office || '').toString().toLowerCase().trim();
+
+            const matched = rows.filter(r => {
+              const rName = ((r.first_name||'') + ' ' + (r.last_name||'')).toLowerCase().trim();
+              const rOffice = (r.office || '').toString().toLowerCase().trim();
+              if (nameNorm && rName) {
+                if (rName === nameNorm) return true;
+                if (rName.includes(nameNorm) || nameNorm.includes(rName)) return true;
+              }
+              if (officeNorm && rOffice) {
+                if (rOffice === officeNorm) return true;
+                if (rOffice.includes(officeNorm) || officeNorm.includes(rOffice)) return true;
+              }
+              return false;
+            });
+
+            if (!matched.length) {
+              tbody.innerHTML = '<tr class="empty"><td colspan="7" style="padding:18px;text-align:center;color:#6b7280">No DTR records found.</td></tr>';
+              // still try to compute dates from application remarks or server-provided fields
+              computeAndUpdateDates([]);
+              return;
+            }
+
+            tbody.innerHTML = '';
+            matched.forEach(r => {
+              const tr = document.createElement('tr');
+              tr.innerHTML = `
+                <td style="padding:8px">${r.log_date || ''}</td>
+                <td style="padding:8px;text-align:center">${r.am_in || ''}</td>
+                <td style="padding:8px;text-align:center">${r.am_out || ''}</td>
+                <td style="padding:8px;text-align:center">${r.pm_in || ''}</td>
+                <td style="padding:8px;text-align:center">${r.pm_out || ''}</td>
+                <td style="padding:8px;text-align:center">${r.hours != null ? r.hours : ''}</td>
+                <td style="padding:8px;text-align:center">${r.minutes != null ? r.minutes : ''}</td>
+              `;
+              tbody.appendChild(tr);
+            });
+
+            // after rendering matched rows, compute Date Started and Expected End Date similarly to ojt_profile.php
+            (function computeAndUpdateDates(rowsMatched){
+              // utility: format YYYY-MM-DD -> 'F j, Y' (e.g. September 1, 2025)
+              function fmt(dstr){
+                if (!dstr) return '—';
+                const dt = new Date(dstr + 'T00:00:00');
+                if (isNaN(dt.getTime())) return '—';
+                const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+                return months[dt.getMonth()] + ' ' + dt.getDate() + ', ' + dt.getFullYear();
+              }
+
+              // extract orientation date from remarks (prefer YYYY-MM-DD)
+              let orientation = '';
+              try{
+                const rem = (d.remarks || '').toString();
+                const m = rem.match(/Orientation\/Start:\s*([0-9]{4}-[0-9]{2}-[0-9]{2})/i);
+                if (m && m[1]) orientation = m[1];
+                else {
+                  const m2 = rem.match(/Orientation\/Start:\s*([^|]+)/i);
+                  if (m2 && m2[1]) orientation = m2[1].trim();
+                }
+              }catch(e){ orientation = ''; }
+
+              const userStatus = (d.status || '').toString().trim().toLowerCase();
+              const totalRequired = (s.total_hours_required !== undefined && s.total_hours_required !== null) ? Number(s.total_hours_required) : ((d.total_hours_required !== undefined && d.total_hours_required !== null) ? Number(d.total_hours_required) : null);
+
+              // compute hours_rendered from rows if available, else use provided
+              let hrsRendered = Number(s.hours_rendered || d.hours_rendered || 0);
+              if (rowsMatched && rowsMatched.length) {
+                let sum = 0;
+                rowsMatched.forEach(rr => { sum += (Number(rr.hours || 0) + (Number(rr.minutes || 0)/60)); });
+                hrsRendered = sum;
+              }
+
+              // helper to count weekdays (Mon-Fri) inclusive of start if weekday
+              function addBusinessDays(startDateStr, daysNeeded){
+                let dt = new Date(startDateStr + 'T00:00:00');
+                if (isNaN(dt.getTime())) return null;
+                let counted = 0;
+                while (counted < daysNeeded){
+                  const dow = dt.getDay(); // 0..6 Sun..Sat
+                  if (dow >=1 && dow <=5) counted++;
+                  if (counted >= daysNeeded) break;
+                  dt.setDate(dt.getDate() + 1);
+                }
+                return dt;
+              }
+
+              let orientation_display = '-';
+              let expected_display = '-';
+
+              if (userStatus === 'approved') {
+                orientation_display = '-';
+                expected_display = '-';
+              } else if (userStatus === 'ongoing') {
+                // earliest DTR
+                let earliest = null;
+                if (rowsMatched && rowsMatched.length){
+                  rowsMatched.forEach(rr => { if (rr.log_date){ if (earliest === null || rr.log_date < earliest) earliest = rr.log_date; } });
+                }
+                if (earliest) {
+                  orientation_display = fmt(earliest);
+                  const remaining = Math.max(0, (Number(totalRequired || 0) - hrsRendered));
+                  const hoursPerDay = 8;
+                  const daysNeeded = Math.ceil(remaining / hoursPerDay);
+                  if (daysNeeded <= 0) {
+                    expected_display = orientation_display;
+                  } else {
+                    const dt = addBusinessDays(earliest, daysNeeded);
+                    expected_display = dt ? fmt(dt.toISOString().slice(0,10)) : '—';
+                  }
+                } else {
+                  // fallback to orientation date from remarks if valid
+                  if (orientation && /^\d{4}-\d{2}-\d{2}$/.test(orientation)){
+                    orientation_display = fmt(orientation);
+                    const remaining = Math.max(0, (Number(totalRequired || 0) - hrsRendered));
+                    const hoursPerDay = 8;
+                    const daysNeeded = Math.ceil(remaining / hoursPerDay);
+                    if (daysNeeded <= 0) expected_display = orientation_display;
+                    else {
+                      const dt = addBusinessDays(orientation, daysNeeded);
+                      expected_display = dt ? fmt(dt.toISOString().slice(0,10)) : '—';
+                    }
+                  } else {
+                    orientation_display = '-';
+                    expected_display = '-';
+                  }
+                }
+              } else {
+                // completed or other statuses
+                if (totalRequired && hrsRendered >= totalRequired) {
+                  // use DTR first/last
+                  let first = null, last = null;
+                  if (rowsMatched && rowsMatched.length){
+                    rowsMatched.forEach(rr => { if (rr.log_date){ if (!first || rr.log_date < first) first = rr.log_date; if (!last || rr.log_date > last) last = rr.log_date; } });
+                  }
+                  if (first) orientation_display = fmt(first);
+                  if (last) expected_display = fmt(last);
+                } else {
+                  // fallback to orientation remarks date
+                  if (orientation && /^\d{4}-\d{2}-\d{2}$/.test(orientation)){
+                    orientation_display = fmt(orientation);
+                    const remaining = Math.max(0, (Number(totalRequired || 0) - hrsRendered));
+                    const hoursPerDay = 8;
+                    const daysNeeded = Math.ceil(remaining / hoursPerDay);
+                    if (daysNeeded <= 0) expected_display = orientation_display;
+                    else {
+                      const dt = addBusinessDays(orientation, daysNeeded);
+                      expected_display = dt ? fmt(dt.toISOString().slice(0,10)) : '—';
+                    }
+                  } else {
+                    orientation_display = (orientation ? orientation : '-');
+                    expected_display = '-';
+                  }
+                }
+              }
+
+              document.getElementById('view_dates').textContent = `Date Started: ${orientation_display}\nExpected End Date: ${expected_display}`;
+            })(matched);
+          } catch (ex) {
+            console.warn('View modal DTR fetch error', ex);
+            const tbody = document.getElementById('late_dtr_tbody');
+            if (tbody) tbody.innerHTML = '<tr class="empty"><td colspan="7" style="padding:18px;text-align:center;color:#6b7280">Failed to load DTR.</td></tr>';
+          }
+        })();
 
         // wire print buttons (simple open new window to printable endpoint)
         document.getElementById('printEndorse').onclick = function(){ window.open('print_endorsement.php?id=' + encodeURIComponent(appId),'_blank'); };
