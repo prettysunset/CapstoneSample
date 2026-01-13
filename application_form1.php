@@ -1,5 +1,36 @@
 <?php 
 session_start();
+// DB connection for server-side checks
+require_once 'conn.php';
+
+// Inline AJAX responder for client-side pre-submit check
+if (isset($_GET['ajax_check_email'])) {
+  header('Content-Type: application/json; charset=utf-8');
+  $email = trim($_GET['email'] ?? '');
+  $exists = false;
+  if ($email !== '' && isset($conn)) {
+    $sql = "SELECT 1 FROM users WHERE email = ? LIMIT 1";
+    if ($stmt = $conn->prepare($sql)) {
+      $stmt->bind_param('s', $email);
+      $stmt->execute();
+      $stmt->store_result();
+      if ($stmt->num_rows > 0) $exists = true;
+      $stmt->close();
+    }
+    if (!$exists) {
+      $sql = "SELECT 1 FROM students WHERE email = ? LIMIT 1";
+      if ($stmt = $conn->prepare($sql)) {
+        $stmt->bind_param('s', $email);
+        $stmt->execute();
+        $stmt->store_result();
+        if ($stmt->num_rows > 0) $exists = true;
+        $stmt->close();
+      }
+    }
+  }
+  echo json_encode(['exists' => $exists]);
+  exit;
+}
 
 function compute_age_php($dob) {
     if (empty($dob)) return null;
@@ -39,24 +70,57 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         ];
         // do not save to session or redirect; fall through to show form with error
     } else {
-        $_SESSION['af1'] = [
-            'first_name'    => $_POST['first_name'] ?? '',
-            'middle_name'   => $_POST['middle_name'] ?? '',
-            'last_name'     => $_POST['last_name'] ?? '',
-            'address'       => $_POST['address'] ?? '',
-            'age'           => $age_computed,
-            'email'         => $_POST['email'] ?? '',
-            'birthday'      => $birthday,
-            'contact'       => $_POST['contact'] ?? '',
-            'gender'        => $_POST['gender'] ?? '',
-            'emg_first'     => $_POST['emg_first'] ?? '',
-            'emg_middle'    => $_POST['emg_middle'] ?? '',
-            'emg_last'      => $_POST['emg_last'] ?? '',
-            'emg_relation'  => $_POST['emg_relation'] ?? '',
-            'emg_contact'   => $_POST['emg_contact'] ?? ''
-        ];
+      // preserve submitted values in $af1 so we can re-render the form if needed
+      $af1 = [
+        'first_name'    => $_POST['first_name'] ?? '',
+        'middle_name'   => $_POST['middle_name'] ?? '',
+        'last_name'     => $_POST['last_name'] ?? '',
+        'address'       => $_POST['address'] ?? '',
+        'age'           => $age_computed,
+        'email'         => $_POST['email'] ?? '',
+        'birthday'      => $birthday,
+        'contact'       => $_POST['contact'] ?? '',
+        'gender'        => $_POST['gender'] ?? '',
+        'emg_first'     => $_POST['emg_first'] ?? '',
+        'emg_middle'    => $_POST['emg_middle'] ?? '',
+        'emg_last'      => $_POST['emg_last'] ?? '',
+        'emg_relation'  => $_POST['emg_relation'] ?? '',
+        'emg_contact'   => $_POST['emg_contact'] ?? ''
+      ];
+
+      // server-side uniqueness check: users and students
+      $email_to_check = trim($_POST['email'] ?? '');
+      $duplicate = false;
+      if ($email_to_check !== '' && isset($conn)) {
+        $sql = "SELECT 1 FROM users WHERE email = ? LIMIT 1";
+        if ($stmt = $conn->prepare($sql)) {
+          $stmt->bind_param('s', $email_to_check);
+          $stmt->execute();
+          $stmt->store_result();
+          if ($stmt->num_rows > 0) $duplicate = true;
+          $stmt->close();
+        }
+        if (!$duplicate) {
+          $sql = "SELECT 1 FROM students WHERE email = ? LIMIT 1";
+          if ($stmt = $conn->prepare($sql)) {
+            $stmt->bind_param('s', $email_to_check);
+            $stmt->execute();
+            $stmt->store_result();
+            if ($stmt->num_rows > 0) $duplicate = true;
+            $stmt->close();
+          }
+        }
+      }
+
+      if ($duplicate) {
+        $error_email = 'This email is already in use. Please use a different email.';
+        // fall through to show form with error and preserved values
+      } else {
+        // no duplicate -> save and proceed
+        $_SESSION['af1'] = $af1;
         header("Location: application_form2.php");
         exit;
+      }
     }
 }
 
@@ -459,7 +523,8 @@ $af1 = isset($_SESSION['af1']) ? $_SESSION['af1'] : [];
 
       const formEl = document.getElementById('ojtForm');
       if (formEl) {
-        formEl.addEventListener('submit', function(e) {
+        formEl.addEventListener('submit', async function(e) {
+          e.preventDefault();
           // 1) Ensure all required fields are filled first
           const reqs = form.querySelectorAll('[required]');
           for (let i = 0; i < reqs.length; i++) {
@@ -468,7 +533,6 @@ $af1 = isset($_SESSION['af1']) ? $_SESSION['af1'] : [];
             if (val === '') {
               alert('Please complete all required fields.');
               el.focus();
-              e.preventDefault();
               return false;
             }
           }
@@ -478,7 +542,6 @@ $af1 = isset($_SESSION['af1']) ? $_SESSION['af1'] : [];
           const emailPattern = /^[a-zA-Z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/;
           if (!emailPattern.test(email)) {
             alert('Please enter a valid email address.');
-            e.preventDefault();
             return false;
           }
 
@@ -486,7 +549,6 @@ $af1 = isset($_SESSION['af1']) ? $_SESSION['af1'] : [];
           const contact = contactInput ? contactInput.value : '';
           if (contact.length !== 11) {
             alert('Contact number must be exactly 11 digits.' );
-            e.preventDefault();
             return false;
           }
 
@@ -495,7 +557,6 @@ $af1 = isset($_SESSION['af1']) ? $_SESSION['af1'] : [];
             const b = new Date(birthdayInput.value);
             if (isNaN(b.getTime())) {
               alert('Please enter a valid birthday.');
-              e.preventDefault();
               return false;
             }
             const now = new Date();
@@ -503,16 +564,32 @@ $af1 = isset($_SESSION['af1']) ? $_SESSION['af1'] : [];
             if (age < 18) {
               alert('You must be at least 18 years old to apply.');
               birthdayInput.focus();
-              e.preventDefault();
               return false;
             }
           } else {
             alert('Birthday is required.');
             if (birthdayInput) birthdayInput.focus();
-            e.preventDefault();
             return false;
           }
 
+          // 5) Pre-submit duplicate email check via AJAX to avoid full-page refresh when duplicate
+          try {
+            const resp = await fetch('?ajax_check_email=1&email=' + encodeURIComponent(email), {cache: 'no-store'});
+            if (resp.ok) {
+              const data = await resp.json();
+              if (data && data.exists) {
+                alert('This email is already in use. Please use a different email.');
+                const em = document.getElementById('email'); if (em) em.focus();
+                return false;
+              }
+            }
+          } catch (err) {
+            // network error: allow submit so server-side defensive check can run
+          }
+
+          // no duplicate found (or AJAX failed) -> proceed with normal POST
+          isDirty = false; // clear unsaved flag
+          form.submit();
         });
       }
     })();
