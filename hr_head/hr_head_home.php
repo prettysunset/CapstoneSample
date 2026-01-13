@@ -251,6 +251,8 @@ $current_date = date("l, F j, Y");
 
     /* Keep head table layout consistent */
     #officeHeadTable thead th { line-height: normal; padding:6px; box-sizing:border-box; }
+    /* Prevent the three OJTs header labels from wrapping onto two lines */
+    #officeHeadTable thead th.nowrap { white-space: nowrap; }
 
     /* The body wrapper will scroll only when content is taller than max-height.
        Use a viewport-relative max so it fits various screen sizes. */
@@ -433,6 +435,12 @@ $stmtActive = $conn->prepare("
     FROM users
     WHERE role = 'ojt' AND office_name = ? AND status = 'ongoing'
 ");
+// completed OJTs per office
+$stmtCompleted = $conn->prepare("
+  SELECT COUNT(*) AS cnt
+  FROM users
+  WHERE role = 'ojt' AND office_name = ? AND status = 'completed'
+");
 ?>
 
     <!-- Right column: slot availability (wider, slightly reduced vertical spacing) -->
@@ -454,7 +462,8 @@ $stmtActive = $conn->prepare("
               <option value="">None</option>
               <option value="capacity">Capacity</option>
               <option value="active">Ongoing OJTs</option>
-              <option value="approved">Approved</option>
+              <option value="approved">Approved OJTs</option>
+              <option value="completed">Completed OJTs</option>
               <option value="available">Available Slot</option>
             </select>
             <button id="officeSortDir" title="Toggle sort direction" style="padding:8px 10px;border:1px solid #ddd;border-radius:8px;background:#fff;cursor:pointer">Desc</button>
@@ -467,19 +476,21 @@ $stmtActive = $conn->prepare("
             <!-- Header table (keeps header fixed/aligned) -->
             <table id="officeHeadTable" style="width:100%;border-collapse:collapse;font-size:13px;table-layout:fixed;margin:0 0 0 0;">
               <colgroup>
-                <col style="width:38%">
-                <col style="width:12%">
-                <col style="width:12%">
-                <col style="width:12%">
-                <col style="width:12%">
-                <col style="width:14%">
+                <col style="width:34%">
+                <col style="width:8%">
+                <col style="width:10%">
+                <col style="width:10%">
+                <col style="width:10%">
+                <col style="width:10%">
+                <col style="width:18%">
               </colgroup>
               <thead>
                 <tr>
                   <th style="text-align:left;padding:6px;border:1px solid #eee;background:#e6e9fb">Office</th>
                   <th style="padding:6px;border:1px solid #eee;background:#e6e9fb;text-align:center">Capacity</th>
                   <th style="padding:6px;border:1px solid #eee;background:#e6e9fb;text-align:center">Ongoing OJTs</th>
-                  <th style="padding:6px;border:1px solid #eee;background:#e6e9fb;text-align:center">Approved</th>
+                  <th style="padding:6px;border:1px solid #eee;background:#e6e9fb;text-align:center">Approved OJTs</th>
+                  <th style="padding:6px;border:1px solid #eee;background:#e6e9fb;text-align:center">Completed OJTs</th>
                   <th style="padding:6px;border:1px solid #eee;background:#e6e9fb;text-align:center">Available Slot</th>
                   <th style="padding:6px;border:1px solid #eee;background:#e6e9fb;text-align:center">Status</th>
                 </tr>
@@ -491,18 +502,20 @@ $stmtActive = $conn->prepare("
             <div id="officeBodyWrap" style="height:calc(48px * 5);min-height:calc(48px * 5);overflow:auto;">
               <table id="officeBodyTable" style="width:100%;border-collapse:collapse;font-size:13px;table-layout:fixed;margin:0;">
                 <colgroup>
-                  <col style="width:38%">
-                  <col style="width:12%">
-                  <col style="width:12%">
-                  <col style="width:12%">
-                  <col style="width:12%">
-                  <col style="width:14%">
+                  <col style="width:34%">
+                  <col style="width:8%">
+                  <col style="width:10%">
+                  <col style="width:10%">
+                  <col style="width:10%">
+                  <col style="width:10%">
+                  <col style="width:18%">
                 </colgroup>
                 <tbody id="officesBody">
                 <?php foreach ($offices as $o):
                     // approved count per office
-                    $approved = 0;
-                    $active = 0;
+                  $approved = 0;
+                  $active = 0;
+                  $completed = 0;
                     // use office_name from offices table to count users assigned to that office
                     $officeName = $o['office_name'] ?? '';
                     if ($stmtApproved) {
@@ -521,6 +534,14 @@ $stmtActive = $conn->prepare("
                         $active = (int)($activeTemp ?? 0);
                         $stmtActive->free_result();
                     }
+                  if ($stmtCompleted) {
+                    $stmtCompleted->bind_param('s', $officeName);
+                    $stmtCompleted->execute();
+                    $stmtCompleted->bind_result($completedTemp);
+                    $stmtCompleted->fetch();
+                    $completed = (int)($completedTemp ?? 0);
+                    $stmtCompleted->free_result();
+                  }
 
                     $cap = isset($o['capacity']) ? (int)$o['capacity'] : null;
 
@@ -546,6 +567,7 @@ $stmtActive = $conn->prepare("
                     <td style="text-align:center;padding:6px;border:1px solid #eee"><?= $cap === null ? '—' : $cap ?></td>
                     <td style="text-align:center;padding:6px;border:1px solid #eee"><?= $active ?></td>
                     <td style="text-align:center;padding:6px;border:1px solid #eee"><?= $approved ?></td>
+                    <td style="text-align:center;padding:6px;border:1px solid #eee"><?= $completed ?></td>
                     <td style="text-align:center;padding:6px;border:1px solid #eee"><?= $availableDisplay ?></td>
                     <td style="text-align:center;padding:6px;border:1px solid #eee"><span class="<?= $statusClass ?>"><?= htmlspecialchars($statusLabel) ?></span></td>
                   </tr>
@@ -560,6 +582,7 @@ $stmtActive = $conn->prepare("
 <?php
 $stmtApproved->close();
 $stmtActive->close();
+$stmtCompleted->close();
 ?>
 <style>
 /* Office availability — show all office rows; allow tbody to scroll when very tall */
@@ -609,7 +632,8 @@ $stmtActive->close();
   const tbody = document.getElementById('officesBody');
 
   // column indices in the table body (0-based)
-  const COL = { capacity:1, active:2, approved:3, available:4 };
+  // updated to include Completed OJTs column (new index)
+  const COL = { capacity:1, active:2, approved:3, completed:4, available:5 };
 
   function parseNumCell(text){
     if (!text) return null;
@@ -737,7 +761,7 @@ $stmtActive->close();
                     <circle cx="11" cy="11" r="6"></circle>
                     <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
                   </svg>
-                  <input id="tabSearch" aria-label="Search pending or rejected" type="text" placeholder="Search name / address / office..." style="padding:6px 10px 6px 34px;border:1px solid #ddd;border-radius:8px;min-width:220px" />
+                  <input id="tabSearch" aria-label="Search pending or rejected" type="text" placeholder="Search name / address" style="padding:6px 10px 6px 34px;border:1px solid #ddd;border-radius:8px;min-width:220px" />
                 </div>
                 <select id="tabOfficeFilter" style="padding:6px;border:1px solid #ddd;border-radius:8px;">
                     <option value="all">All offices</option>
@@ -752,7 +776,7 @@ $stmtActive->close();
         <?php if (count($apps) === 0): ?>
             <div class="empty">No <?php echo $tab === 'rejected' ? 'rejected' : 'pending'; ?> applications found.</div>
         <?php else: ?>
-        <table>
+        <table id="appsTable">
             <thead>
                 <tr>
                     <th>Date Submitted</th>
@@ -953,7 +977,7 @@ $stmtActive->close();
   </div>
 </div>
 
-<script>
+  <script>
 // hold currently approving application id
 let currentAppId = null;
 
@@ -1624,6 +1648,41 @@ const orientationCounts = <?php
   }
 
   initFlatpickr();
+    })();
+</script>
+
+<script>
+// Filter pending/rejected applications by name/address and office select
+(function(){
+  const tabSearch = document.getElementById('tabSearch');
+  const tabOffice = document.getElementById('tabOfficeFilter');
+  const appsTable = document.getElementById('appsTable');
+  if (!appsTable) return;
+  const tbody = appsTable.querySelector('tbody');
+  if (!tbody) return;
+
+  function filterApps(){
+    const q = (tabSearch && tabSearch.value || '').toLowerCase().trim();
+    const office = (tabOffice && tabOffice.value || 'all').toLowerCase();
+    Array.from(tbody.querySelectorAll('tr')).forEach(tr => {
+      const cols = tr.querySelectorAll('td');
+      const name = (cols[1] && cols[1].textContent || '').toLowerCase();
+      const address = (cols[2] && cols[2].textContent || '').toLowerCase();
+      const opt1 = (cols[3] && cols[3].textContent || '').toLowerCase();
+      const opt2 = (cols[4] && cols[4].textContent || '').toLowerCase();
+
+      const matchesQ = !q || name.indexOf(q) !== -1 || address.indexOf(q) !== -1 || opt1.indexOf(q) !== -1 || opt2.indexOf(q) !== -1;
+      const matchesOffice = !office || office === 'all' || opt1.toLowerCase() === office || opt2.toLowerCase() === office || name.indexOf(office) !== -1 || address.indexOf(office) !== -1;
+
+      tr.style.display = (matchesQ && matchesOffice) ? '' : 'none';
+    });
+  }
+
+  if (tabSearch) tabSearch.addEventListener('input', filterApps);
+  if (tabOffice) tabOffice.addEventListener('change', filterApps);
+
+  // initial filter pass
+  filterApps();
 })();
 </script>
 <?php

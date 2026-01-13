@@ -461,12 +461,12 @@ if ($moa_q) {
         <!-- OJTs controls (visible by default) -->
         <div id="controlsOJTs" style="display:flex;align-items:center;gap:12px;width:100%;">
           <div class="ojt-table-searchbar" style="flex:1;display:flex;align-items:center;gap:8px;">
-            <div style="display:flex;align-items:center;background:#f7f8fc;border:1px solid #ccc;border-radius:8px;padding:6px 8px;min-width:0;flex:1;">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false" style="flex:0 0 auto;margin-right:8px;">
+            <div style="flex:1;min-width:0;position:relative;">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false" style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#666;">
                 <path d="M21 21l-4.35-4.35" stroke="#666" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                 <circle cx="11" cy="11" r="6" stroke="#666" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
               </svg>
-              <input type="text" id="searchInput" placeholder="Search name /  school / course" aria-label="Search" style="border:0;background:transparent;outline:none;padding:6px 4px;font-size:15px;flex:1;min-width:0;">
+              <input type="text" id="searchInput" placeholder="Search name /  school / course" aria-label="Search" style="padding:8px 12px 8px 40px;border-radius:8px;border:1px solid #ccc;background:#f7f8fc;font-size:15px;width:100%;box-sizing:border-box;outline:none;">
             </div>
             <select id="officeFilter" aria-label="Filter by office" style="padding:8px 10px;border-radius:8px;border:1px solid #ccc;background:#f7f8fc;font-size:15px;flex:0 0 220px;">
               <option value="">Office</option>
@@ -486,11 +486,13 @@ if ($moa_q) {
         <div id="controlsRequested" style="display:none;align-items:center;gap:12px;width:100%;">
           <div style="display:flex;gap:8px;align-items:center;width:100%;">
             <div style="display:flex;align-items:center;gap:8px;">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false" style="flex:0 0 auto;margin-right:4px;">
-                <path d="M21 21l-4.35-4.35" stroke="#666" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                <circle cx="11" cy="11" r="6" stroke="#666" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
-              <input id="requestedSearch" type="text" placeholder="Search office..." aria-label="Search offices" style="padding:8px 10px;border:1px solid #ccc;border-radius:8px;background:#f7f8fc;font-size:14px;min-width:220px;">
+              <div style="position:relative;min-width:220px;">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:#666;">
+                  <path d="M21 21l-4.35-4.35" stroke="#666" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                  <circle cx="11" cy="11" r="6" stroke="#666" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                <input id="requestedSearch" type="text" placeholder="Search office..." aria-label="Search offices" style="padding:8px 10px 8px 36px;border:1px solid #ccc;border-radius:8px;background:#f7f8fc;font-size:14px;min-width:220px;box-sizing:border-box;">
+              </div>
             </div>
             <div style="display:flex;align-items:center;gap:8px;margin-left:auto;">
               <label for="requestedSort" style="font-weight:700;font-size:13px;color:#445;">Sort by</label>
