@@ -38,6 +38,12 @@ $stmt->bind_result($users_completed_count);
 $stmt->fetch();
 $stmt->close();
 
+$stmt = $conn->prepare("SELECT COUNT(*) FROM users WHERE role = 'ojt' AND status = 'evaluated'");
+$stmt->execute();
+$stmt->bind_result($users_evaluated_count);
+$stmt->fetch();
+$stmt->close();
+
 $stmt = $conn->prepare("SELECT COUNT(*) FROM users WHERE role = 'ojt' AND status = 'ongoing'");
 $stmt->execute();
 $stmt->bind_result($users_ongoing_count);
@@ -375,7 +381,15 @@ $current_date = date("l, F j, Y");
          Row 2: Approved Applicants + Active (side-by-side) -->
       <div style="display:flex;flex-direction:column;gap:10px;margin-top:10px;">
 
-        <!-- Row 1: Completed (full width) -->
+        <!-- Row 1a: Evaluated (full width, above Completed) -->
+        <div style="background:#f5f7ff;border-radius:8px;padding:12px;border:1px solid #e6e9fb;box-shadow:0 2px 6px rgba(0,0,0,0.02);display:flex;align-items:center;justify-content:space-between;min-height:64px;">
+        <div style="display:flex;flex-direction:column;gap:2px;">
+          <div style="font-size:13px;color:#6d6d6d;font-weight:600">Evaluated</div>
+        </div>
+        <div style="font-size:28px;font-weight:700;color:#2f3850"><?php echo (int)($users_evaluated_count ?? 0); ?></div>
+        </div>
+
+        <!-- Row 1b: Completed (full width) -->
         <div style="background:#f5f7ff;border-radius:8px;padding:12px;border:1px solid #e6e9fb;box-shadow:0 2px 6px rgba(0,0,0,0.02);display:flex;align-items:center;justify-content:space-between;min-height:64px;">
         <div style="display:flex;flex-direction:column;gap:2px;">
           <div style="font-size:13px;color:#6d6d6d;font-weight:600">Completed</div>
