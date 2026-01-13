@@ -1125,20 +1125,54 @@ if ($moa_q) {
           }
         })();
 
-        // render attachments list
+        // render attachments list (resolve hrefs robustly like hr_head_home.php)
         attachments.forEach(a=>{
-          const filePath = a.file || '';
+          const filePath = (a.file || '').toString().trim();
+          if (!filePath) return;
+
+          // resolve href relative to this script (hr_head/ -> project root is ../)
+          let href;
+          if (/^https?:\/\//i.test(filePath) || filePath.startsWith('/')) {
+            href = filePath;
+          } else if (/^uploads[\/\\]/i.test(filePath)) {
+            href = '../' + filePath.replace(/^\/+/, '');
+          } else {
+            href = '../uploads/' + filePath.replace(/^\/+/, '');
+          }
+
           const row = document.createElement('div');
           row.style.display='flex';
           row.style.justifyContent='space-between';
           row.style.alignItems='center';
           row.style.padding='6px 0';
-          const safe = filePath.replace(/'/g,"\\'");
-          row.innerHTML = `<div style="font-size:14px;font-weight:600">${a.label}</div>
-                           <div style="display:flex;gap:8px">
-                             <button class="tool-link" onclick="window.open('../${safe}','_blank')">View</button>
-                             <button class="tool-link" onclick="(function(f){const aL=document.createElement('a');aL.href='../'+f;aL.download='';document.body.appendChild(aL);aL.click();aL.remove();})('${safe}')">Download</button>
-                           </div>`;
+
+          const lbl = document.createElement('div');
+          lbl.style.fontSize = '14px';
+          lbl.style.fontWeight = '600';
+          lbl.textContent = a.label || (href.split('/').pop() || 'Attachment');
+
+          const actions = document.createElement('div');
+          actions.style.display = 'flex';
+          actions.style.gap = '8px';
+
+          const viewBtn = document.createElement('a');
+          viewBtn.href = href;
+          viewBtn.target = '_blank';
+          viewBtn.rel = 'noopener noreferrer';
+          viewBtn.className = 'tool-link';
+          viewBtn.textContent = 'View';
+
+          const dlBtn = document.createElement('a');
+          dlBtn.href = href;
+          dlBtn.download = '';
+          dlBtn.className = 'tool-link';
+          dlBtn.textContent = 'Download';
+
+          actions.appendChild(viewBtn);
+          actions.appendChild(dlBtn);
+
+          row.appendChild(lbl);
+          row.appendChild(actions);
           attRoot.appendChild(row);
         });
 
