@@ -897,7 +897,7 @@ $stmtCompleted->close();
 
     <div class="actions">
       <button class="btn-cancel" onclick="closeModal()" type="button">Cancel</button>
-      <button id="btnSend" class="btn-send" type="button" onclick="sendApproval(); setTimeout(function(){ location.reload(); }, 1200);" aria-disabled="true" disabled>Send</button>
+      <button id="btnSend" class="btn-send" type="button" onclick="sendApproval();" aria-disabled="true" disabled>Send</button>
     </div>
   </div>
 </div>
