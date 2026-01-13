@@ -265,6 +265,36 @@ if (is_array($inputJson) && isset($inputJson['action']) && $inputJson['action'] 
     exit;
 }
 
+  // AJAX: check if email already exists in users OR students (POST JSON { action: 'check_email_unique', email: '...' })
+  if (is_array($inputJson) && isset($inputJson['action']) && $inputJson['action'] === 'check_email_unique') {
+    header('Content-Type: application/json; charset=utf-8');
+    $email = trim($inputJson['email'] ?? '');
+    $exists = false;
+    if ($email !== '') {
+      $sql = "SELECT 1 FROM users WHERE email = ? LIMIT 1";
+      if ($stmt = $conn->prepare($sql)) {
+        $stmt->bind_param('s', $email);
+        $stmt->execute();
+        $stmt->store_result();
+        if ($stmt->num_rows > 0) $exists = true;
+        $stmt->close();
+      }
+      if (!$exists) {
+        $sql = "SELECT 1 FROM students WHERE email = ? LIMIT 1";
+        if ($stmt = $conn->prepare($sql)) {
+          $stmt->bind_param('s', $email);
+          $stmt->execute();
+          $stmt->store_result();
+          if ($stmt->num_rows > 0) $exists = true;
+          $stmt->close();
+        }
+      }
+    }
+
+    echo json_encode(['exists' => (bool)$exists]);
+    exit;
+  }
+
 // fetch HR user info for sidebar
 $user_id = (int)($_SESSION['user_id'] ?? 0);
 $stmtU = $conn->prepare("SELECT first_name, middle_name, last_name, role FROM users WHERE user_id = ? LIMIT 1");
@@ -852,6 +882,24 @@ async function submitAddHr(){
   if (!first_name || !last_name || !email) { alert('Please fill First name, Last name and Email.'); return; }
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { alert('Please enter a valid email address.'); return; }
 
+  // pre-check: ensure email isn't already used
+  try {
+    const emailChk = await fetch(window.location.href, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ action: 'check_email_unique', email: email })
+    });
+    if (emailChk.ok) {
+      const ej = await emailChk.json().catch(()=>null);
+      if (ej && ej.exists) {
+        alert('This email is already in use. Please use a different email.');
+        return;
+      }
+    }
+  } catch (e) {
+    console.warn('Email uniqueness check failed', e);
+  }
+
   if (statusEl) { statusEl.style.display = 'block'; statusEl.style.background = '#fffbe6'; statusEl.style.color = '#333'; statusEl.textContent = 'Creating account...'; }
 
   const unameBase = (first_name.charAt(0) + last_name).toLowerCase().replace(/[^a-z0-9]/g,'') || 'hr';
@@ -1251,6 +1299,27 @@ async function submitAdd(){
   statusEl.textContent = 'Validating...';
 
   try {
+    // pre-check: ensure email isn't already used in users or students
+    try {
+      const emailChk = await fetch(window.location.href, {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ action: 'check_email_unique', email: email })
+      });
+      if (emailChk.ok) {
+        const ej = await emailChk.json().catch(()=>null);
+        if (ej && ej.exists) {
+          statusEl.style.display = 'block';
+          statusEl.style.background = '#fff4f4';
+          statusEl.style.color = '#a00';
+          statusEl.textContent = 'This email is already in use. Please use a different email.';
+          return;
+        }
+      }
+    } catch (e) {
+      // if check fails, continue and let server-side endpoint handle duplicates
+      console.warn('Email uniqueness check failed', e);
+    }
     // server-side check: office existence
     const chkRes = await fetch(window.location.href, {
       method: 'POST',
