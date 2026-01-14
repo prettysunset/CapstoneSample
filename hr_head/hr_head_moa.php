@@ -47,12 +47,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['action']) && $_POST[
     }
 
     // server-side: prevent adding if there's already an ACTIVE MOA for the same school
-    $activeStmt = $conn->prepare("
-        SELECT COUNT(*) AS cnt
-        FROM moa
-        WHERE LOWER(TRIM(school_name)) = LOWER(TRIM(?))
-          AND DATE_ADD(date_uploaded, INTERVAL COALESCE(validity_months,12) MONTH) >= CURDATE()
-    ");
+      $activeStmt = $conn->prepare("SELECT COUNT(*) AS cnt FROM moa WHERE LOWER(TRIM(school_name)) = LOWER(TRIM(?)) AND COALESCE(valid_until,'0000-01-01') >= CURDATE()");
     if ($activeStmt) {
         $activeStmt->bind_param('s', $school);
         $activeStmt->execute();
@@ -68,9 +63,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['action']) && $_POST[
     }
 
     // compute months difference (validity_months)
-    $interval = $d1->diff($d2);
-    $validity_months = (int)($interval->y * 12 + $interval->m + ($interval->d > 0 ? 1 : 0));
-    if ($validity_months < 0) $validity_months = 0;
+    // Note: we now store explicit dates: $date_signed and $valid_until. No month-based conversion.
 
     // handle file upload (required)
     if (!isset($_FILES['moa_file']) || empty($_FILES['moa_file']['name'])) {
@@ -113,8 +106,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['action']) && $_POST[
      }
 
     // insert into DB
-    $stmt = $conn->prepare("INSERT INTO moa (school_name, moa_file, date_uploaded, validity_months) VALUES (?,?,?,?)");
-    $stmt->bind_param("sssi", $school, $moa_file_path, $date_signed, $validity_months);
+    $stmt = $conn->prepare("INSERT INTO moa (school_name, moa_file, date_signed, valid_until) VALUES (?,?,?,?)");
+    if (!$stmt) {
+      header('Content-Type: application/json', true, 500);
+      echo json_encode(['success' => false, 'message' => 'DB prepare failed: ' . $conn->error]);
+      exit;
+    }
+    $stmt->bind_param("ssss", $school, $moa_file_path, $date_signed, $valid_until);
     $ok = $stmt->execute();
     $insertId = $conn->insert_id;
     $err = $stmt->error;
@@ -130,16 +128,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['action']) && $_POST[
         $students = (int)($cntRow['cnt'] ?? 0);
         $cntStmt->close();
 
-        $valid_until_calc = $date_signed ? date('Y-m-d', strtotime("+{$validity_months} months", strtotime($date_signed))) : null;
-        $status = ($valid_until_calc && strtotime($valid_until_calc) >= strtotime(date('Y-m-d'))) ? 'ACTIVE' : 'EXPIRED';
+        $status = ($valid_until && strtotime($valid_until) >= strtotime(date('Y-m-d'))) ? 'ACTIVE' : 'EXPIRED';
 
         header('Content-Type: application/json');
         echo json_encode(['success' => true, 'moa' => [
             'moa_id' => (int)$insertId,
             'school_name' => $school,
             'moa_file' => $moa_file_path,
-            'date_uploaded' => $date_signed,
-            'valid_until' => $valid_until_calc,
+            'date_signed' => $date_signed,
+            'valid_until' => $valid_until,
             'students' => $students,
             'status' => $status
         ]]);
@@ -166,7 +163,7 @@ $current_date = date("l, F j, Y");
 
 // fetch MOA rows
 $moas = [];
-$res = $conn->query("SELECT moa_id, school_name, moa_file, date_uploaded, COALESCE(validity_months,12) AS validity_months FROM moa ORDER BY date_uploaded DESC");
+$res = $conn->query("SELECT moa_id, school_name, moa_file, date_signed, valid_until FROM moa ORDER BY date_signed DESC");
 if ($res) {
     // Count OJTs by joining users -> students and matching students.college to MOA.school_name (case-insensitive, trimmed)
     $cntStmt = $conn->prepare("
@@ -188,19 +185,18 @@ if ($res) {
             $count = (int)($cntRow['cnt'] ?? 0);
         }
 
-        $date_uploaded = $r['date_uploaded'];
-        $valid_until = $date_uploaded ? date('Y-m-d', strtotime("+{$r['validity_months']} months", strtotime($date_uploaded))) : null;
+        $date_signed = $r['date_signed'];
+        $valid_until = $r['valid_until'];
         $status = ($valid_until && strtotime($valid_until) >= strtotime(date('Y-m-d'))) ? 'ACTIVE' : 'EXPIRED';
 
         $moas[] = [
-            'moa_id' => (int)$r['moa_id'],
-            'school_name' => $school,
-            'moa_file' => $r['moa_file'] ?? '',
-            'date_uploaded' => $date_uploaded,
-            'valid_until' => $valid_until,
-            'validity_months' => (int)$r['validity_months'],
-            'students' => $count,
-            'status' => $status
+          'moa_id' => (int)$r['moa_id'],
+          'school_name' => $school,
+          'moa_file' => $r['moa_file'] ?? '',
+          'date_signed' => $date_signed,
+          'valid_until' => $valid_until,
+          'students' => $count,
+          'status' => $status
         ];
     }
     if ($cntStmt) $cntStmt->close();
@@ -408,7 +404,7 @@ function fmtDate($d){ if (!$d) return '-'; $dt = date_create($d); return $dt ? d
                 <td style="text-align:center"><?= (int)$m['students'] ?></td>
                 <td><?= htmlspecialchars($m['school_name'] ?: '—') ?></td>
                 <td><?= $m['status'] === 'ACTIVE' ? "<span class=\"status-active\">ACTIVE</span>" : "<span class=\"status-expired\">EXPIRED</span>" ?></td>
-                <td><?= htmlspecialchars($m['date_uploaded'] ? fmtDate($m['date_uploaded']) : '-') ?></td>
+                <td><?= htmlspecialchars($m['date_signed'] ? fmtDate($m['date_signed']) : '-') ?></td>
                 <td><?= htmlspecialchars($m['valid_until'] ? fmtDate($m['valid_until']) : '-') ?></td>
                 <td>
                   <?php if (!empty($m['moa_file'])): ?>
@@ -577,7 +573,7 @@ function fmtDate($d){ if (!$d) return '-'; $dt = date_create($d); return $dt ? d
           const students = Number(m.students || 0);
           const school = m.school_name || '—';
           const statusClass = (m.status === 'ACTIVE') ? 'status-active' : 'status-expired';
-          const dateUploaded = m.date_uploaded ? formatDate(m.date_uploaded) : '-';
+          const dateSigned = m.date_signed ? formatDate(m.date_signed) : '-';
           const validUntilFmt = m.valid_until ? formatDate(m.valid_until) : '-';
           const fileHtml = m.moa_file ? `<a href="../${m.moa_file}" target="_blank">${m.moa_file.split('/').pop()}</a>` : '—';
 
@@ -587,7 +583,7 @@ function fmtDate($d){ if (!$d) return '-'; $dt = date_create($d); return $dt ? d
             <td style="text-align:center">${students}</td>
             <td>${school}</td>
             <td><span class="${statusClass}">${m.status}</span></td>
-            <td>${dateUploaded}</td>
+            <td>${dateSigned}</td>
             <td>${validUntilFmt}</td>
             <td>${fileHtml}</td>
           `;

@@ -1,16 +1,13 @@
 -- phpMyAdmin SQL Dump
--- version 5.2.2
+-- version 5.2.1
 -- https://www.phpmyadmin.net/
 --
--- Host: 127.0.0.1:3306
--- Generation Time: Nov 18, 2025 at 10:51 PM
--- Server version: 11.8.3-MariaDB-log
--- PHP Version: 7.2.34
+-- Host: 127.0.0.1
+-- Generation Time: Jan 14, 2026 at 03:04 PM
+-- Server version: 10.4.32-MariaDB
+-- PHP Version: 8.0.30
 
 SET SQL_MODE = "NO_AUTO_VALUE_ON_ZERO";
-/* Ensure the target database exists and is selected for import */
-CREATE DATABASE IF NOT EXISTS `u389936701_capstone` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-USE `u389936701_capstone`;
 START TRANSACTION;
 SET time_zone = "+00:00";
 
@@ -45,7 +42,8 @@ INSERT INTO `courses` (`course_id`, `course_code`, `course_name`) VALUES
 (3, NULL, 'Bachelor of Science in Accountancy'),
 (5, NULL, 'Bachelor of Science in Accounting Information System'),
 (6, NULL, 'BSBA Major in Financial Management'),
-(10, NULL, 'Bachelor of Science in Office Management');
+(10, NULL, 'Bachelor of Science in Office Management'),
+(11, NULL, 'BSOM');
 
 -- --------------------------------------------------------
 
@@ -212,16 +210,9 @@ CREATE TABLE `moa` (
   `moa_id` int(11) NOT NULL,
   `school_name` varchar(150) DEFAULT NULL,
   `moa_file` varchar(255) DEFAULT NULL,
-  `date_uploaded` date DEFAULT NULL,
-  `validity_months` int(11) DEFAULT 12
+  `date_signed` date DEFAULT NULL,
+  `valid_until` date DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
---
--- Dumping data for table `moa`
---
-
-INSERT INTO `moa` (`moa_id`, `school_name`, `moa_file`, `date_uploaded`, `validity_months`) VALUES
-(9, 'Bulacan Polytechnic College', 'uploads/moa/Memorandum-of-Agreement-Template-1_1763107390.jpg', '2025-11-14', 2);
 
 -- --------------------------------------------------------
 
@@ -284,8 +275,7 @@ INSERT INTO `office_courses` (`id`, `office_id`, `course_id`) VALUES
 (7, 8, 6),
 (8, 9, 3),
 (9, 9, 5),
-(16, 14, 2),
-(15, 14, 10);
+(16, 14, 2);
 
 -- --------------------------------------------------------
 
@@ -356,7 +346,12 @@ INSERT INTO `ojt_applications` (`application_id`, `student_id`, `office_preferen
 (56, 66, 8, NULL, 'uploads/1763467842_LETTER_OF_INTENT.pdf', 'uploads/1763467842_ENDORSEMENTLETTER.pdf', 'uploads/1763467842_RESUME.pdf', '', 'uploads/1763467842_formalpic.jpg', 'completed', 'Orientation/Start: November 26, 2025 08:30 | Location: CHRMO/3rd Floor | Assigned Office: City Budget Office', '2025-11-18', '2025-11-18'),
 (57, 67, 8, 9, 'uploads/1763468321_LETTER_OF_INTENT.pdf', 'uploads/1763468321_ENDORSEMENTLETTER.pdf', 'uploads/1763468321_RESUME.pdf', 'uploads/moa/Memorandum-of-Agreement-Template-1_1763107390.jpg', 'uploads/1763468321_formalpic.jpg', 'rejected', 'incorrect requirements', '2025-11-18', '2025-11-18'),
 (58, 68, 8, NULL, 'uploads/1763468527_LETTER_OF_INTENT.pdf', 'uploads/1763468527_ENDORSEMENTLETTER.pdf', 'uploads/1763468527_Resume.pdf', 'uploads/moa/Memorandum-of-Agreement-Template-1_1763107390.jpg', 'uploads/1763468527_formalpic.jpg', 'approved', 'Orientation/Start: November 26, 2025 08:30 | Location: CHRMO/3rd Floor | Assigned Office: City Budget Office', '2025-11-18', '2025-11-18'),
-(59, 69, 9, NULL, 'uploads/1763505778_LETTER_OF_INTENT.pdf', 'uploads/1763505778_ENDORSEMENTLETTER.pdf', 'uploads/1763505778_RESUME.pdf', '', 'uploads/1763505778_formalpic.jpg', 'approved', 'Orientation/Start: November 26, 2025 08:30 | Location: CHRMO/3rd Floor | Assigned Office: City Accounting Office', '2025-11-18', '2025-11-18');
+(59, 69, 9, NULL, 'uploads/1763505778_LETTER_OF_INTENT.pdf', 'uploads/1763505778_ENDORSEMENTLETTER.pdf', 'uploads/1763505778_RESUME.pdf', '', 'uploads/1763505778_formalpic.jpg', 'approved', 'Orientation/Start: November 26, 2025 08:30 | Location: CHRMO/3rd Floor | Assigned Office: City Accounting Office', '2025-11-18', '2025-11-18'),
+(60, 70, 9, 8, 'uploads/1768055895_LETTER_OF_INTENT.pdf', 'uploads/1768055895_LETTER_OF_INTENT.pdf', 'uploads/1768055895_LETTER_OF_INTENT.pdf', 'uploads/moa/Memorandum-of-Agreement-Template-1_1763107390.jpg', 'uploads/1768055895_formalpic.jpg', 'approved', 'Orientation/Start: January 18, 2026 08:30 | Location: CHRMO/3rd Floor | Assigned Office: City Accounting Office', '2026-01-10', '2026-01-10'),
+(61, 71, 8, NULL, 'uploads/1768056652_LETTER_OF_INTENT.pdf', 'uploads/1768056652_LETTER_OF_INTENT.pdf', 'uploads/1768056652_LETTER_OF_INTENT.pdf', 'uploads/moa/Memorandum-of-Agreement-Template-1_1763107390.jpg', 'uploads/1768056652_ai-generated-businessman-in-jacket-isolated-free-photo.jpg', 'approved', 'Orientation/Start: January 18, 2026 08:30 | Location: CHRMO/3rd Floor | Assigned Office: City Budget Office', '2026-01-10', '2026-01-10'),
+(62, 72, 9, NULL, 'uploads/1768115874_LETTER_OF_INTENT.pdf', 'uploads/1768115874_LETTER_OF_INTENT.pdf', 'uploads/1768115874_LETTER_OF_INTENT.pdf', '', 'uploads/1768115874_formalpic.jpg', 'approved', 'Orientation/Start: January 21, 2026 08:30 | Location: CHRMO/3rd Floor | Assigned Office: City Accounting Office', '2026-01-11', '2026-01-13'),
+(63, 73, 9, 8, 'uploads/1768129814_LETTER_OF_INTENT.pdf', 'uploads/1768129814_LETTER_OF_INTENT.pdf', 'uploads/1768129814_LETTER_OF_INTENT.pdf', 'uploads/moa/Memorandum-of-Agreement-Template-1_1763107390.jpg', 'uploads/1768129814_ai-generated-businessman-in-jacket-isolated-free-photo.jpg', 'approved', 'Orientation/Start: January 21, 2026 08:30 | Location: CHRMO/3rd Floor | Assigned Office: City Accounting Office', '2026-01-11', '2026-01-13'),
+(64, 75, 9, 8, 'uploads/1768374409_LETTER_OF_INTENT.pdf', 'uploads/1768374409_LETTER_OF_INTENT.pdf', 'uploads/1768374409_LETTER_OF_INTENT.pdf', 'uploads/moa/Memorandum-of-Agreement-Template-1_1763107390.jpg', 'uploads/1768374409_formalpic.jpg', 'approved', 'Orientation/Start: January 22, 2026 08:30 | Location: CHRMO/3rd Floor | Assigned Office: City Accounting Office', '2026-01-14', '2026-01-14');
 
 -- --------------------------------------------------------
 
@@ -378,7 +373,13 @@ CREATE TABLE `orientation_assignments` (
 INSERT INTO `orientation_assignments` (`id`, `session_id`, `application_id`, `assigned_at`) VALUES
 (17, 9, 56, '2025-11-18 12:55:25'),
 (18, 9, 58, '2025-11-18 13:04:39'),
-(19, 9, 59, '2025-11-18 22:45:14');
+(19, 9, 59, '2025-11-18 22:45:14'),
+(20, 10, 60, '2026-01-10 14:40:33'),
+(21, 10, 61, '2026-01-10 14:51:04'),
+(22, 11, 63, '2026-01-11 14:37:59'),
+(23, 12, 62, '2026-01-13 07:05:29'),
+(24, 12, 63, '2026-01-13 07:09:27'),
+(25, 13, 64, '2026-01-14 08:31:30');
 
 -- --------------------------------------------------------
 
@@ -406,7 +407,11 @@ INSERT INTO `orientation_sessions` (`session_id`, `session_date`, `session_time`
 (6, '2025-11-23', '08:30:00', 'CHRMO/3rd Floor'),
 (7, '2025-11-24', '08:30:00', 'CHRMO/3rd Floor'),
 (8, '2025-11-25', '08:30:00', 'CHRMO/3rd Floor'),
-(9, '2025-11-26', '08:30:00', 'CHRMO/3rd Floor');
+(9, '2025-11-26', '08:30:00', 'CHRMO/3rd Floor'),
+(10, '2026-01-18', '08:30:00', 'CHRMO/3rd Floor'),
+(11, '2026-01-19', '08:30:00', 'CHRMO/3rd Floor'),
+(12, '2026-01-21', '08:30:00', 'CHRMO/3rd Floor'),
+(13, '2026-01-22', '08:30:00', 'CHRMO/3rd Floor');
 
 -- --------------------------------------------------------
 
@@ -447,10 +452,16 @@ CREATE TABLE `students` (
 --
 
 INSERT INTO `students` (`student_id`, `user_id`, `first_name`, `middle_name`, `last_name`, `address`, `contact_number`, `email`, `birthday`, `emergency_name`, `emergency_relation`, `emergency_contact`, `college`, `course`, `year_level`, `school_year`, `semester`, `school_address`, `ojt_adviser`, `adviser_contact`, `total_hours_required`, `hours_rendered`, `status`, `reason`) VALUES
-(66, 54, 'Elisha', NULL, 'Lumanlan', 'Malolos, Bulacan', '09454659878', 'santiagojasminem@gmail.com', '2007-10-15', 'Ann Lumanlan', 'Mother', '09134664654', 'Bulacan State University', 'Bachelor of Science in Accountancy', '3', '2025-2026', '1st Semester', 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '09234342354', 500, 500, 'completed', NULL),
+(66, 54, 'Elisha', NULL, 'Lumanlan', 'Malolos, Bulacan', '09454659878', 'santiagojasminem@gmail.com', '2007-10-15', 'Ann Lumanlan', 'Mother', '09134664654', 'Bulacan Polytechnic College', 'Bachelor of Science in Accountancy', '3', '2025-2026', '1st Semester', 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '09234342354', 500, 500, 'pending', NULL),
 (67, NULL, 'Angel', NULL, 'Mendoza', '#0546 Peter Street, Phase 2, Caingin, Malolos, Bulacan', '09454659878', 'santiagojasminem@gmail.com', '2007-09-08', 'Maria Mendoza', 'Mother', '09134664654', 'Bulacan Polytechnic College', 'Bachelor of Science in Accountancy', '3', '2025-2026', NULL, 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '09234342354', 500, 0, 'pending', 'incorrect requirements'),
 (68, 55, 'Mikaili', NULL, 'Mesia', 'Malolos, Bulacan', '09454659878', 'santiagojasminem@gmail.com', '2007-11-17', 'Maria Rosario', 'Mother', '09134664654', 'Bulacan Polytechnic College', 'Bachelor of Science in Accounting Information System', '4', '2025-2026', NULL, 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '09234342354', 500, 0, 'pending', NULL),
-(69, 58, 'Blair', NULL, 'Waldorf', '#0546 Peter Street, Phase 2, Caingin, Malolos, Bulacan', '09454659878', 'santiagojasminem@gmail.com', '2007-11-11', 'Eleanor Waldorf', 'Mother', '09134664654', 'Bulacan State University', 'Bachelor of Science in Accountancy', '3', '2025-2026', NULL, 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '09234342354', 500, 0, 'pending', NULL);
+(69, 58, 'Blair', NULL, 'Waldorf', '#0546 Peter Street, Phase 2, Caingin, Malolos, Bulacan', '09454659878', 'santiagojasminem@gmail.com', '2007-11-11', 'Eleanor Waldorf', 'Mother', '09134664654', 'Bulacan State University', 'Bachelor of Science in Accountancy', '3', '2025-2026', NULL, 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '09234342354', 500, 0, 'pending', NULL),
+(70, 59, 'Jasmine', NULL, 'Santiago', 'Malolos, Bulacan', '09454659878', 'santiagojasminem@gmail.com', '2008-01-10', 'Rosaly Santiago', 'Mother', '09134664654', 'Bulacan Polytechnic College', 'Bachelor of Science in Accounting Information System', '3', '2025-2026', NULL, 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '09234342354', 500, 0, 'pending', NULL),
+(71, 60, 'Arvin', NULL, 'Ong', 'Malolos, Bulacan', '09454659878', 'santiagojasminem@gmail.com', '2008-01-10', 'Janice Ong', 'Mother', '09134664654', 'Bulacan Polytechnic College', 'BSBA Major in Financial Management', '3', '2025-2026', NULL, 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '09234342354', 200, 0, 'pending', NULL),
+(72, 62, 'Krystal', NULL, 'Mendoza', 'Sumapang Matanda, Malolos, Bulacan', '09454659878', 'santiagojasminem@gmail.com', '2008-01-11', 'Kurt Mendoza', 'Brother', '09134664654', 'AMA Computer College – Malolos', 'Bachelor of Science in Accountancy', '3', '2025-2026', NULL, 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '09234342354', 100, 0, 'pending', NULL),
+(73, 61, 'John ', NULL, 'Sayo', 'Malolos, Bulacan', '09454659878', 'santiagojasminem@gmail.com', '2008-01-11', 'Maria Sayo', 'Brother', '09134664654', 'Bulacan Polytechnic College', 'Bachelor of Science in Accountancy', '3', '2025-2026', NULL, 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '09234342354', 300, 0, 'pending', NULL),
+(74, NULL, 'Minmin', '', 'Santiago', '#0546 Peter Street, Phase 2, Caingin, Malolos, Bulacan', '09454659878', 'jasmine.santiago@bpc.edu.ph', '2008-01-14', 'Myrna  Santiago', 'Mother', '09134664654', 'Bulacan Polytechnic College', 'Bachelor of Science in Accountancy', '4', '2025-2026', '', 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '09234342354', 500, 0, 'pending', NULL),
+(75, 64, 'Minmin', NULL, 'Santiago', '#0546 Peter Street, Phase 2, Caingin, Malolos, Bulacan', '09454659878', 'jasmine.santiago1@bpc.edu.ph', '2008-01-14', 'Myrna Santiago', 'Mother', '09134664654', 'Bulacan Polytechnic College', 'Bachelor of Science in Accountancy', '4', '2025-2026', NULL, 'Bulihan, Malolos, Bulacan', 'Rhey Santos', '09234342354', 200, 0, 'pending', NULL);
 
 -- --------------------------------------------------------
 
@@ -484,7 +495,12 @@ INSERT INTO `users` (`user_id`, `username`, `email`, `first_name`, `middle_name`
 (50, 'jdiamante370', 'jenny.robles@bpc.edu.ph', 'Jimwell', NULL, 'Diamante', '%BCJbqY3U4', 'office_head', 'City Admin Office', 'active', '2025-11-17 01:56:34'),
 (54, 'santiagojasminem', NULL, NULL, NULL, NULL, '123456', 'ojt', 'City Budget Office', 'completed', '2025-10-18 12:55:25'),
 (55, 'santiagojasminem1', NULL, NULL, NULL, NULL, '03e3822a6d', 'ojt', 'City Budget Office', 'approved', '2025-11-18 13:04:39'),
-(58, 'santiagojasminem2', NULL, NULL, NULL, NULL, '222222', 'ojt', 'City Accounting Office', 'approved', '2025-11-11 22:45:14');
+(58, 'santiagojasminem2', NULL, NULL, NULL, NULL, '222222', 'ojt', 'City Accounting Office', 'approved', '2025-11-11 22:45:14'),
+(59, 'santiagojasminem3', NULL, NULL, NULL, NULL, '9400931838', 'ojt', 'City Accounting Office', 'approved', '2026-01-10 14:40:33'),
+(60, 'santiagojasminem4', NULL, NULL, NULL, NULL, 'ce85d92c8a', 'ojt', 'City Budget Office', 'approved', '2026-01-10 14:51:04'),
+(61, 'santiagojasminem5', NULL, NULL, NULL, NULL, 'e513ca9f3a', 'ojt', 'City Accounting Office', 'approved', '2026-01-11 14:37:59'),
+(62, 'santiagojasminem6', NULL, NULL, NULL, NULL, 'b778d8906a', 'ojt', 'City Accounting Office', 'approved', '2026-01-13 07:05:29'),
+(64, 'jasmine.santiago1', NULL, NULL, NULL, NULL, '111111', 'ojt', 'City Accounting Office', 'approved', '2026-01-14 08:31:30');
 
 -- --------------------------------------------------------
 
@@ -497,8 +513,18 @@ CREATE TABLE `weekly_journal` (
   `user_id` int(11) DEFAULT NULL,
   `week_coverage` varchar(50) DEFAULT NULL,
   `date_uploaded` date DEFAULT NULL,
-  `attachment` varchar(255) DEFAULT NULL
+  `attachment` varchar(255) DEFAULT NULL,
+  `from_date` date DEFAULT NULL,
+  `to_date` date DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Dumping data for table `weekly_journal`
+--
+
+INSERT INTO `weekly_journal` (`journal_id`, `user_id`, `week_coverage`, `date_uploaded`, `attachment`, `from_date`, `to_date`) VALUES
+(11, 75, 'Week 1 (2026-01-09|2026-01-13)', '2026-01-14', 'uploads/journals/1768389198_d9c75e12b72e_Weeklyjournal1.docx', '2026-01-09', '2026-01-13'),
+(12, 69, 'Week 1 (2026-01-05|2026-01-12)', '2026-01-14', 'uploads/journals/1768398438_d4c5053dfa45_WeeklyJournalSample.docx', '2026-01-05', '2026-01-12');
 
 --
 -- Indexes for dumped tables
@@ -628,7 +654,7 @@ ALTER TABLE `weekly_journal`
 -- AUTO_INCREMENT for table `courses`
 --
 ALTER TABLE `courses`
-  MODIFY `course_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=11;
+  MODIFY `course_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=12;
 
 --
 -- AUTO_INCREMENT for table `dtr`
@@ -670,13 +696,13 @@ ALTER TABLE `notifications`
 -- AUTO_INCREMENT for table `offices`
 --
 ALTER TABLE `offices`
-  MODIFY `office_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=16;
+  MODIFY `office_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=17;
 
 --
 -- AUTO_INCREMENT for table `office_courses`
 --
 ALTER TABLE `office_courses`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=18;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=19;
 
 --
 -- AUTO_INCREMENT for table `office_requests`
@@ -688,37 +714,37 @@ ALTER TABLE `office_requests`
 -- AUTO_INCREMENT for table `ojt_applications`
 --
 ALTER TABLE `ojt_applications`
-  MODIFY `application_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=60;
+  MODIFY `application_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=65;
 
 --
 -- AUTO_INCREMENT for table `orientation_assignments`
 --
 ALTER TABLE `orientation_assignments`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=20;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=26;
 
 --
 -- AUTO_INCREMENT for table `orientation_sessions`
 --
 ALTER TABLE `orientation_sessions`
-  MODIFY `session_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=10;
+  MODIFY `session_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=14;
 
 --
 -- AUTO_INCREMENT for table `students`
 --
 ALTER TABLE `students`
-  MODIFY `student_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=70;
+  MODIFY `student_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=76;
 
 --
 -- AUTO_INCREMENT for table `users`
 --
 ALTER TABLE `users`
-  MODIFY `user_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=59;
+  MODIFY `user_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=65;
 
 --
 -- AUTO_INCREMENT for table `weekly_journal`
 --
 ALTER TABLE `weekly_journal`
-  MODIFY `journal_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=8;
+  MODIFY `journal_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=13;
 
 --
 -- Constraints for dumped tables

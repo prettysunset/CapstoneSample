@@ -97,6 +97,9 @@ if ($user_id) {
             $journal_upload_error = 'Student record not found.';
         } else {
             $week = trim((string)($_POST['week_coverage'] ?? ''));
+            // accept optional date range from the form and include it in stored week_coverage
+            $week_from = trim((string)($_POST['week_from'] ?? ''));
+            $week_to = trim((string)($_POST['week_to'] ?? ''));
             if ($week === '') {
                 $journal_upload_error = 'Please enter week coverage.';
             } elseif (empty($_FILES['attachment']) || $_FILES['attachment']['error'] === UPLOAD_ERR_NO_FILE) {
@@ -123,14 +126,46 @@ if ($user_id) {
                             $target = $uploadDir . $filename;
                             if (move_uploaded_file($f['tmp_name'], $target)) {
                                 $relpath = 'uploads/journals/' . $filename;
-                                $stmt = $conn->prepare("INSERT INTO weekly_journal (user_id, week_coverage, date_uploaded, attachment) VALUES (?, ?, ?, ?)");
+                                // if user provided a valid Y-m-d range, store it in ISO form inside parentheses for reliable parsing later
+                                $week_to_store = $week; // default
+                                $from_date = null;
+                                $to_date = null;
+                                if ($week_from !== '' && $week_to !== '') {
+                                    // basic validation: dates must be Y-m-d
+                                    $okFrom = DateTime::createFromFormat('Y-m-d', $week_from);
+                                    $okTo = DateTime::createFromFormat('Y-m-d', $week_to);
+                                    if ($okFrom && $okTo) {
+                                        // ensure both dates are weekdays (Mon-Fri)
+                                        $dowFrom = (int)$okFrom->format('N'); // 1 (Mon) .. 7 (Sun)
+                                        $dowTo = (int)$okTo->format('N');
+                                        if ($dowFrom <= 5 && $dowTo <= 5) {
+                                            $from_date = $okFrom->format('Y-m-d');
+                                            $to_date = $okTo->format('Y-m-d');
+                                            $week_to_store = $week . ' (' . $from_date . '|' . $to_date . ')';
+                                        } else {
+                                            $journal_upload_error = 'Please choose weekdays only (Monday to Friday) for the From/To dates.';
+                                        }
+                                    }
+                                }
                                 $today = date('Y-m-d');
-                                $stmt->bind_param('isss', $student_id, $week, $today, $relpath);
+                                if ($from_date !== null && $to_date !== null) {
+                                    $stmt = $conn->prepare("INSERT INTO weekly_journal (user_id, week_coverage, date_uploaded, attachment, from_date, to_date) VALUES (?, ?, ?, ?, ?, ?)");
+                                    $stmt->bind_param('isssss', $student_id, $week_to_store, $today, $relpath, $from_date, $to_date);
+                                } else {
+                                    $stmt = $conn->prepare("INSERT INTO weekly_journal (user_id, week_coverage, date_uploaded, attachment) VALUES (?, ?, ?, ?)");
+                                    $stmt->bind_param('isss', $student_id, $week_to_store, $today, $relpath);
+                                }
                                 if ($stmt->execute()) {
                                     $stmt->close();
                                     // redirect to avoid form resubmission
-                                    // keep user on Weekly Journals tab after upload
-                                    header('Location: ' . $_SERVER['REQUEST_URI'] . '#tab-journals');
+                                    // include an uploaded=1 flag so the client-side will only activate the journals tab
+                                    $redirect = $_SERVER['REQUEST_URI'];
+                                    if (strpos($redirect, 'uploaded=1') === false) {
+                                        $sep = (strpos($redirect, '?') === false) ? '?' : '&';
+                                        $redirect .= $sep . 'uploaded=1';
+                                    }
+                                    $redirect .= '#tab-journals';
+                                    header('Location: ' . $redirect);
                                     exit();
                                 } else {
                                     $journal_upload_error = 'Database error while saving journal.';
@@ -732,13 +767,70 @@ if ($user_id) {
                                     while ($row = $rj->fetch_assoc()) $journals[] = $row;
                                     $qj->close();
                                 }
+
+                                // Compute next week number and default Mon-Fri date range for the upload modal
+                                $nextWeekNumber = count($journals) + 1;
+                                // Determine base date for next week: prefer the latest journal's stored week range (if it contains ISO dates),
+                                // otherwise fall back to using the latest date_uploaded.
+                                $nextMonday = null;
+                                if (!empty($journals) && !empty($journals[0]['week_coverage'])) {
+                                    $latestLabel = $journals[0]['week_coverage'];
+                                    // look for stored ISO pattern we save on upload: (YYYY-MM-DD|YYYY-MM-DD)
+                                    if (preg_match('/\((\d{4}-\d{2}-\d{2})\|(\d{4}-\d{2}-\d{2})\)$/', $latestLabel, $m)) {
+                                        try {
+                                            $lastFrom = new DateTime($m[1]);
+                                            // next week's Monday is lastFrom + 7 days
+                                            $nextMonday = clone $lastFrom;
+                                            $nextMonday->modify('+7 days');
+                                        } catch (Exception $e) {
+                                            $nextMonday = null;
+                                        }
+                                    }
+                                }
+                                if ($nextMonday === null) {
+                                    if (!empty($journals) && !empty($journals[0]['date_uploaded'])) {
+                                        try {
+                                            $last = new DateTime($journals[0]['date_uploaded']);
+                                        } catch (Exception $e) {
+                                            $last = new DateTime();
+                                        }
+                                        // move to the Monday of that week, then advance one week to get the next week's Monday
+                                        $lastMonday = clone $last;
+                                        $lastMonday->modify('this week monday');
+                                        $nextMonday = clone $lastMonday;
+                                        $nextMonday->modify('+7 days');
+                                    } else {
+                                        $today = new DateTime();
+                                        $nextMonday = clone $today;
+                                        $nextMonday->modify('this week monday');
+                                    }
+                                }
+                                $fromDate = $nextMonday->format('Y-m-d');
+                                $toDateObj = (clone $nextMonday)->modify('+4 days');
+                                $toDate = $toDateObj->format('Y-m-d');
+                                // human-friendly week label like: Week 8 (September 8–12) or Week 1 (Sep 28–Oct 2)
+                                $fromLabel = $nextMonday->format('F j');
+                                $toLabel = $toDateObj->format('F j');
+                                if ($nextMonday->format('F') === $toDateObj->format('F')) {
+                                    // same month: "September 8–12"
+                                    $toLabelShort = $toDateObj->format('j');
+                                    $weekLabel = sprintf('Week %d (%s–%s)', $nextWeekNumber, $fromLabel, $toLabelShort);
+                                } else {
+                                    // different months: include both months
+                                    $weekLabel = sprintf('Week %d (%s–%s)', $nextWeekNumber, $fromLabel, $toLabel);
+                                }
+                                // Short label that shows only the week number (used for display and posting)
+                                $weekNumberLabel = 'Week ' . $nextWeekNumber;
+                                // When there are existing journals, restrict selectable dates to start no earlier than the
+                                // computed next week's "from" date. If no prior journals, allow any date (no min).
+                                $minSelectable = (count($journals) > 0) ? $fromDate : '';
                                 ?>
 
                                 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
                                     <div style="color:#6b6f8b;font-size:16px;">Weekly Journals (<?php echo count($journals); ?>)</div>
                                     <?php if (!empty($student_id)): ?>
                                         <button id="btn-upload-journal" type="button" style="display:inline-flex;gap:8px;align-items:center;padding:8px 12px;border-radius:8px;border:0;background:#2f3459;color:#fff !important;cursor:pointer;font-size:14px;">
-                                            <span style="color:#fff;font-weight:700;font-size:18px;line-height:0;">+</span> Upload Journal
+                                            <span style="color:#fff !important;font-weight:700;font-size:18px;line-height:0;">+</span> Upload Journal
                                         </button>
                                     <?php endif; ?>
                                 </div>
@@ -757,7 +849,22 @@ if ($user_id) {
                                             <?php endif; ?>
                                             <div style="margin-bottom:10px;">
                                                 <label style="display:block;font-size:13px;color:#6b6f8b;margin-bottom:6px;">Week</label>
-                                                <input id="modal-week" name="week_coverage" type="text" placeholder="Week 8 (September 8–12)" style="width:100%;padding:10px;border-radius:8px;border:1px solid #e6e9f2;font-size:14px;" required>
+                                                <!-- Display-only Week label (no editable textbox) -->
+                                                <div id="modal-week-display" style="width:100%;padding:10px;border-radius:8px;border:1px solid #e6e9f2;font-size:14px;background:#f7f8fb;color:#2f3459;">
+                                                    <?php echo htmlspecialchars($weekNumberLabel); ?>
+                                                </div>
+                                                <!-- Hidden field preserves server contract for week_coverage (only Week N) -->
+                                                <input type="hidden" id="modal-week-hidden" name="week_coverage" value="<?php echo htmlspecialchars($weekNumberLabel); ?>">
+                                                <div style="display:flex;gap:8px;margin-top:8px;">
+                                                    <div style="flex:1;">
+                                                        <label style="display:block;font-size:12px;color:#6b6f8b;margin-bottom:6px;">From</label>
+                                                        <input id="modal-from" name="week_from" type="date" placeholder="mm/dd/yyyy" <?php if(!empty($minSelectable)) echo 'min="'.htmlspecialchars($minSelectable).'"'; ?> max="<?php echo date('Y-m-d'); ?>" style="width:100%;padding:8px;border-radius:8px;border:1px solid #e6e9f2;font-size:13px;">
+                                                    </div>
+                                                    <div style="flex:1;">
+                                                        <label style="display:block;font-size:12px;color:#6b6f8b;margin-bottom:6px;">To</label>
+                                                        <input id="modal-to" name="week_to" type="date" placeholder="mm/dd/yyyy" <?php if(!empty($minSelectable)) echo 'min="'.htmlspecialchars($minSelectable).'"'; ?> max="<?php echo date('Y-m-d'); ?>" style="width:100%;padding:8px;border-radius:8px;border:1px solid #e6e9f2;font-size:13px;">
+                                                    </div>
+                                                </div>
                                             </div>
                                             <div style="margin-bottom:8px;">
                                                 <label style="display:block;font-size:13px;color:#6b6f8b;margin-bottom:6px;">Attach file</label>
@@ -772,8 +879,8 @@ if ($user_id) {
                                                     </ul>
                                                 </div>
                                             </div>
-                                            <div style="display:flex;justify-content:flex-end;gap=10px;margin-top:12px;">
-                                                <button type="button" id="modal-cancel" style="padding:8px 12px;border-radius:8px;border:1px solid #e6e9f2;background:transparent;color:#2f3459;cursor:pointer;">Cancel</button>
+                                            <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:12px;">
+                                                <button type="button" id="modal-cancel" style="padding:8px 14px;border-radius:18px;border:1px solid #e6e9f2;background:transparent;color:#2f3459;cursor:pointer;">Cancel</button>
                                                 <button type="submit" id="modal-upload" style="padding:8px 14px;border-radius:18px;border:0;background:#2f3459;color:#fff !important;cursor:pointer;">Upload</button>
                                             </div>
                                         </div>
@@ -796,13 +903,108 @@ if ($user_id) {
                                       <?php else: foreach($journals as $j): ?>
                                         <tr>
                                           <td style="padding:12px;border-top:1px solid #f1f4f8;color:#6b6f8b;"><?php echo !empty($j['date_uploaded']) ? date('M j, Y', strtotime($j['date_uploaded'])) : '-'; ?></td>
-                                          <td style="padding:12px;border-top:1px solid #f1f4f8;color:#2f3459;"><?php echo htmlspecialchars($j['week_coverage'] ?: '-'); ?></td>
+                                              <td style="padding:12px;border-top:1px solid #f1f4f8;color:#2f3459;">
+                                                <?php
+                                                // Display friendly week label. If we stored an ISO range like "Week N (YYYY-MM-DD|YYYY-MM-DD)", format it
+                                                $rawWeek = $j['week_coverage'] ?? '';
+                                                $displayWeek = '-';
+                                                if (!empty($rawWeek)) {
+                                                    if (preg_match('/^(Week\s*\d+)\s*\((\d{4}-\d{2}-\d{2})\|(\d{4}-\d{2}-\d{2})\)$/', $rawWeek, $wm)) {
+                                                            try {
+                                                                $d1 = new DateTime($wm[2]);
+                                                                $d2 = new DateTime($wm[3]);
+                                                                // collect only weekdays (Mon-Fri) between the two dates
+                                                                $days = [];
+                                                                $tmp = clone $d1;
+                                                                while ($tmp <= $d2) {
+                                                                    $n = (int)$tmp->format('N');
+                                                                    if ($n <= 5) $days[] = clone $tmp;
+                                                                    $tmp->modify('+1 day');
+                                                                }
+                                                                if (empty($days)) {
+                                                                    $displayWeek = htmlspecialchars($rawWeek);
+                                                                } else {
+                                                                    // group by year -> month -> day numbers
+                                                                    $groups = [];
+                                                                    foreach ($days as $dt) {
+                                                                        $mon = $dt->format('F');
+                                                                        $yr = $dt->format('Y');
+                                                                        $groups[$yr][$mon][] = (int)$dt->format('j');
+                                                                    }
+                                                                    $monthParts = [];
+                                                                    foreach ($groups as $yr => $months) {
+                                                                        foreach ($months as $mon => $nums) {
+                                                                            sort($nums);
+                                                                            $ranges = [];
+                                                                            $start = $prev = null;
+                                                                            foreach ($nums as $n) {
+                                                                                if ($start === null) { $start = $prev = $n; continue; }
+                                                                                if ($n === $prev + 1) { $prev = $n; continue; }
+                                                                                if ($start === $prev) $ranges[] = (string)$start; else $ranges[] = $start . '–' . $prev;
+                                                                                $start = $prev = $n;
+                                                                            }
+                                                                            if ($start !== null) { if ($start === $prev) $ranges[] = (string)$start; else $ranges[] = $start . '–' . $prev; }
+                                                                            $monthParts[] = ['month'=>$mon, 'year'=>$yr, 'ranges'=>implode(', ', $ranges)];
+                                                                        }
+                                                                    }
+                                                                    // build display
+                                                                    $years = array_unique(array_map(function($p){ return $p['year']; }, $monthParts));
+                                                                    if (count($monthParts) === 1) {
+                                                                        $p = $monthParts[0];
+                                                                        $displayWeek = sprintf('%s (%s %s, %s)', $wm[1], $p['month'], $p['ranges'], $p['year']);
+                                                                    } else {
+                                                                        if (count($years) === 1) {
+                                                                            $pieces = array_map(function($p){ return $p['month'] . ' ' . $p['ranges']; }, $monthParts);
+                                                                            $displayWeek = sprintf('%s (%s, %s)', $wm[1], implode(', ', $pieces), $years[0]);
+                                                                        } else {
+                                                                            $pieces = array_map(function($p){ return $p['month'] . ' ' . $p['ranges'] . ' ' . $p['year']; }, $monthParts);
+                                                                            $displayWeek = sprintf('%s (%s)', $wm[1], implode(', ', $pieces));
+                                                                        }
+                                                                    }
+                                                                }
+                                                            } catch (Exception $e) {
+                                                                $displayWeek = htmlspecialchars($rawWeek);
+                                                            }
+                                                    } else {
+                                                        // no ISO range stored. try to infer the week's scope from date_uploaded (if present)
+                                                        $displayWeek = htmlspecialchars($rawWeek);
+                                                        if (!empty($j['date_uploaded'])) {
+                                                            try {
+                                                                $du = new DateTime($j['date_uploaded']);
+                                                                // get the Monday of that week
+                                                                $monday = clone $du;
+                                                                $monday->modify('this week monday');
+                                                                $fri = (clone $monday)->modify('+4 days');
+                                                                $fromLabel = $monday->format('F j');
+                                                                $toLabel = $fri->format('F j');
+                                                                if ($monday->format('F') === $fri->format('F')) {
+                                                                    $displayWeek = sprintf('%s (%s–%s, %s)', preg_replace('/\s*\(.*$/','',$rawWeek), $fromLabel, $fri->format('j'), $fri->format('Y'));
+                                                                } else {
+                                                                    $displayWeek = sprintf('%s (%s–%s, %s)', preg_replace('/\s*\(.*$/','',$rawWeek), $fromLabel, $toLabel, $fri->format('Y'));
+                                                                }
+                                                            } catch (Exception $e) {
+                                                                // keep fallback
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                                echo $displayWeek;
+                                                ?>
+                                              </td>
                                           <td style="padding:12px;border-top:1px solid #f1f4f8;color:#2f3459;"><?php echo !empty($j['attachment']) ? htmlspecialchars(basename($j['attachment'])) : '-'; ?></td>
                                           <td style="padding:12px;border-top:1px solid #f1f4f8;text-align:center;color:#6b6f8b;">
-                                            <?php if (!empty($j['attachment'])): $path = '../' . ltrim($j['attachment'],'/\\'); ?>
-                                              <a href="<?php echo htmlspecialchars($path); ?>" target="_blank" title="View" style="margin-right:8px;">🔍</a>
-                                              <a href="<?php echo htmlspecialchars($path); ?>" download title="Download">⬇️</a>
-                                            <?php else: ?>-<?php endif; ?>
+                                                                                        <?php if (!empty($j['attachment'])):
+                                                                                                $path = '../' . ltrim($j['attachment'],'/\\');
+                                                                                                // mimic Attachments tab: open file directly in new tab (browser decides whether to preview or download)
+                                                                                                $viewHref = $path;
+                                                                                        ?>
+                                                                                            <a href="<?php echo htmlspecialchars($viewHref); ?>" target="_blank" rel="noopener noreferrer" title="View" style="margin-right:8px;display:inline-flex;align-items:center;">
+                                                                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8S1 12 1 12z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                                                                                            </a>
+                                                                                            <a href="<?php echo htmlspecialchars($path); ?>" download title="Download" style="display:inline-flex;align-items:center;">
+                                                                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                                                                                            </a>
+                                                                                        <?php else: ?>-<?php endif; ?>
                                           </td>
                                         </tr>
                                       <?php endforeach; endif; ?>
@@ -815,24 +1017,35 @@ if ($user_id) {
                                     var modalForm = document.getElementById('frm-upload-journal');
                                     var overlay = document.getElementById('upload-modal-overlay');
                                     var modalContent = document.getElementById('upload-modal-content');
-                                    var modalWeek = document.getElementById('modal-week');
+                                    var modalWeekHidden = document.getElementById('modal-week-hidden');
                                     var modalFile = document.getElementById('modal-file');
                                     var closeBtn = document.getElementById('upload-close');
                                     var cancelBtn = document.getElementById('modal-cancel');
 
                                     function openModal(){
                                         if (!overlay) return;
+                                        // ensure overlay lives at document body level so it stacks above other contexts
+                                        try {
+                                            // append the whole form to body so the submit button remains inside the form
+                                            if (modalForm && modalForm.parentNode !== document.body) document.body.appendChild(modalForm);
+                                            if (overlay.parentNode !== null) overlay.style.zIndex = '99999';
+                                        } catch(e) {}
                                         overlay.style.display = 'flex';
                                         if (modalForm) modalForm.style.display = 'block';
-                                        // focus first input
-                                        setTimeout(function(){ try { modalWeek && modalWeek.focus(); } catch(e){} }, 80);
+                                        // prevent background scrolling while modal is open
+                                        try { document.body.style.overflow = 'hidden'; } catch(e) {}
+                                        // focus file input as the primary actionable field
+                                        setTimeout(function(){ try { modalFile && modalFile.focus(); } catch(e){} }, 80);
                                     }
                                     function closeModal(){
                                         if (!overlay) return;
                                         overlay.style.display = 'none';
                                         if (modalForm) modalForm.style.display = 'none';
-                                        if (modalWeek) modalWeek.value = '';
+                                        // keep the hidden week value intact; clear date inputs and file input
+                                        try { var mf = document.getElementById('modal-from'); if (mf) mf.value = ''; } catch(e) {}
+                                        try { var mt = document.getElementById('modal-to'); if (mt) mt.value = ''; } catch(e) {}
                                         if (modalFile) modalFile.value = '';
+                                        try { document.body.style.overflow = ''; } catch(e) {}
                                     }
 
                                     // prevent clicks inside modal content from closing
@@ -844,15 +1057,24 @@ if ($user_id) {
                                     closeBtn && closeBtn.addEventListener('click', closeModal);
                                     cancelBtn && cancelBtn.addEventListener('click', closeModal);
 
+                                    // helper: return true if dateStr (YYYY-MM-DD) is weekend (Sat/Sun)
+                                    function isWeekend(dateStr){
+                                        if (!dateStr) return false;
+                                        var d = new Date(dateStr + 'T00:00:00');
+                                        var day = d.getDay(); // 0 Sun, 6 Sat
+                                        return day === 0 || day === 6;
+                                    }
+                                    // prevent selecting weekend dates interactively
+                                    try {
+                                        var mfInput = document.getElementById('modal-from');
+                                        var mtInput = document.getElementById('modal-to');
+                                        if (mfInput) mfInput.addEventListener('change', function(){ if (isWeekend(this.value)){ alert('Please select a weekday (Mon–Fri).'); this.value = ''; this.focus(); } });
+                                        if (mtInput) mtInput.addEventListener('change', function(){ if (isWeekend(this.value)){ alert('Please select a weekday (Mon–Fri).'); this.value = ''; this.focus(); } });
+                                    } catch(e) {}
+
                                     // client-side validation before submit
                                     modalForm && modalForm.addEventListener('submit', function(e){
-                                        // basic required checks
-                                        if (!modalWeek.value || !modalWeek.value.trim()){
-                                            e.preventDefault();
-                                            alert('Please enter week coverage.');
-                                            modalWeek && modalWeek.focus();
-                                            return false;
-                                        }
+                                        // basic required checks: only file is required on client-side (week is provided by server-hidden field)
                                         if (!modalFile.files || !modalFile.files.length){
                                             e.preventDefault();
                                             alert('Please attach a file.');
@@ -876,6 +1098,30 @@ if ($user_id) {
                                             modalFile && modalFile.focus();
                                             return false;
                                         }
+                                        // validate date constraints (if user provided dates)
+                                        try {
+                                            var mf = document.getElementById('modal-from');
+                                            var mt = document.getElementById('modal-to');
+                                            if (mf) {
+                                                if (mf.min && mf.value && mf.value < mf.min) {
+                                                    e.preventDefault();
+                                                    alert('Invalid "From" date. Please choose a date on or after ' + mf.min + '.');
+                                                    mf.focus();
+                                                    return false;
+                                                }
+                                            }
+                                            // disallow weekends on submit as well
+                                            if (mf && mf.value && isWeekend(mf.value)) { e.preventDefault(); alert('Please choose a weekday (Mon–Fri) for From date.'); mf.focus(); return false; }
+                                            if (mt && mt.value && isWeekend(mt.value)) { e.preventDefault(); alert('Please choose a weekday (Mon–Fri) for To date.'); mt.focus(); return false; }
+                                            if (mf && mt && mf.value && mt.value) {
+                                                if (mt.value < mf.value) {
+                                                    e.preventDefault();
+                                                    alert('Invalid dates: "To" must be the same or after "From".');
+                                                    mt.focus();
+                                                    return false;
+                                                }
+                                            }
+                                        } catch (ex) {}
                                         // if all checks pass, allow native submit (server will validate again)
                                     });
                                  })();
@@ -901,7 +1147,7 @@ if ($user_id) {
                                                 'endorsement_letter' => 'Endorsement Letter',
                                                 'resume' => 'Resume',
                                                 'picture' => 'Profile Picture',
-                                                'moa_file' => 'MOA (from application)'
+                                                'moa_file' => 'MOA'
                                             ];
                                             foreach ($map as $col => $label) {
                                                 if (!empty($appRow[$col])) {
@@ -930,7 +1176,8 @@ if ($user_id) {
                                                     array_unshift($requirements, [
                                                         'label' => 'MOA',
                                                         'file' => $moa_record['moa_file'],
-                                                        'date' => $moa_record['date_uploaded'] ?? null
+                                                        // hide date for MOA display per request
+                                                        'date' => null
                                                     ]);
                                                 }
                                             }
@@ -946,13 +1193,14 @@ if ($user_id) {
                                                 <?php foreach ($requirements as $req): 
                                                     $filePath = !empty($req['file']) ? '../' . ltrim($req['file'],'/\\') : '';
                                                     $fileName = $req['file'] ? htmlspecialchars(basename($req['file'])) : '-';
-                                                    $dateLabel = !empty($req['date']) ? date('M j, Y', strtotime($req['date'])) : '';
+                                                    // dates removed for all attachments per request
+                                                    $dateLabel = '';
                                                 ?>
                                                     <div style="display:flex;align-items:center;justify-content:space-between;background:#f7f8fb;border-radius:8px;padding:10px 12px;">
                                                         <div style="display:flex;align-items:center;gap:8px;">
                                                             <div>
                                                                 <div style="font-weight:600;color:#2f3459;"><?php echo htmlspecialchars($req['label']); ?></div>
-                                                                <div style="color:#6b6f8b;font-size:13px;"><?php echo $fileName; ?> <?php if ($dateLabel) echo ' • ' . $dateLabel; ?></div>
+                                                                <div style="color:#6b6f8b;font-size:13px;"><?php echo $fileName; ?></div>
                                                             </div>
                                                         </div>
                                                          <div style="display:flex;align-items:center;gap:10px;">
@@ -1071,5 +1319,24 @@ if ($user_id) {
         }
       })();
     </script>
+        <script>
+            // Only activate the Weekly Journals tab when we were redirected after an upload
+            (function(){
+                function activateIfUploadRedirect(){
+                    try {
+                        if (location.hash !== '#tab-journals') return;
+                        if (location.search.indexOf('uploaded=1') === -1) return;
+                        var btn = document.querySelector('.tab-btn[data-tab="tab-journals"]');
+                        if (btn) try { btn.click(); } catch(e) {}
+                        // remove uploaded=1 from URL so subsequent refreshes won't re-activate the tab
+                        var newSearch = location.search.replace(/([?&])uploaded=1(&?)/, '$1').replace(/[?&]$/,'');
+                        var newUrl = location.pathname + (newSearch ? newSearch : '') + location.hash;
+                        history.replaceState(null, '', newUrl);
+                    } catch(e) {}
+                }
+                window.addEventListener('hashchange', activateIfUploadRedirect);
+                document.addEventListener('DOMContentLoaded', function(){ setTimeout(activateIfUploadRedirect, 20); });
+            })();
+        </script>
 </body>
 </html>
