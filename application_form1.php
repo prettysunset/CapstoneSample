@@ -383,7 +383,27 @@ $af1 = isset($_SESSION['af1']) ? $_SESSION['af1'] : [];
           </fieldset>
  
            <fieldset>
-            <input type="text" name="emg_relation" placeholder="Relationship *" required value="<?= isset($af1['emg_relation']) ? htmlspecialchars($af1['emg_relation']) : '' ?>">
+            <label style="display:none" for="emg_relation_select">Relationship</label>
+            <select id="emg_relation_select" aria-label="Emergency relationship" required style="padding:10px;border-radius:10px;border:1px solid #e0e7ef;">
+              <?php
+                $relation = isset($af1['emg_relation']) ? trim($af1['emg_relation']) : '';
+                $opts = [ 'Mother','Father','Grandparent','Sibling','Aunt','Uncle','Legal Guardian' ];
+                $matched = false;
+                foreach ($opts as $o) {
+                  if (strcasecmp($o, $relation) === 0) { $matched = true; break; }
+                }
+              ?>
+              <option value="" disabled <?= $relation === '' ? 'selected' : '' ?>>Relationship *</option>
+              <?php foreach ($opts as $o): ?>
+                <option value="<?= htmlspecialchars($o) ?>" <?= ($relation !== '' && strcasecmp($o,$relation)===0) ? 'selected' : '' ?>><?= htmlspecialchars($o) ?></option>
+              <?php endforeach; ?>
+              <option value="Other" <?= ($relation !== '' && !$matched) ? 'selected' : '' ?>>Other (specify)</option>
+            </select>
+
+            <input type="text" id="emg_relation_other" placeholder="Specify relationship" style="display:none;margin-top:8px;padding:10px;border-radius:10px;border:1px solid #e0e7ef;" />
+            <button type="button" id="emg_relation_back" style="display:none;margin-left:8px;margin-top:8px;padding:8px 10px;border-radius:8px;border:1px solid #ddd;background:#fff;cursor:pointer">Choose from list</button>
+            <input type="hidden" name="emg_relation" id="emg_relation" value="<?= isset($af1['emg_relation']) ? htmlspecialchars($af1['emg_relation']) : '' ?>">
+
             <input type="text" name="emg_contact" id="emg_contact" placeholder="Contact Number *" maxlength="11" required value="<?= isset($af1['emg_contact']) ? htmlspecialchars($af1['emg_contact']) : '' ?>">
           </fieldset>
  
@@ -523,7 +543,91 @@ $af1 = isset($_SESSION['af1']) ? $_SESSION['af1'] : [];
 
       const formEl = document.getElementById('ojtForm');
       if (formEl) {
+        // emergency relation dropdown handling
+        const relSelect = document.getElementById('emg_relation_select');
+        const relOther = document.getElementById('emg_relation_other');
+        const relHidden = document.getElementById('emg_relation');
+        if (relSelect && relOther && relHidden) {
+          const relBack = document.getElementById('emg_relation_back');
+
+          const createWrapper = () => {
+            const w = document.createElement('div');
+            w.id = '__emg_relation_wrapper';
+            w.style.display = 'inline-block';
+            // ensure textbox is visible and required
+            relOther.style.display = '';
+            relOther.required = true;
+            // move textbox into wrapper
+            w.appendChild(relOther);
+            if (relBack) w.appendChild(relBack);
+            return w;
+          };
+
+          const replaceWithTextbox = () => {
+            const parent = relSelect.parentNode;
+            if (!parent) return;
+            if (!document.getElementById('__emg_relation_wrapper')) {
+              const w = createWrapper();
+              parent.replaceChild(w, relSelect);
+            }
+            relHidden.value = '';
+            relOther.focus();
+          };
+
+          const restoreSelect = () => {
+            const wrapper = document.getElementById('__emg_relation_wrapper');
+            const parent = wrapper ? wrapper.parentNode : null;
+            if (wrapper && parent) {
+              // move textbox back to original container (detach)
+              parent.replaceChild(relSelect, wrapper);
+            }
+            // ensure select has no placeholder selection
+            relSelect.value = '';
+            relSelect.required = true;
+            relOther.required = false;
+            relHidden.value = '';
+            if (relBack) relBack.style.display = 'none';
+            relSelect.focus();
+          };
+
+          // initialize: if stored value isn't one of the options, show textbox with that value
+          (function initRel() {
+            const cur = (relHidden.value || '').trim();
+            const isOption = cur !== '' && Array.from(relSelect.options).some(opt => opt.value.toLowerCase() === cur.toLowerCase());
+            if (cur !== '' && !isOption) {
+              // insert wrapper with textbox containing the current custom value
+              const w = createWrapper();
+              relOther.value = cur;
+              relOther.required = true;
+              relBack.style.display = 'inline-block';
+              relSelect.parentNode.replaceChild(w, relSelect);
+            } else {
+              // if cur matches an option, set it; otherwise keep placeholder
+              if (isOption) relSelect.value = cur;
+            }
+          })();
+
+          relSelect.addEventListener('change', function(){
+            if (relSelect.value === 'Other') replaceWithTextbox();
+            else relHidden.value = relSelect.value;
+          }, {passive:true});
+
+          if (relBack) {
+            relBack.addEventListener('click', function(){
+              restoreSelect();
+            }, {passive:true});
+          }
+        }
+
         formEl.addEventListener('submit', async function(e) {
+          // ensure emergency relation hidden field is synchronized before validation
+          if (relSelect && relHidden && relOther) {
+            if (relSelect.value === 'Other') {
+              relHidden.value = (relOther.value || '').trim();
+            } else {
+              relHidden.value = relSelect.value;
+            }
+          }
           e.preventDefault();
           // 1) Ensure all required fields are filled first
           const reqs = form.querySelectorAll('[required]');

@@ -276,6 +276,11 @@ $af2 = isset($_SESSION['af2']) ? $_SESSION['af2'] : [];
 }
 
 #courseAvailabilityMsg { display:none !important; }
+/* layout for course + year level: 75% / 25% */
+.field-course-year{display:flex;gap:12px;align-items:center}
+.field-course-year .course-select{flex:3}
+.field-course-year .year-select{flex:1;max-width:220px}
+@media(max-width:700px){.field-course-year{flex-direction:column}.field-course-year .year-select{max-width:none}}
   </style>
 </head>
 <body>
@@ -324,8 +329,8 @@ $af2 = isset($_SESSION['af2']) ? $_SESSION['af2'] : [];
 
           <input type="text" name="school_address" placeholder="School Address *" required value="<?= isset($af2['school_address']) ? htmlspecialchars($af2['school_address']) : '' ?>">
 
-          <fieldset>
-            <select name="course" id="courseSelect" required>
+          <fieldset class="field-course-year">
+            <select name="course" id="courseSelect" class="course-select" required>
               <option value="" disabled <?= !isset($af2['course_id']) ? 'selected' : '' ?>>Select Course *</option>
               <?php foreach ($courses as $c): 
                 $sel = '';
@@ -340,7 +345,7 @@ $af2 = isset($_SESSION['af2']) ? $_SESSION['af2'] : [];
               <?php endforeach; ?>
             </select>
             <div id="courseAvailabilityMsg" style="color:#b91c1c;display:none;margin-top:6px;font-size:0.95rem;">No available office for the selected course.</div>
-            <select name="year_level" required>
+            <select name="year_level" class="year-select" required>
               <option value="" disabled <?= !isset($af2['year_level']) ? 'selected' : '' ?>>Year Level *</option>
               <option value="3" <?= (isset($af2['year_level']) && $af2['year_level'] == '3') ? 'selected' : '' ?>>2nd Year</option>
               <option value="3" <?= (isset($af2['year_level']) && $af2['year_level'] == '3') ? 'selected' : '' ?>>3rd Year</option>
@@ -349,14 +354,7 @@ $af2 = isset($_SESSION['af2']) ? $_SESSION['af2'] : [];
             </select>
           </fieldset>
 
-          <fieldset>
-            <select name="semester" required>
-               <option value="" disabled <?= !isset($af2['semester']) ? 'selected' : '' ?>>Semester *</option>
-               <option value="1st Semester" <?= (isset($af2['semester']) && $af2['semester'] == '1st Semester') ? 'selected' : '' ?>>1st Semester</option>
-               <option value="2nd Semester" <?= (isset($af2['semester']) && $af2['semester'] == '2nd Semester') ? 'selected' : '' ?>>2nd Semester</option>
-               <option value="3rd Term (for Trimester schools)" <?= (isset($af2['semester']) && $af2['semester'] == '3rd Term (for Trimester schools)') ? 'selected' : '' ?>>3rd Term (for Trimester schools)</option>
-             </select>
-          </fieldset>
+          <!-- Semester input removed per request -->
 
           <fieldset>
             <input type="text" name="adviser" placeholder="OJT Adviser *" required value="<?= isset($af2['adviser']) ? htmlspecialchars($af2['adviser']) : '' ?>">
