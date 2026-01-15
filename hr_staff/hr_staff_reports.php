@@ -90,10 +90,10 @@ function fetch_offices($conn){
 function fetch_moa($conn){
     $rows = [];
     $sql = "
-      SELECT m.moa_id, m.school_name, m.moa_file, m.date_uploaded, m.validity_months,
+      SELECT m.moa_id, m.school_name, m.moa_file, m.date_signed, m.valid_until,
              (SELECT COUNT(*) FROM students s WHERE LOWER(TRIM(s.college)) = LOWER(TRIM(m.school_name))) AS student_count
       FROM moa m
-      ORDER BY m.date_uploaded DESC
+      ORDER BY m.date_signed DESC
     ";
     $res = $conn->query($sql);
     if ($res){
@@ -108,45 +108,70 @@ function fetch_moa($conn){
 
 // new: load office_requests
 function fetch_office_requests($conn){
-    // return only non-pending office requests (approved/rejected)
-    $rows = [];
-    $sql = "
-      SELECT r.request_id, r.office_id, r.old_limit, r.new_limit, r.reason, r.status, r.date_requested, r.date_of_action,
-             o.office_name
-      FROM office_requests r
-      LEFT JOIN offices o ON o.office_id = r.office_id
-      WHERE r.status <> 'pending'
-      ORDER BY r.date_requested DESC, r.request_id DESC
-    ";
-    $res = $conn->query($sql);
-    if ($res) {
-        while ($r = $res->fetch_assoc()) {
-            $rows[] = $r;
-        }
-        $res->free();
+  // return only non-pending office requests (approved/rejected)
+  $rows = [];
+
+  // If the database schema is older, `date_of_action` may not exist.
+  // Check for the column and build the SELECT list accordingly so queries don't fail.
+  $hasDateOfAction = false;
+  $check = $conn->query("SHOW COLUMNS FROM office_requests LIKE 'date_of_action'");
+  if ($check) {
+    $hasDateOfAction = $check->num_rows > 0;
+    $check->free();
+  }
+
+  $cols = "r.request_id, r.office_id, r.old_limit, r.new_limit, r.reason, r.status, r.date_requested";
+  if ($hasDateOfAction) $cols .= ", r.date_of_action";
+
+  $sql = "
+    SELECT " . $cols . ", o.office_name
+    FROM office_requests r
+    LEFT JOIN offices o ON o.office_id = r.office_id
+    WHERE r.status <> 'pending'
+    ORDER BY r.date_requested DESC, r.request_id DESC
+  ";
+
+  $res = $conn->query($sql);
+  if ($res) {
+    while ($r = $res->fetch_assoc()) {
+      if (!isset($r['date_of_action'])) $r['date_of_action'] = null;
+      $rows[] = $r;
     }
-    return $rows;
+    $res->free();
+  }
+  return $rows;
 }
 
 function fetch_evaluations($conn){
-    $rows = [];
-    $sql = "
-      SELECT e.eval_id, e.rating, e.feedback, e.date_evaluated, e.rating_desc,
-             s.first_name AS student_first, s.last_name AS student_last,
-             u.first_name AS eval_first, u.last_name AS eval_last
-      FROM evaluations e
-      LEFT JOIN students s ON e.student_id = s.student_id
-      LEFT JOIN users u ON e.user_id = u.user_id
-      ORDER BY e.date_evaluated DESC
-    ";
-    $res = $conn->query($sql);
-    if ($res){
-        while ($r = $res->fetch_assoc()) {
-            $rows[] = $r;
-        }
-        $res->free();
+  $rows = [];
+
+  // Some environments may have an older `evaluations` schema without `rating_desc`.
+  // Check for the column and build the SELECT list accordingly.
+  $hasRatingDesc = false;
+  $check = $conn->query("SHOW COLUMNS FROM evaluations LIKE 'rating_desc'");
+  if ($check) { $hasRatingDesc = $check->num_rows > 0; $check->free(); }
+
+  $cols = "e.eval_id, e.rating, e.feedback, e.date_evaluated";
+  if ($hasRatingDesc) $cols .= ", e.rating_desc";
+  $cols .= ", s.first_name AS student_first, s.last_name AS student_last, u.first_name AS eval_first, u.last_name AS eval_last";
+
+  $sql = "
+    SELECT " . $cols . "
+    FROM evaluations e
+    LEFT JOIN students s ON e.student_id = s.student_id
+    LEFT JOIN users u ON e.user_id = u.user_id
+    ORDER BY e.date_evaluated DESC
+  ";
+
+  $res = $conn->query($sql);
+  if ($res){
+    while ($r = $res->fetch_assoc()) {
+      if (!isset($r['rating_desc'])) $r['rating_desc'] = null;
+      $rows[] = $r;
     }
-    return $rows;
+    $res->free();
+  }
+  return $rows;
 }
 
 function fmtDate($d){ if (!$d) return '-'; $dt = date_create($d); return $dt ? $dt->format('M j, Y') : '-'; }
@@ -500,25 +525,14 @@ $evaluations = fetch_evaluations($conn);
                      <?php else: ?>—<?php endif; ?>
                    </td>
                   <?php
-                    // Date Signed = date_uploaded (formatted) and compute valid until & status
-                    $date_signed = !empty($m['date_uploaded']) ? date('M j, Y', strtotime($m['date_uploaded'])) : '-';
-                    $valid_until = '-';
+                    // Date Signed and Valid Until are directly from DB
+                    $date_signed = fmtDate($m['date_signed']);
+                    $valid_until = fmtDate($m['valid_until']);
                     $status_label = 'Expired';
-                    if (!empty($m['date_uploaded']) && isset($m['validity_months'])) {
-                      $months = (int)$m['validity_months'];
-                      if ($months > 0) {
-                        $valid_until_ts = strtotime("+{$months} months", strtotime($m['date_uploaded']));
-                        $valid_until = date('M j, Y', $valid_until_ts);
-                        // Active if valid_until is today or in the future
-                        $today_ts = strtotime(date('Y-m-d'));
-                        $status_label = ($valid_until_ts >= $today_ts) ? 'Active' : 'Expired';
-                      } else {
-                        $valid_until = '-';
-                        $status_label = 'Expired';
-                      }
-                    } else {
-                      // no date uploaded => treat as Expired / unknown
-                      $status_label = 'Expired';
+                    if (!empty($m['valid_until'])) {
+                      $valid_until_ts = strtotime($m['valid_until']);
+                      $today_ts = strtotime(date('Y-m-d'));
+                      $status_label = ($valid_until_ts >= $today_ts) ? 'Active' : 'Expired';
                     }
                     // css class suffix (lowercase) for client-side filtering
                     $status_class = strtolower($status_label);

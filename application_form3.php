@@ -105,16 +105,15 @@ $existing_moa = null;
 if (!empty($_SESSION['af2']['school'])) {
     $school_search = trim($_SESSION['af2']['school']);
     if ($school_search !== '') {
-        $stmtm = $conn->prepare("SELECT moa_file, date_uploaded, COALESCE(validity_months,12) AS validity_months FROM moa WHERE school_name LIKE ? ORDER BY date_uploaded DESC LIMIT 1");
+        $stmtm = $conn->prepare("SELECT moa_file, date_signed, valid_until FROM moa WHERE school_name LIKE ? ORDER BY date_signed DESC LIMIT 1");
         if ($stmtm) {
             $like = "%{$school_search}%";
             $stmtm->bind_param('s', $like);
             $stmtm->execute();
             $rm = $stmtm->get_result()->fetch_assoc();
             $stmtm->close();
-            if ($rm && !empty($rm['moa_file']) && !empty($rm['date_uploaded'])) {
-                $valid_until = date('Y-m-d', strtotime("+{$rm['validity_months']} months", strtotime($rm['date_uploaded'])));
-                if (strtotime($valid_until) >= strtotime(date('Y-m-d'))) {
+            if ($rm && !empty($rm['moa_file']) && !empty($rm['date_signed'])) {
+                if (strtotime($rm['valid_until']) >= strtotime(date('Y-m-d'))) {
                     $existing_moa = $rm['moa_file'];
                 }
             }

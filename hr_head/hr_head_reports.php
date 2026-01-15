@@ -90,10 +90,10 @@ function fetch_offices($conn){
 function fetch_moa($conn){
     $rows = [];
     $sql = "
-      SELECT m.moa_id, m.school_name, m.moa_file, m.date_uploaded, m.validity_months,
+      SELECT m.moa_id, m.school_name, m.moa_file, m.date_signed, m.valid_until,
              (SELECT COUNT(*) FROM students s WHERE LOWER(TRIM(s.college)) = LOWER(TRIM(m.school_name))) AS student_count
       FROM moa m
-      ORDER BY m.date_uploaded DESC
+      ORDER BY m.date_signed DESC
     ";
     $res = $conn->query($sql);
     if ($res){
@@ -525,25 +525,14 @@ $evaluations = fetch_evaluations($conn);
                      <?php else: ?>—<?php endif; ?>
                    </td>
                   <?php
-                    // Date Signed = date_uploaded (formatted) and compute valid until & status
-                    $date_signed = !empty($m['date_uploaded']) ? date('M j, Y', strtotime($m['date_uploaded'])) : '-';
-                    $valid_until = '-';
+                    // Date Signed and Valid Until are directly from DB
+                    $date_signed = fmtDate($m['date_signed']);
+                    $valid_until = fmtDate($m['valid_until']);
                     $status_label = 'Expired';
-                    if (!empty($m['date_uploaded']) && isset($m['validity_months'])) {
-                      $months = (int)$m['validity_months'];
-                      if ($months > 0) {
-                        $valid_until_ts = strtotime("+{$months} months", strtotime($m['date_uploaded']));
-                        $valid_until = date('M j, Y', $valid_until_ts);
-                        // Active if valid_until is today or in the future
-                        $today_ts = strtotime(date('Y-m-d'));
-                        $status_label = ($valid_until_ts >= $today_ts) ? 'Active' : 'Expired';
-                      } else {
-                        $valid_until = '-';
-                        $status_label = 'Expired';
-                      }
-                    } else {
-                      // no date uploaded => treat as Expired / unknown
-                      $status_label = 'Expired';
+                    if (!empty($m['valid_until'])) {
+                      $valid_until_ts = strtotime($m['valid_until']);
+                      $today_ts = strtotime(date('Y-m-d'));
+                      $status_label = ($valid_until_ts >= $today_ts) ? 'Active' : 'Expired';
                     }
                     // css class suffix (lowercase) for client-side filtering
                     $status_class = strtolower($status_label);

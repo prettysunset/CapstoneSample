@@ -38,6 +38,12 @@ $stmt->bind_result($users_completed_count);
 $stmt->fetch();
 $stmt->close();
 
+$stmt = $conn->prepare("SELECT COUNT(*) FROM users WHERE role = 'ojt' AND status = 'evaluated'");
+$stmt->execute();
+$stmt->bind_result($users_evaluated_count);
+$stmt->fetch();
+$stmt->close();
+
 $stmt = $conn->prepare("SELECT COUNT(*) FROM users WHERE role = 'ojt' AND status = 'ongoing'");
 $stmt->execute();
 $stmt->bind_result($users_ongoing_count);
@@ -366,11 +372,19 @@ $current_date = date("l, F j, Y");
       </div>
 
       <!-- Counters: two rows
-         Row 1: Completed (full width, prominent)
+         Row 1: Evaluated and Completed (full width, prominent)
          Row 2: Approved Applicants + Active (side-by-side) -->
       <div style="display:flex;flex-direction:column;gap:10px;margin-top:10px;">
 
-        <!-- Row 1: Completed (full width) -->
+        <!-- Row 1a: Evaluated (full width) -->
+        <div style="background:#f5f7ff;border-radius:8px;padding:12px;border:1px solid #e6e9fb;box-shadow:0 2px 6px rgba(0,0,0,0.02);display:flex;align-items:center;justify-content:space-between;min-height:64px;">
+        <div style="display:flex;flex-direction:column;gap:2px;">
+          <div style="font-size:13px;color:#6d6d6d;font-weight:600">Evaluated</div>
+        </div>
+        <div style="font-size:28px;font-weight:700;color:#2f3850"><?php echo (int)($users_evaluated_count ?? 0); ?></div>
+        </div>
+
+        <!-- Row 1b: Completed (full width) -->
         <div style="background:#f5f7ff;border-radius:8px;padding:12px;border:1px solid #e6e9fb;box-shadow:0 2px 6px rgba(0,0,0,0.02);display:flex;align-items:center;justify-content:space-between;min-height:64px;">
         <div style="display:flex;flex-direction:column;gap:2px;">
           <div style="font-size:13px;color:#6d6d6d;font-weight:600">Completed</div>
@@ -430,6 +444,11 @@ $stmtActive = $conn->prepare("
     FROM users
     WHERE role = 'ojt' AND office_name = ? AND status = 'ongoing'
 ");
+$stmtCompleted = $conn->prepare("
+    SELECT COUNT(*) AS cnt
+    FROM users
+    WHERE role = 'ojt' AND office_name = ? AND status = 'completed'
+");
 ?>
 
     <!-- Right column: slot availability (wider, slightly reduced vertical spacing) -->
@@ -452,6 +471,7 @@ $stmtActive = $conn->prepare("
               <option value="capacity">Capacity</option>
               <option value="active">Ongoing OJTs</option>
               <option value="approved">Approved</option>
+              <option value="completed">Completed OJTs</option>
               <option value="available">Available Slot</option>
             </select>
             <button id="officeSortDir" title="Toggle sort direction" style="padding:8px 10px;border:1px solid #ddd;border-radius:8px;background:#fff;cursor:pointer">Desc</button>
@@ -464,12 +484,13 @@ $stmtActive = $conn->prepare("
             <!-- Header table (keeps header fixed/aligned) -->
             <table id="officeHeadTable" style="width:100%;border-collapse:collapse;font-size:13px;table-layout:fixed;margin:0 0 0 0;">
               <colgroup>
-                <col style="width:38%">
-                <col style="width:12%">
-                <col style="width:12%">
-                <col style="width:12%">
-                <col style="width:12%">
-                <col style="width:14%">
+                <col style="width:34%">
+                <col style="width:8%">
+                <col style="width:10%">
+                <col style="width:10%">
+                <col style="width:10%">
+                <col style="width:10%">
+                <col style="width:18%">
               </colgroup>
               <thead>
                 <tr>
@@ -477,6 +498,7 @@ $stmtActive = $conn->prepare("
                   <th style="padding:6px;border:1px solid #eee;background:#e6e9fb;text-align:center">Capacity</th>
                   <th style="padding:6px;border:1px solid #eee;background:#e6e9fb;text-align:center">Ongoing OJTs</th>
                   <th style="padding:6px;border:1px solid #eee;background:#e6e9fb;text-align:center">Approved</th>
+                  <th style="padding:6px;border:1px solid #eee;background:#e6e9fb;text-align:center">Completed OJTs</th>
                   <th style="padding:6px;border:1px solid #eee;background:#e6e9fb;text-align:center">Available Slot</th>
                   <th style="padding:6px;border:1px solid #eee;background:#e6e9fb;text-align:center">Status</th>
                 </tr>
@@ -488,12 +510,13 @@ $stmtActive = $conn->prepare("
             <div id="officeBodyWrap" style="height:calc(48px * 5);min-height:calc(48px * 5);overflow:auto;">
               <table id="officeBodyTable" style="width:100%;border-collapse:collapse;font-size:13px;table-layout:fixed;margin:0;">
                 <colgroup>
-                  <col style="width:38%">
-                  <col style="width:12%">
-                  <col style="width:12%">
-                  <col style="width:12%">
-                  <col style="width:12%">
-                  <col style="width:14%">
+                  <col style="width:34%">
+                  <col style="width:8%">
+                  <col style="width:10%">
+                  <col style="width:10%">
+                  <col style="width:10%">
+                  <col style="width:10%">
+                  <col style="width:18%">
                 </colgroup>
                 <tbody id="officesBody">
                 <?php foreach ($offices as $o):
@@ -517,6 +540,16 @@ $stmtActive = $conn->prepare("
                         $stmtActive->fetch();
                         $active = (int)($activeTemp ?? 0);
                         $stmtActive->free_result();
+                    }
+                    // completed count per office
+                    $completed = 0;
+                    if ($stmtCompleted) {
+                        $stmtCompleted->bind_param('s', $officeName);
+                        $stmtCompleted->execute();
+                        $stmtCompleted->bind_result($completedTemp);
+                        $stmtCompleted->fetch();
+                        $completed = (int)($completedTemp ?? 0);
+                        $stmtCompleted->free_result();
                     }
 
                     $cap = isset($o['capacity']) ? (int)$o['capacity'] : null;
@@ -543,6 +576,7 @@ $stmtActive = $conn->prepare("
                     <td style="text-align:center;padding:6px;border:1px solid #eee"><?= $cap === null ? '—' : $cap ?></td>
                     <td style="text-align:center;padding:6px;border:1px solid #eee"><?= $active ?></td>
                     <td style="text-align:center;padding:6px;border:1px solid #eee"><?= $approved ?></td>
+                    <td style="text-align:center;padding:6px;border:1px solid #eee"><?= $completed ?></td>
                     <td style="text-align:center;padding:6px;border:1px solid #eee"><?= $availableDisplay ?></td>
                     <td style="text-align:center;padding:6px;border:1px solid #eee"><span class="<?= $statusClass ?>"><?= htmlspecialchars($statusLabel) ?></span></td>
                   </tr>
@@ -557,6 +591,7 @@ $stmtActive = $conn->prepare("
 <?php
 $stmtApproved->close();
 $stmtActive->close();
+$stmtCompleted->close();
 ?>
 <style>
 /* Office availability — show all office rows; allow tbody to scroll when very tall */
@@ -606,7 +641,8 @@ $stmtActive->close();
   const tbody = document.getElementById('officesBody');
 
   // column indices in the table body (0-based)
-  const COL = { capacity:1, active:2, approved:3, available:4 };
+  // updated to include Completed OJTs column (new index)
+  const COL = { capacity:1, active:2, approved:3, completed:4, available:5 };
 
   function parseNumCell(text){
     if (!text) return null;

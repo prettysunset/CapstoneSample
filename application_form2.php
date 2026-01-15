@@ -86,66 +86,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             'adviser_contact'=> $_POST['adviser_contact'] ?? ''
         ];
 
-    // persist AF2 into students table (insert or update). requires conn.php to provide $conn (mysqli)
-    require_once __DIR__ . '/conn.php';
-    if (!empty($conn) && $conn instanceof mysqli) {
-        $school = trim($_SESSION['af2']['school']);
-        $school_address = trim($_SESSION['af2']['school_address']);
-        $course = trim($_SESSION['af2']['course']);
-        $year_level = trim($_SESSION['af2']['year_level']);
-        $school_year = trim($_SESSION['af2']['school_year']);
-        $semester = trim($_SESSION['af2']['semester']);
-        $adviser = trim($_SESSION['af2']['adviser']);
-        $adviser_contact = trim($_SESSION['af2']['adviser_contact']);
-
-        // try to find existing student by session student_id or by email from AF1
-        $student_id = $_SESSION['student_id'] ?? null;
-        $email = $_SESSION['af1']['email'] ?? '';
-
-        if (empty($student_id) && $email !== '') {
-            $ps = $conn->prepare("SELECT student_id FROM students WHERE email = ? LIMIT 1");
-            if ($ps) {
-                $ps->bind_param('s', $email);
-                $ps->execute();
-                $res = $ps->get_result();
-                if ($r = $res->fetch_assoc()) $student_id = (int)$r['student_id'];
-                $ps->close();
-            }
-        }
-
-        if (!empty($student_id)) {
-            $upd = $conn->prepare("UPDATE students SET college = ?, course = ?, year_level = ?, school_year = ?, semester = ?, school_address = ?, ojt_adviser = ?, adviser_contact = ? WHERE student_id = ?");
-            if ($upd) {
-                $upd->bind_param('ssssssssi', $school, $course, $year_level, $school_year, $semester, $school_address, $adviser, $adviser_contact, $student_id);
-                $upd->execute();
-                $upd->close();
-            }
-        } else {
-            // insert: include AF1 data if available
-            $first = trim($_SESSION['af1']['first_name'] ?? '');
-            $middle = trim($_SESSION['af1']['middle_name'] ?? '');
-            $last = trim($_SESSION['af1']['last_name'] ?? '');
-            $address = trim($_SESSION['af1']['address'] ?? '');
-            $contact = trim($_SESSION['af1']['contact'] ?? '');
-            $birthday = $_SESSION['af1']['birthday'] ?? null;
-            $emg_name = trim(($_SESSION['af1']['emg_first'] ?? '') . ' ' . ($_SESSION['af1']['emg_middle'] ?? '') . ' ' . ($_SESSION['af1']['emg_last'] ?? ''));
-            $emg_relation = trim($_SESSION['af1']['emg_relation'] ?? '');
-            $emg_contact = trim($_SESSION['af1']['emg_contact'] ?? '');
-            $email = trim($_SESSION['af1']['email'] ?? '');
-            $default_hours = 500;
-
-            $ins = $conn->prepare("INSERT INTO students (first_name, middle_name, last_name, address, contact_number, email, birthday, emergency_name, emergency_relation, emergency_contact, college, course, year_level, school_address, ojt_adviser, adviser_contact, total_hours_required) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
-            if ($ins) {
-                $ins->bind_param('ssssssssssssssssi', $first, $middle, $last, $address, $contact, $email, $birthday, $emg_name, $emg_relation, $emg_contact, $school, $course, $year_level, $school_address, $adviser, $adviser_contact, $default_hours);
-                $ins->execute();
-                $student_id = $ins->insert_id;
-                $ins->close();
-            }
-        }
-
-        if (!empty($student_id)) $_SESSION['student_id'] = (int)$student_id;
-    }
-
     header("Location: application_form3.php");
     exit;
 }

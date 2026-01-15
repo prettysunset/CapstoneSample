@@ -486,11 +486,13 @@ if ($moa_q) {
         <div id="controlsRequested" style="display:none;align-items:center;gap:12px;width:100%;">
           <div style="display:flex;gap:8px;align-items:center;width:100%;">
             <div style="display:flex;align-items:center;gap:8px;">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false" style="flex:0 0 auto;margin-right:4px;">
-                <path d="M21 21l-4.35-4.35" stroke="#666" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                <circle cx="11" cy="11" r="6" stroke="#666" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
-              <input id="requestedSearch" type="text" placeholder="Search office..." aria-label="Search offices" style="padding:8px 10px;border:1px solid #ccc;border-radius:8px;background:#f7f8fc;font-size:14px;min-width:220px;">
+              <div style="position:relative;min-width:220px;">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:#666;">
+                  <path d="M21 21l-4.35-4.35" stroke="#666" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                  <circle cx="11" cy="11" r="6" stroke="#666" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                <input id="requestedSearch" type="text" placeholder="Search office..." aria-label="Search offices" style="padding:8px 10px 8px 36px;border:1px solid #ccc;border-radius:8px;background:#f7f8fc;font-size:14px;min-width:220px;box-sizing:border-box;">
+              </div>
             </div>
             <div style="display:flex;align-items:center;gap:8px;margin-left:auto;">
               <label for="requestedSort" style="font-weight:700;font-size:13px;color:#445;">Sort by</label>
@@ -592,6 +594,7 @@ if ($moa_q) {
                 <tr>
                   <th>Office</th>
                   <th style="text-align:center">Current Limit</th>
+                  <th style="text-align:center">Active OJTs</th>
                   <th style="text-align:center">Available Slots</th>
                   <th style="text-align:center">Requested Limit</th>
                   <th>Reason</th>
@@ -603,6 +606,7 @@ if ($moa_q) {
                   <tr data-office="<?php echo htmlspecialchars(strtolower($of['office_name'] ?? '')); ?>">
                     <td><?= htmlspecialchars($of['office_name']) ?></td>
                     <td style="text-align:center"><?= $of['current_limit'] === null ? '—' : (int)$of['current_limit'] ?></td>
+                    <td style="text-align:center"><?= (int)($of['active_ojts'] ?? 0) ?></td>
                     <td style="text-align:center"><?= htmlspecialchars((string)$of['available_slots']) ?></td>
                     <td style="text-align:center"><?= $of['requested_limit'] === '' ? '—' : (int)$of['requested_limit'] ?></td>
                     <td><?= htmlspecialchars($of['reason'] ?: '—') ?></td>
@@ -844,9 +848,9 @@ if ($moa_q) {
       const search = document.getElementById('requestedSearch');
       const sortSel = document.getElementById('requestedSort');
       const sortDirBtn = document.getElementById('requestedSortDir');
-      // Updated column indexes after removing "Active OJTs" column:
-      // Office(0), Current Limit(1), Available Slots(2), Requested Limit(3), Reason(4), Action(5)
-      const COL = { current_limit:1, available_slots:2, requested_limit:3 };
+      // Updated column indexes:
+      // Office(0), Current Limit(1), Active OJTs(2), Available Slots(3), Requested Limit(4), Reason(5), Status(6)
+      const COL = { current_limit:1, active_ojts:2, available_slots:3, requested_limit:4 };
         function parseNum(txt){
           if (txt === null || txt === undefined) return null;
           txt = txt.toString().trim();
