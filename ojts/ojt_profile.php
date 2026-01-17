@@ -1163,7 +1163,7 @@ if ($user_id) {
                                         // if student's college exists, check moa table for matching school_name
                                         if (!empty($sinfo['college'])) {
                                             $colLower = '%' . strtolower($sinfo['college']) . '%';
-                                            $qm = $conn->prepare("SELECT moa_file, school_name, date_uploaded FROM moa WHERE LOWER(school_name) LIKE ? ORDER BY date_uploaded DESC LIMIT 1");
+                                            $qm = $conn->prepare("SELECT moa_file, school_name, date_signed FROM moa WHERE LOWER(school_name) LIKE ? ORDER BY date_signed DESC LIMIT 1");
                                             $qm->bind_param('s', $colLower);
                                             $qm->execute();
                                             $moa_record = $qm->get_result()->fetch_assoc();
