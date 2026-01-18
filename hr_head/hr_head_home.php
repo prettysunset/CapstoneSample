@@ -1008,7 +1008,9 @@ $stmtCompleted->close();
     // lightweight overlay: iframe fills the overlay; sizing handled inside calendar.php
     calendarOverlay.innerHTML = `
       <div class="modal" style="width:100%;height:100vh;max-width:100%;max-height:100vh;padding:0;background:transparent;display:flex;align-items:center;justify-content:center;position:relative;">
-        <button id="closeCalendarBtn" style="position:absolute;top:18px;right:18px;padding:8px 12px;border-radius:8px;border:none;background:#eee;cursor:pointer;z-index:10">Close</button>
+        <button id="closeCalendarBtn"
+          aria-label="Close calendar"
+          style="position:absolute;top:10px;right:10px;width:32px;height:32px;border:none;border-radius:50%;background:rgba(225, 225, 225, 1);color:#333;font-size:18px;line-height:1;cursor:pointer;z-index:20;display:flex;align-items:center;justify-content:center;">&times;</button>
         <iframe src="calendar.php" title="Calendar" style="width:100%;height:100%;border:0;display:block;"></iframe>
       </div>`;
 
