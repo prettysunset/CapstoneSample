@@ -24,6 +24,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $trainee = (int)$data['trainee_id'];
         $scores = $data['scores'] ?? [];
         $remarks = trim((string)($data['remarks'] ?? ''));
+        $school_eval_raw = isset($data['school_eval']) ? $data['school_eval'] : null;
 
         // resolve student_id (students.user_id = trainee)
         $student_id = null;
@@ -40,6 +41,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             echo json_encode(['success' => false, 'message' => 'Trainee not found']);
             exit;
         }
+
+        // validate school_eval presence (required) and numeric
+        if ($school_eval_raw === null || $school_eval_raw === '') {
+          echo json_encode(['success' => false, 'message' => 'School Evaluation Grade is required']);
+          exit;
+        }
+        if (!is_numeric($school_eval_raw)) {
+          echo json_encode(['success' => false, 'message' => 'School Evaluation Grade must be numeric']);
+          exit;
+        }
+        $school_eval = floatval($school_eval_raw);
 
         // compute average of numeric scores (ignore NA / null)
         $sum = 0.0; $count = 0;
@@ -81,10 +93,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $conn->begin_transaction();
         $success = false;
 
-        $ins = $conn->prepare("INSERT INTO evaluations (student_id, rating, rating_desc, feedback, date_evaluated, user_id) VALUES (?, ?, ?, ?, NOW(), ?)");
+        $ins = $conn->prepare("INSERT INTO evaluations (student_id, rating, rating_desc, feedback, school_eval, date_evaluated, user_id) VALUES (?, ?, ?, ?, ?, NOW(), ?)");
         if ($ins) {
             // bind: int, double (nullable), string, string, int
-            $ins->bind_param("idssi", $student_id, $ratingValue, $ratingDesc, $remarks, $evaluator_id);
+          $ins->bind_param("idssdi", $student_id, $ratingValue, $ratingDesc, $remarks, $school_eval, $evaluator_id);
             $insOk = $ins->execute();
             $ins->close();
         } else {
@@ -247,15 +259,16 @@ foreach ($ojts as $r) {
 // Load evaluated OJTs with latest evaluation remarks (override completedArr with richer rows)
 $completedArr = [];
 $q = $conn->prepare("
-    SELECT u.user_id,
-           COALESCE(NULLIF(u.first_name, ''), NULLIF(s.first_name, '')) AS first_name,
-           COALESCE(NULLIF(u.last_name, ''), NULLIF(s.last_name, '')) AS last_name,
-           COALESCE(s.college, '') AS school,
-           COALESCE(s.course, '') AS course,
-           COALESCE(s.year_level, '') AS year_level,
-           COALESCE(s.hours_rendered, 0) AS hours_completed,
-           COALESCE(s.total_hours_required, 500) AS hours_required,
-           (SELECT rating_desc FROM evaluations ev2 WHERE ev2.student_id = s.student_id ORDER BY date_evaluated DESC, eval_id DESC LIMIT 1) AS remarks
+        SELECT u.user_id,
+          COALESCE(NULLIF(u.first_name, ''), NULLIF(s.first_name, '')) AS first_name,
+          COALESCE(NULLIF(u.last_name, ''), NULLIF(s.last_name, '')) AS last_name,
+          COALESCE(s.college, '') AS school,
+          COALESCE(s.course, '') AS course,
+          COALESCE(s.year_level, '') AS year_level,
+          COALESCE(s.hours_rendered, 0) AS hours_completed,
+          COALESCE(s.total_hours_required, 500) AS hours_required,
+          (SELECT rating_desc FROM evaluations ev2 WHERE ev2.student_id = s.student_id ORDER BY date_evaluated DESC, eval_id DESC LIMIT 1) AS remarks,
+          (SELECT school_eval FROM evaluations ev3 WHERE ev3.student_id = s.student_id ORDER BY date_evaluated DESC, eval_id DESC LIMIT 1) AS school_eval
     FROM students s
     JOIN users u ON s.user_id = u.user_id
     WHERE s.status = 'evaluated'
@@ -342,6 +355,23 @@ if ($q) {
   .icon-btn.small { width: 32px; height: 32px; font-size:0 }
   .icon-btn svg { width:18px; height:18px; stroke:currentColor; fill:none; }
   .evaluate-btn { margin-left: 8px; } /* keep spacing */
+  /* make school-grade divider more visible */
+  .eval-divider {
+    border-top: 2px solid #c8cfe8; /* darker, more visible */
+    padding-top: 14px;
+    margin-top: 12px;
+  }
+
+  /* hide spinner arrows on number input for eval grade */
+  #evalSchoolGrade::-webkit-outer-spin-button,
+  #evalSchoolGrade::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  #evalSchoolGrade {
+    -moz-appearance: textfield;
+    appearance: textfield;
+  }
 </style>
 </head>
 <body>
@@ -513,11 +543,11 @@ if ($q) {
       <div style="overflow:auto">
         <table>
           <thead>
-            <tr><th>Name</th><th>School</th><th>Course</th><th>Year Level</th><th>Hours</th><th>Remarks</th><th>View</th></tr>
+            <tr><th>Name</th><th>School</th><th>Course</th><th>Year Level</th><th>Hours</th><th>Remarks</th><th>School Grade</th><th>View</th></tr>
           </thead>
           <tbody>
             <?php if (empty($completedArr)): ?>
-              <tr><td colspan="7" style="text-align:center;color:#8a8f9d;padding:18px;">No evaluated OJTs.</td></tr>
+              <tr><td colspan="8" style="text-align:center;color:#8a8f9d;padding:18px;">No evaluated OJTs.</td></tr>
             <?php else: foreach ($completedArr as $o): ?>
               <tr>
                 <td><?php echo htmlspecialchars(trim($o['first_name'] . ' ' . $o['last_name'])); ?></td>
@@ -526,6 +556,13 @@ if ($q) {
                 <td><?php echo htmlspecialchars($o['year_level'] ?: '-'); ?></td>
                 <td><?php echo htmlspecialchars((int)$o['hours_completed'] . ' / ' . (int)$o['hours_required'] . ' hrs'); ?></td>
                 <td><?php echo htmlspecialchars($o['remarks'] ?? '-'); ?></td>
+                <td><?php
+                  if (isset($o['school_eval']) && $o['school_eval'] !== null && $o['school_eval'] !== '') {
+                    echo htmlspecialchars(number_format((float)$o['school_eval'], 2, '.', ''));
+                  } else {
+                    echo '-';
+                  }
+                ?></td>
                 <td>
                   <button class="view-btn icon-btn" data-id="<?php echo (int)$o['user_id']; ?>" title="View">
                     <svg viewBox="0 0 24 24" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -631,6 +668,11 @@ if ($q) {
       <textarea id="evalRemarks" rows="3" style="width:100%;padding:8px;border-radius:6px;border:1px solid #ddd"></textarea>
     </div>
 
+    <div class="eval-divider">
+      <label style="display:block;margin-bottom:6px;font-weight:700">School Evaluation Grade</label>
+      <input id="evalSchoolGrade" type="number" step="0.01" min="0" max="999" style="width:180px;padding:8px;border-radius:6px;border:1px solid #ddd" aria-label="School Evaluation Grade">
+    </div>
+
     <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px;">
       <button id="evalCancel" style="padding:8px 12px;border-radius:6px;border:1px solid #ccc;background:#fff;cursor:pointer">Cancel</button>
       <button id="evalSubmit" style="padding:8px 12px;border-radius:6px;border:0;background:#4f4aa6;color:#fff;cursor:pointer">Submit Evaluation</button>
@@ -692,6 +734,8 @@ if ($q) {
       b.textContent = ''; // empty by default (including N/A)
     });
     document.getElementById('evalRemarks').value = '';
+    // reset school grade
+    const gradeEl = document.getElementById('evalSchoolGrade'); if (gradeEl) gradeEl.value = '';
 
     modal.style.display = 'flex';
   });
@@ -711,6 +755,10 @@ if ($q) {
 
     // build payload
     const payload = { trainee_id: traineeId, remarks: (document.getElementById('evalRemarks').value || '').trim(), scores: {} };
+    // include school evaluation grade
+    const gradeEl = document.getElementById('evalSchoolGrade');
+    const gradeValRaw = gradeEl ? (gradeEl.value || '').toString().trim() : '';
+    payload.school_eval = gradeValRaw;
     const rows = Array.from(modal.querySelectorAll('tr[data-key]'));
     rows.forEach(row => {
       const key = row.getAttribute('data-key');
@@ -726,6 +774,19 @@ if ($q) {
       alert('Please rate all competencies (choose 5/4/3/2/1 or N/A) before submitting.');
       return;
     }
+
+    // REQUIRE: School Evaluation Grade must be provided and numeric
+    if (!gradeValRaw) {
+      alert('Please enter the School Evaluation Grade.');
+      return;
+    }
+    const gradeVal = parseFloat(gradeValRaw);
+    if (isNaN(gradeVal)) {
+      alert('School Evaluation Grade must be a number (decimals allowed).');
+      return;
+    }
+    // normalize payload value to number
+    payload.school_eval = gradeVal;
 
     // disable submit to avoid duplicates
     this.disabled = true;
@@ -752,6 +813,60 @@ if ($q) {
         alert('Submit failed. Check console.');
       });
   });
+
+  // restrict input for School Evaluation Grade: only digits and single dot,
+  // and limit integer part to max 3 digits (allow decimals after dot)
+  (function () {
+    const g = document.getElementById('evalSchoolGrade');
+    if (!g) return;
+
+    function sanitize(val) {
+      if (!val) return '';
+      // remove non-digit/dot
+      val = val.replace(/[^0-9.]/g, '');
+      // collapse multiple dots into first
+      const parts = val.split('.');
+      const intPart = (parts[0] || '').slice(0, 3); // limit to 3 digits
+      let decPart = parts.slice(1).join('');
+      if (decPart.length) decPart = '.' + decPart;
+      return intPart + decPart;
+    }
+
+    g.addEventListener('keydown', function (e) {
+      const allowed = ['Backspace', 'Delete', 'ArrowLeft', 'ArrowRight', 'Tab', 'Home', 'End'];
+      if (allowed.includes(e.key) || e.ctrlKey || e.metaKey) return;
+      if (e.key >= '0' && e.key <= '9') {
+        // determine prospective value after key
+        const selStart = this.selectionStart || 0;
+        const selEnd = this.selectionEnd || 0;
+        const cur = this.value || '';
+        const next = cur.slice(0, selStart) + e.key + cur.slice(selEnd);
+        const int = next.split('.')[0] || '';
+        if (int.replace(/^0+/, '').length > 3 && int.length > 3) {
+          // more than 3 digits in integer part -> prevent
+          e.preventDefault();
+        }
+        return;
+      }
+      if (e.key === '.') {
+        // allow dot only if not already present and integer part has at least 1 or up to 3 digits
+        if ((this.value || '').includes('.')) e.preventDefault();
+        return;
+      }
+      e.preventDefault();
+    });
+
+    g.addEventListener('paste', function (e) {
+      e.preventDefault();
+      const txt = (e.clipboardData || window.clipboardData).getData('text') || '';
+      this.value = sanitize(txt);
+    });
+
+    g.addEventListener('input', function () {
+      const v = sanitize(this.value);
+      if (this.value !== v) this.value = v;
+    });
+  })();
 
   // tabs wiring
   (function () {

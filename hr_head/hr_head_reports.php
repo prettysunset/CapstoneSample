@@ -151,8 +151,14 @@ function fetch_evaluations($conn){
   $check = $conn->query("SHOW COLUMNS FROM evaluations LIKE 'rating_desc'");
   if ($check) { $hasRatingDesc = $check->num_rows > 0; $check->free(); }
 
+  // Check if school_eval column exists in evaluations table
+  $hasSchoolEval = false;
+  $check2 = $conn->query("SHOW COLUMNS FROM evaluations LIKE 'school_eval'");
+  if ($check2) { $hasSchoolEval = $check2->num_rows > 0; $check2->free(); }
+
   $cols = "e.eval_id, e.rating, e.feedback, e.date_evaluated";
   if ($hasRatingDesc) $cols .= ", e.rating_desc";
+  if ($hasSchoolEval) $cols .= ", e.school_eval";
   $cols .= ", s.first_name AS student_first, s.last_name AS student_last, u.first_name AS eval_first, u.last_name AS eval_last";
 
   $sql = "
@@ -167,6 +173,7 @@ function fetch_evaluations($conn){
   if ($res){
     while ($r = $res->fetch_assoc()) {
       if (!isset($r['rating_desc'])) $r['rating_desc'] = null;
+      if (!isset($r['school_eval'])) $r['school_eval'] = null;
       $rows[] = $r;
     }
     $res->free();
@@ -583,23 +590,31 @@ $evaluations = fetch_evaluations($conn);
           <table class="tbl" id="tblEvaluations">
             <thead>
               <tr>
-                <th style="text-align:center">Date Evaluated</th>
-                <th style="text-align:center">Student Name</th>
-                <th style="text-align:center">Rating</th>
-                <th style="text-align:center">Feedback</th>
-                <th style="text-align:center">Evaluator</th>
-                <th style="text-align:center">View</th>
-                <th style="text-align:center">Print Certificate</th>
-              </tr>
+                  <th style="text-align:center">Date Evaluated</th>
+                  <th style="text-align:center">Student Name</th>
+                  <th style="text-align:center">Rating</th>
+                  <th style="text-align:center">School Grade</th>
+                  <th style="text-align:center">Feedback</th>
+                  <th style="text-align:center">Evaluator</th>
+                  <th style="text-align:center">View</th>
+                  <th style="text-align:center">Print Certificate</th>
+                </tr>
             </thead>
             <tbody>
               <?php if (empty($evaluations)): ?>
-                <tr><td colspan="7" class="empty">No evaluations found.</td></tr>
+                <tr><td colspan="8" class="empty">No evaluations found.</td></tr>
               <?php else: foreach ($evaluations as $e): ?>
                 <tr data-search="<?= htmlspecialchars(strtolower(($e['student_first'] ?? '') . ' ' . ($e['student_last'] ?? '') . ' ' . ($e['eval_first'] ?? '') . ' ' . ($e['eval_last'] ?? '') . ' ' . ($e['feedback'] ?? ''))) ?>">
                   <td style="text-align:center"><?= htmlspecialchars(fmtDate($e['date_evaluated'] ?? '')) ?></td>
                   <td style="text-align:center"><?= htmlspecialchars(trim(($e['student_first'] ?? '') . ' ' . ($e['student_last'] ?? ''))) ?: 'N/A' ?></td>
                   <td style="text-align:center"><?= htmlspecialchars($e['rating_desc'] ?? '') ?></td>
+                  <td style="text-align:center"><?php
+                      if (isset($e['school_eval']) && $e['school_eval'] !== null && $e['school_eval'] !== '') {
+                        echo htmlspecialchars(number_format((float)$e['school_eval'], 2, '.', ''));
+                      } else {
+                        echo '-';
+                      }
+                  ?></td>
                   <td style="text-align:center"><?= htmlspecialchars($e['feedback'] ?? '') ?></td>
                   <td style="text-align:center"><?= htmlspecialchars(trim(($e['eval_first'] ?? '') . ' ' . ($e['eval_last'] ?? ''))) ?: 'N/A' ?></td>
                   <td style="text-align:center">
@@ -822,6 +837,15 @@ $evaluations = fetch_evaluations($conn);
       if (confirm('Are you sure you want to logout?')) {
         window.location.href = this.getAttribute('href');
       }
+    });
+    // handle print certificate button clicks (open printable certificate in new tab)
+    document.addEventListener('click', function(e){
+      const btn = e.target.closest && e.target.closest('.print-btn');
+      if (!btn) return;
+      const evalId = btn.getAttribute('data-eval-id');
+      if (!evalId) return alert('Missing evaluation id');
+      const url = 'print_certificate.php?eval_id=' + encodeURIComponent(evalId);
+      window.open(url, '_blank');
     });
   })();
 </script>
