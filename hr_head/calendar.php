@@ -100,6 +100,8 @@
                     while ($ar = $ares->fetch_assoc()) {
                       $sname = trim((string)($ar['first_name'] ?? '') . ' ' . ($ar['last_name'] ?? ''));
                       $sid = $ar['student_id'] ?? ($ar['application_id'] ?? ($ar['id'] ?? null));
+                      $appId = $ar['application_id'] ?? null;
+                      $studId = $ar['student_id'] ?? null;
                       // fallback: if join didn't return a name but student_id exists, try to fetch student record
                       if (empty(trim($sname)) && !empty($sid) && is_numeric($sid)) {
                         $sres = $conn->prepare("SELECT first_name, last_name FROM students WHERE student_id = ?");
@@ -117,7 +119,7 @@
                         if (!empty($ar['application_id'])) $sname = 'App #' . $ar['application_id'];
                         else $sname = 'Assigned OJT';
                       }
-                      $students[] = ['id' => $sid, 'name' => $sname];
+                      $students[] = ['id' => $sid, 'name' => $sname, 'application_id' => $appId, 'student_id' => $studId];
                     }
                   }
                   $cnt = count($students);
@@ -143,6 +145,7 @@
                 else $events[$d] = $label;
                 // store structured session data for JS
                 $sess = [
+                  'session_id' => $row['session_id'] ?? null,
                   'time' => $timeLabel,
                   'date' => $dt,
                   'location' => $locLabel,
@@ -169,7 +172,7 @@
     html,body{height:100%;margin:0;background:transparent;color:#111;overflow:hidden}
     .outer-panel{display:block;padding:0;margin:0;width:100%;height:100%}
     .outer-panel .panel{background:transparent;border-radius:0;padding:0;max-width:none;width:100%;box-shadow:none;height:100%;display:flex;align-items:center;justify-content:center}
-    .card{background:#fff;border-radius:18px;padding:12px 12px;max-width:1180px;width:calc(100% - 64px);height:calc(100% - 64px);margin:0 auto;display:grid;grid-template-rows:auto 1fr;gap:8px;align-items:stretch;justify-content:stretch;box-shadow:0 18px 40px rgba(16,24,40,0.12)}
+    .card{background:#fff;border-radius:18px;padding:12px 12px;max-width:1180px;width:calc(100% - 64px);height:calc(100% - 64px);margin:0 auto;display:grid;grid-template-rows:auto 1fr;gap:8px;align-items:stretch;justify-content:stretch;box-shadow:0 18px 40px rgba(16,24,40,0.12);position:relative}
     .toolbar{display:grid;grid-template-rows:auto auto;row-gap:8px;align-items:center;margin-bottom:0}
     .toggles{display:flex;gap:8px}
     .toggle{padding:8px 12px;border-radius:12px;background:#f3f3ff;color:#5a3db0;font-weight:700;cursor:pointer;border:0}
@@ -255,6 +258,8 @@
     .inner-calendar { overflow: visible; }
     body { background: transparent; }
     .grid[aria-hidden="false"]{display:grid;grid-template-rows:repeat(6,var(--cell-size));align-content:start}
+    /* close button inside the white card */
+    .view-close { position: absolute; right: 18px; top: 18px; width:36px;height:36px;border-radius:50%;background:#fff;border:0;box-shadow:0 6px 18px rgba(16,24,40,0.06);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:18px; z-index:10010; }
   </style>
 </head>
 <body>
@@ -262,6 +267,7 @@
   <div class="outer-panel">
     <div class="panel">
       <div class="card" role="region" aria-label="Calendar">
+        <button class="view-close" aria-label="Close calendar" type="button" onclick="(parent && parent.closeCalendarOverlay) ? parent.closeCalendarOverlay() : window.close()">✕</button>
       <div class="toolbar">
         <!-- toolbar top left intentionally kept minimal; toggles placed in calendar header -->
             <!-- month label & nav moved inside the white calendar header (see below) -->
@@ -397,7 +403,8 @@
             var r = document.createElement('div'); r.className = 'student-row';
             var name = document.createElement('div'); name.className = 'student-name'; name.textContent = st.name || '';
             var pbtn = document.createElement('button'); pbtn.className = 'print-icon'; pbtn.type = 'button';
-            pbtn.dataset.studentId = st.id || '';
+            pbtn.dataset.studentId = st.student_id || st.id || '';
+            pbtn.dataset.applicationId = st.application_id || '';
             pbtn.title = 'Print Endorsement Letter';
             pbtn.setAttribute('aria-label', 'Print Endorsement Letter for ' + (st.name || 'student'));
             pbtn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 7v6a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V7"/><path d="M17 3H7v4h10V3z"/></svg>';
@@ -406,6 +413,8 @@
           });
           // Print All button
           var printAll = document.createElement('a'); printAll.className = 'print-all'; printAll.href = '#'; printAll.textContent = 'Print All Endorsement Letter';
+          // attach session id for Print All
+          printAll.dataset.sessionId = s.session_id || '';
           studentsWrap.appendChild(printAll);
         } else {
           var none = document.createElement('div'); none.className = 'meta'; none.textContent = 'No students assigned.';
@@ -441,6 +450,30 @@
         renderOrientation(today.getDate());
       }
     })();
+
+    // delegate print button clicks (single and batch)
+    document.addEventListener('click', function(e){
+      var p = e.target.closest && e.target.closest('.print-icon');
+      if (p) {
+        var appId = p.dataset.applicationId || '';
+        var studId = p.dataset.studentId || '';
+        var url = 'print_endorsement.php?';
+        if (appId) url += 'application_id=' + encodeURIComponent(appId);
+        else if (studId) url += 'student_id=' + encodeURIComponent(studId);
+        else { alert('No application or student id available'); return; }
+        window.open(url, '_blank');
+        return;
+      }
+      var pa = e.target.closest && e.target.closest('.print-all');
+      if (pa) {
+        e.preventDefault();
+        var sid = pa.dataset.sessionId || '';
+        if (!sid) { alert('Session id missing'); return; }
+        var url = 'print_endorsement.php?session_id=' + encodeURIComponent(sid) + '&all=1';
+        window.open(url, '_blank');
+        return;
+      }
+    });
   </script>
 </body>
 </html>

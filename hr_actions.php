@@ -528,7 +528,6 @@ if ($action === 'approve_send') {
         // ignore
     }
 
-    $deadline = date('F j, Y', strtotime('+7 days'));
     $loginUrl = '/login.php';
     if (!empty($_SERVER['HTTP_HOST'])) {
         $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https://' : 'http://';
@@ -550,8 +549,7 @@ if ($action === 'approve_send') {
         $html .= "<p>If you already have an account, use your existing credentials to login.</p>";
     }
 
-    $html .= "<p style=\"background:#fff4f4;padding:10px;border-radius:6px;\"><strong>Important:</strong> Please log in within 7 days (by <strong>" . htmlspecialchars($deadline) . "</strong>) to secure your assigned slot. Failure to log in within 7 days from the date of this email will result in forfeiture of your assigned slot.</p>"
-          . "<p>You may log in here: <a href=\"" . htmlspecialchars($loginUrl) . "\">" . htmlspecialchars($loginUrl) . "</a></p>"
+    $html .= "<p>You may log in here: <a href=\"" . htmlspecialchars($loginUrl) . "\">" . htmlspecialchars($loginUrl) . "</a></p>"
           . "<p style=\"margin-top:12px;\"><strong>Bring hard copies:</strong> Please bring the original/hard copy of all required documents (Letter of Intent, Resume, Endorsement Letter, and 1x1 Formal Picture) to the Orientation/Start date listed above. Present these to the HR staff to secure your placement.</p>"
           . "<p>Please follow instructions sent by HR. Thank you.</p>"
           . "<p>— HR Department</p>";
@@ -1108,7 +1106,6 @@ if ($action === 'get_dtr_by_range') {
             'pm_out' => $r['pm_out'] ?? '',
             'hours' => (int)($r['hours'] ?? 0),
             'minutes' => (int)($r['minutes'] ?? 0),
-            'student_id' => (int)($r['u_id'] ?? 0),
             'first_name' => $first,
             'last_name' => $last,
             'school' => $school,

@@ -1006,11 +1006,9 @@ $stmtCompleted->close();
     calendarOverlay.style.alignItems = 'center';
     calendarOverlay.style.justifyContent = 'center';
     // lightweight overlay: iframe fills the overlay; sizing handled inside calendar.php
+    // create modal container with iframe. Close button will be placed inside the iframe's white card
     calendarOverlay.innerHTML = `
       <div class="modal" style="width:100%;height:100vh;max-width:100%;max-height:100vh;padding:0;background:transparent;display:flex;align-items:center;justify-content:center;position:relative;">
-        <button id="closeCalendarBtn"
-          aria-label="Close calendar"
-          style="position:absolute;top:10px;right:10px;width:32px;height:32px;border:none;border-radius:50%;background:rgba(225, 225, 225, 1);color:#333;font-size:18px;line-height:1;cursor:pointer;z-index:20;display:flex;align-items:center;justify-content:center;">&times;</button>
         <iframe src="calendar.php" title="Calendar" style="width:100%;height:100%;border:0;display:block;"></iframe>
       </div>`;
 
@@ -1018,10 +1016,12 @@ $stmtCompleted->close();
 
     function showCalendar(){ calendarOverlay.style.display = 'flex'; calendarOverlay.setAttribute('aria-hidden','false'); }
     function hideCalendar(){ calendarOverlay.style.display = 'none'; calendarOverlay.setAttribute('aria-hidden','true'); }
+    // expose a simple global close function so iframe content can request the overlay to close
+    window.closeCalendarOverlay = hideCalendar;
 
     openBtn.addEventListener('click', function(){ showCalendar(); });
     calendarOverlay.addEventListener('click', function(e){ if (e.target === calendarOverlay) hideCalendar(); });
-    document.addEventListener('click', function(e){ if (e.target && e.target.id === 'closeCalendarBtn') hideCalendar(); });
+    // close button was moved inside the iframe; iframe will call parent.closeCalendarOverlay()
   })();
 // hold currently approving application id
 let currentAppId = null;
@@ -1085,18 +1085,10 @@ async function openApproveModal(btn) {
 
     const dateInput = document.getElementById('modal_date');
 
-    // --- ADDED: prevent selecting past dates and disable next 7 days starting tomorrow ---
+    // prevent selecting past dates; disallow today but allow tomorrow and after
     const today = new Date();
-
-    // block range: tomorrow .. tomorrow + 6 (7 days total: days 1..7)
-    const blockedStart = new Date(today);
-    blockedStart.setDate(blockedStart.getDate() + 1);
-    const blockedEnd = new Date(today);
-    blockedEnd.setDate(blockedEnd.getDate() + 7);
-
-    // earliest allowed date is the day after the blockedEnd
     const allowedMin = new Date(today);
-    allowedMin.setDate(allowedMin.getDate() + 8);
+    allowedMin.setDate(allowedMin.getDate() + 1); // tomorrow
 
     const toIsoDate = d => {
       const y = d.getFullYear();
@@ -1105,7 +1097,7 @@ async function openApproveModal(btn) {
       return `${y}-${m}-${day}`;
     };
 
-    // set min/value on the native input for HTML semantics
+    // set min/value on the native input for HTML semantics (tomorrow)
     dateInput.min = toIsoDate(allowedMin);
     dateInput.value = toIsoDate(allowedMin);
 
@@ -1115,9 +1107,8 @@ async function openApproveModal(btn) {
       window.modalDatePicker.setDate(toIsoDate(allowedMin), true);
     }
 
-    // add user hint (shows on hover) about the disabled range
-    dateInput.title = `Unavailable: ${toIsoDate(blockedStart)} — ${toIsoDate(blockedEnd)}. Earliest selectable: ${toIsoDate(allowedMin)}.`;
-    // --- end added ---
+    // hint: today is not selectable
+    dateInput.title = `Note: today is not selectable. Earliest selectable: ${toIsoDate(allowedMin)}.`;
 
     // disable send until date chosen
     const btnSend = document.getElementById('btnSend');
