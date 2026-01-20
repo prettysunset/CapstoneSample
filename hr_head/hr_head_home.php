@@ -1188,7 +1188,24 @@ function sendApproval(){
       body: JSON.stringify(payload)
     }).then(r => r.json())
       .then(res => {
-          if (res.success) {
+        // If server requests confirmation (over capacity), ask user and resend if confirmed
+        if (res && res.needs_confirmation) {
+          const ok = confirm((res.message || 'This session exceeds capacity. Proceed?'));
+          if (ok) {
+            payload.confirm_over_capacity = 1;
+            return fetch('../hr_actions.php', {
+              method: 'POST',
+              headers: {'Content-Type':'application/json'},
+              body: JSON.stringify(payload)
+            }).then(r2 => r2.json());
+          } else {
+            btnSend.disabled = false;
+            btnSend.setAttribute('aria-disabled', 'false');
+            throw new Error('User cancelled due to capacity');
+          }
+        }
+
+        if (res.success) {
               // show inline status based on mail result
               if (res.mail && res.mail === 'sent') {
                   statusEl.style.display = 'block';
@@ -1211,13 +1228,15 @@ function sendApproval(){
               }, 900);
           } else {
               // server returned success=false
-              alert('Error: ' + (res.message || 'Unknown') + (res.error ? '\n' + res.error : ''));
+              alert((res.message || 'Unknown') + (res.error ? '\n' + res.error : ''));
               // re-enable send on failure
               btnSend.disabled = false;
               btnSend.setAttribute('aria-disabled', 'false');
           }
       }).catch(err => {
-          alert('Request failed.');
+        // if user cancelled confirmation, don't show generic error
+        if (err && err.message === 'User cancelled due to capacity') return;
+        alert('Request failed.');
           console.error(err);
           btnSend.disabled = false;
           btnSend.setAttribute('aria-disabled', 'false');

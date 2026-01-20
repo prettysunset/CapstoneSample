@@ -368,6 +368,88 @@ if ($action === 'approve_send') {
         elseif ($info2) $assignedOfficeName = $info2['office_name'];
     }
 
+    // --- VALIDATION RULES ---
+    // 1) Disallow same date+time but different location (cannot have two sessions at identical datetime in different rooms)
+    // 2) If same date+time and same location: allow, but if total OJTs scheduled that day > 7, ask for confirmation (client may resend with confirm_over_capacity=1)
+    // 3) For same date but different time: require at least 1 hour gap from any existing session on that date
+
+    // check for existing sessions on same date & time
+    $confirm_over_capacity = !empty($input['confirm_over_capacity']) ? true : false;
+
+    try {
+        $sSame = $conn->prepare("SELECT session_id, location FROM orientation_sessions WHERE session_date = ? AND session_time = ?");
+        $sSame->bind_param("ss", $orientation, $orientation_time);
+        $sSame->execute();
+        $sameRes = $sSame->get_result()->fetch_all(MYSQLI_ASSOC);
+        $sSame->close();
+    } catch (Exception $e) {
+        $sameRes = [];
+    }
+
+    // If there is any session with the same date/time but different location -> reject
+    foreach ($sameRes as $sr) {
+        $existingLoc = trim((string)($sr['location'] ?? ''));
+        if (strcasecmp($existingLoc, $orientation_location) !== 0) {
+            respond(['success' => false, 'message' => 'Cannot schedule: there is an existing orientation at the same date and time in a different location (' . $existingLoc . ').']);
+        }
+    }
+
+    // Count total OJTs scheduled for the same date (across sessions)
+    try {
+        $cntStmt = $conn->prepare("SELECT COUNT(oa.id) AS cnt FROM orientation_assignments oa JOIN orientation_sessions os ON oa.session_id = os.session_id WHERE os.session_date = ?");
+        $cntStmt->bind_param("s", $orientation);
+        $cntStmt->execute();
+        $cntRow = $cntStmt->get_result()->fetch_assoc();
+        $cntStmt->close();
+        $scheduledThatDay = isset($cntRow['cnt']) ? (int)$cntRow['cnt'] : 0;
+    } catch (Exception $e) {
+        $scheduledThatDay = 0;
+    }
+
+    // If same date+time and same location, and scheduledThatDay >= 7, require confirmation
+    if (!empty($sameRes) && $scheduledThatDay >= 7 && !$confirm_over_capacity) {
+        respond(['success' => false, 'needs_confirmation' => true, 'message' => 'There are already ' . $scheduledThatDay . ' OJTs scheduled for that day. Press OK to confirm.', 'scheduled_count' => $scheduledThatDay]);
+    }
+
+    // For same date, ensure new session time is at least 1 hour apart from any existing session times (unless it's identical time+location which we handled)
+    try {
+        $gapStmt = $conn->prepare("SELECT session_time, location FROM orientation_sessions WHERE session_date = ?");
+        $gapStmt->bind_param("s", $orientation);
+        $gapStmt->execute();
+        $gapRes = $gapStmt->get_result()->fetch_all(MYSQLI_ASSOC);
+        $gapStmt->close();
+    } catch (Exception $e) {
+        $gapRes = [];
+    }
+
+    // convert orientation_time and compare seconds
+    $newSeconds = null;
+    try {
+        $parts = explode(':', $orientation_time);
+        $h = (int)($parts[0] ?? 0);
+        $m = (int)($parts[1] ?? 0);
+        $s = (int)($parts[2] ?? 0);
+        $newSeconds = $h * 3600 + $m * 60 + $s;
+    } catch (Exception $e) { $newSeconds = null; }
+
+    foreach ($gapRes as $gr) {
+        $existTime = trim((string)($gr['session_time'] ?? ''));
+        if ($existTime === '') continue;
+        // if identical time handled earlier
+        if ($existTime === $orientation_time) continue;
+        $parts = explode(':', $existTime);
+        $eh = (int)($parts[0] ?? 0);
+        $em = (int)($parts[1] ?? 0);
+        $es = (int)($parts[2] ?? 0);
+        $existSec = $eh * 3600 + $em * 60 + $es;
+        if ($newSeconds !== null) {
+            $diff = abs($newSeconds - $existSec);
+            if ($diff < 3600) { // less than 1 hour
+                respond(['success' => false, 'message' => 'New session must be at least 1 hour apart from existing session at ' . $existTime . ' (location: ' . $gr['location'] . ').']);
+            }
+        }
+    }
+
     // update application: status, remarks, date_updated
     // include orientation time/location in remarks
     $remarks = "Orientation/Start: {$orientation}";
