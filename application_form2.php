@@ -72,22 +72,43 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 }
             }
         }
-        // store both name and id (id may be null)
-        $_SESSION['af2'] = [
-            'school'         => $_POST['school'] ?? '',
-            'school_address' => $_POST['school_address'] ?? '',
-            'course'         => $courseResolved,
-            'course_id'      => $courseId,
-            'year_level'     => $_POST['year_level'] ?? '',
-            // school year is fixed (not provided by user)
-            'school_year'    => '2025-2026',
-            'semester'       => $_POST['semester'] ?? '',
-            'adviser'        => $_POST['adviser'] ?? '',
-            'adviser_contact'=> $_POST['adviser_contact'] ?? ''
+        // prepare posted AF2 values (we only persist to session when all checks pass)
+        $posted_af2 = [
+          'school'         => $_POST['school'] ?? '',
+          'school_address' => $_POST['school_address'] ?? '',
+          'course'         => $courseResolved,
+          'course_id'      => $courseId,
+          'year_level'     => $_POST['year_level'] ?? '',
+          // school year is fixed (not provided by user)
+          'school_year'    => '2025-2026',
+          'semester'       => $_POST['semester'] ?? '',
+          'adviser'        => $_POST['adviser'] ?? '',
+          'adviser_contact'=> $_POST['adviser_contact'] ?? ''
         ];
 
-    header("Location: application_form3.php");
-    exit;
+        // If user clicked Previous: persist posted AF2 to session and go back to AF1
+        if (isset($_POST['action']) && $_POST['action'] === 'prev') {
+          $_SESSION['af2'] = $posted_af2;
+          header("Location: application_form1.php");
+          exit;
+        }
+
+        // server-side: ensure adviser_contact does not match AF1 contact or emergency contact
+        $af1 = $_SESSION['af1'] ?? [];
+        $af1_contact = preg_replace('/[^0-9]/', '', $af1['contact'] ?? '');
+        $af1_emg = preg_replace('/[^0-9]/', '', $af1['emg_contact'] ?? '');
+        $adviser_clean = preg_replace('/[^0-9]/', '', $posted_af2['adviser_contact'] ?? '');
+
+        if ($adviser_clean !== '' && ($adviser_clean === $af1_contact || $adviser_clean === $af1_emg)) {
+          $error_adviser_conflict = 'The adviser’s contact number must be different from your personal and emergency contact numbers.';
+          // preserve posted values in local $af2 for re-rendering the form below
+          $af2 = $posted_af2;
+        } else {
+          // all checks passed -> persist and continue
+          $_SESSION['af2'] = $posted_af2;
+          header("Location: application_form3.php");
+          exit;
+        }
 }
 
 // Pre-fill form fields if session data exists
@@ -307,7 +328,7 @@ $af2 = isset($_SESSION['af2']) ? $_SESSION['af2'] : [];
 </div>
 
           <div class="form-nav">
-            <button type="button" class="secondary" onclick="window.location='application_form1.php'">← Previous</button>
+            <button type="submit" name="action" value="prev" class="secondary" id="prevBtn">← Previous</button>
             <button type="submit" id="nextBtn">Next →</button>
           </div>
         </form>
@@ -315,8 +336,12 @@ $af2 = isset($_SESSION['af2']) ? $_SESSION['af2'] : [];
     </div>
   </div>
 
-<script>
+  <script>
 window.addEventListener('load', () => { document.body.style.opacity = 1; });
+
+// AF1 contacts (clean digits) for client-side validation
+const AF1_CONTACT = <?= json_encode(preg_replace('/[^0-9]/', '', (isset($_SESSION['af1']['contact']) ? $_SESSION['af1']['contact'] : ''))) ?> || '';
+const AF1_EMG_CONTACT = <?= json_encode(preg_replace('/[^0-9]/', '', (isset($_SESSION['af1']['emg_contact']) ? $_SESSION['af1']['emg_contact'] : ''))) ?> || '';
 
 (function(){
   const schools = [
@@ -389,10 +414,59 @@ window.addEventListener('load', () => { document.body.style.opacity = 1; });
 
   if (input.value && input.value.trim() !== '') populateList(input.value);
 
+  // -------------------------
+  // Draft autosave (localStorage) for AF2 so answers persist when navigating back
+  // -------------------------
+  const DRAFT_KEY = 'af2_draft';
+  const formEl = document.getElementById('af2Form');
+  function saveDraft() {
+    if (!formEl) return;
+    const data = {};
+    Array.from(formEl.elements).forEach(el => {
+      if (!el.name) return;
+      if (el.type === 'checkbox' || el.type === 'radio') data[el.name] = el.checked;
+      else data[el.name] = el.value;
+    });
+    try { localStorage.setItem(DRAFT_KEY, JSON.stringify(data)); } catch (e) { /* ignore storage errors */ }
+  }
+
+  // populate from draft if server didn't provide values
+  try {
+    const draftRaw = localStorage.getItem(DRAFT_KEY);
+    if (draftRaw) {
+      const draft = JSON.parse(draftRaw);
+      // only set fields that are currently empty so we don't override server-side values
+      Object.keys(draft).forEach(k => {
+        try {
+          const el = formEl.elements.namedItem(k);
+          if (!el) return;
+          // for selects and inputs
+          if ((el.type === 'select-one' || el.tagName === 'SELECT') && (!el.value || String(el.value).trim() === '')) el.value = draft[k];
+          else if ((el.type === 'text' || el.type === 'tel' || el.type === 'email' || el.type === 'hidden') && (!el.value || String(el.value).trim() === '')) el.value = draft[k];
+          else if (el.type === 'checkbox' || el.type === 'radio') el.checked = !!draft[k];
+        } catch (e) { /* ignore per-field errors */ }
+      });
+    }
+  } catch (e) { /* ignore parse errors */ }
+
+  // attach listeners to save on change/input
+  if (formEl) {
+    Array.from(formEl.elements).forEach(el => {
+      el.addEventListener('input', saveDraft, {passive:true});
+      el.addEventListener('change', saveDraft, {passive:true});
+    });
+    // clear draft on successful submit (we let server redirect)
+    formEl.addEventListener('submit', function(){ try { localStorage.removeItem(DRAFT_KEY); } catch(e){} });
+  }
+
   // client-side required validation before submit (ensure required fields first)
   const form = document.getElementById('af2Form');
-  if (form) {
+  let skipValidation = false;
+  const prevBtn = document.querySelector('button[name="action"][value="prev"]');
+  if (prevBtn) prevBtn.addEventListener('click', function(){ skipValidation = true; });
+      if (form) {
     form.addEventListener('submit', function(e){
+      if (skipValidation) { skipValidation = false; return true; }
       const reqs = form.querySelectorAll('[required]');
       for (let i=0;i<reqs.length;i++){
         const el = reqs[i];
@@ -409,6 +483,14 @@ window.addEventListener('load', () => { document.body.style.opacity = 1; });
       if (adv) {
         if (adv.value.replace(/\D/g,'').length !== 11) {
           alert('Adviser contact must be 11 digits.');
+          adv.focus();
+          e.preventDefault();
+          return false;
+        }
+        // ensure adviser_contact does not match AF1 contact or AF1 emergency contact
+        const advDigits = adv.value.replace(/\D/g,'');
+        if (advDigits !== '' && (advDigits === AF1_CONTACT || advDigits === AF1_EMG_CONTACT)) {
+          alert('The adviser’s contact number must be different from your personal and emergency contact numbers.');
           adv.focus();
           e.preventDefault();
           return false;
@@ -473,5 +555,8 @@ const courseAvailability = <?= json_encode($courseAvailability, JSON_HEX_TAG|JSO
   }
 })();
 </script>
+<?php if (!empty($error_adviser_conflict)): ?>
+  <script>window.addEventListener('load',function(){ alert(<?= json_encode($error_adviser_conflict) ?>); });</script>
+<?php endif; ?>
 </body>
 </html>

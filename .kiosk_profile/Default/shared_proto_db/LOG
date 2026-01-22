@@ -1,3 +1,3 @@
-2026/01/22-11:29:09.761 3e78 Reusing MANIFEST C:\xampp\htdocs\capstone_sample\CapstoneSample\.kiosk_profile\Default\shared_proto_db/MANIFEST-000001
-2026/01/22-11:29:09.761 3e78 Recovering log #3
-2026/01/22-11:29:09.763 3e78 Reusing old log C:\xampp\htdocs\capstone_sample\CapstoneSample\.kiosk_profile\Default\shared_proto_db/000003.log 
+2026/01/22-21:40:59.261 670 Reusing MANIFEST C:\xampp\htdocs\capstone_sample\CapstoneSample\.kiosk_profile\Default\shared_proto_db/MANIFEST-000001
+2026/01/22-21:40:59.262 670 Recovering log #3
+2026/01/22-21:40:59.265 670 Reusing old log C:\xampp\htdocs\capstone_sample\CapstoneSample\.kiosk_profile\Default\shared_proto_db/000003.log 

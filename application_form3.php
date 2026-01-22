@@ -127,18 +127,67 @@ $af3 = $_SESSION['af3'] ?? [];
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
     // If user clicked Previous: save AF3 fields to session and go back to AF2
     if (isset($_POST['action']) && $_POST['action'] === 'prev') {
-        // Save non-file inputs so they persist when returning to AF3
-        // ensure empty/blank required_hours is saved as null (not 0)
-        $raw_rh = isset($_POST['required_hours']) ? trim((string)$_POST['required_hours']) : '';
-        $rh_val = ($raw_rh !== '' && is_numeric($raw_rh)) ? intval($raw_rh) : null;
-        $_SESSION['af3'] = [
-            'first_choice'    => isset($_POST['first_choice']) ? intval($_POST['first_choice']) : null,
-            'second_choice'   => (isset($_POST['second_choice']) && $_POST['second_choice'] !== '') ? intval($_POST['second_choice']) : null,
-            'required_hours'  => $rh_val
-            // note: file inputs cannot be preserved by PHP across navigation without upload
-        ];
-        header("Location: application_form2.php");
-        exit;
+      // Save non-file inputs so they persist when returning to AF3
+      // ensure empty/blank required_hours is saved as null (not 0)
+      $raw_rh = isset($_POST['required_hours']) ? trim((string)$_POST['required_hours']) : '';
+      $rh_val = ($raw_rh !== '' && is_numeric($raw_rh)) ? intval($raw_rh) : null;
+
+      // Prepare tmp upload dir for previous/save-as-draft behavior
+      $tmpDir = __DIR__ . DIRECTORY_SEPARATOR . 'uploads' . DIRECTORY_SEPARATOR . 'tmp' . DIRECTORY_SEPARATOR;
+      if (!file_exists($tmpDir)) mkdir($tmpDir, 0777, true);
+
+      // Helper: save uploaded file to tmp and return relative path or empty string
+      function tempSaveFile($inputName, $tmpDir, array $allowedMimes, $maxBytes = 2097152) {
+        if (empty($_FILES[$inputName]['name']) || !is_uploaded_file($_FILES[$inputName]['tmp_name'])) {
+          return ''; // no file provided
+        }
+        if ($_FILES[$inputName]['size'] > $maxBytes) {
+          return '';
+        }
+        $finfoType = mime_content_type($_FILES[$inputName]['tmp_name']);
+        if (!in_array($finfoType, $allowedMimes, true)) {
+          return '';
+        }
+        $fileName = 'tmp_' . uniqid() . '_' . preg_replace('/[^A-Za-z0-9_\-\.]/', '_', basename($_FILES[$inputName]['name']));
+        $targetPath = $tmpDir . $fileName;
+        if (move_uploaded_file($_FILES[$inputName]['tmp_name'], $targetPath)) {
+          // return web-accessible relative path (same uploads/ prefix used elsewhere)
+          $rel = 'uploads/tmp/' . $fileName;
+          return $rel;
+        }
+        return '';
+      }
+
+      // Collect any uploaded files and save to session (cleanup previous temp if replaced)
+      $sessionFiles = $_SESSION['af3']['files'] ?? [];
+      $fields = [
+        'formal_pic' => ['mimes'=>['image/jpeg','image/png']],
+        'letter_intent' => ['mimes'=>['application/pdf']],
+        'resume' => ['mimes'=>['application/pdf']],
+        'endorsement' => ['mimes'=>['application/pdf']],
+        'moa' => ['mimes'=>['application/pdf']]
+      ];
+      foreach ($fields as $fname => $meta) {
+        $saved = tempSaveFile($fname, $tmpDir, $meta['mimes']);
+        if ($saved !== '') {
+          // remove previous temp file if it exists and differs
+          if (!empty($sessionFiles[$fname]) && $sessionFiles[$fname] !== $saved) {
+            $prevPath = __DIR__ . DIRECTORY_SEPARATOR . ltrim(str_replace('/', DIRECTORY_SEPARATOR, $sessionFiles[$fname]), DIRECTORY_SEPARATOR);
+            if (file_exists($prevPath)) @unlink($prevPath);
+          }
+          $sessionFiles[$fname] = $saved;
+        }
+      }
+
+      $_SESSION['af3'] = [
+        'first_choice'    => isset($_POST['first_choice']) ? intval($_POST['first_choice']) : null,
+        'second_choice'   => (isset($_POST['second_choice']) && $_POST['second_choice'] !== '') ? intval($_POST['second_choice']) : null,
+        'required_hours'  => $rh_val,
+        'files' => $sessionFiles
+      ];
+
+      header("Location: application_form2.php");
+      exit;
     }
 
     // Validate required hours
@@ -203,16 +252,67 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                     return '';
                 }
 
+                // tmp dir and helper to promote a temp-saved file into permanent uploads/
+                $tmpDir = __DIR__ . DIRECTORY_SEPARATOR . 'uploads' . DIRECTORY_SEPARATOR . 'tmp' . DIRECTORY_SEPARATOR;
+                if (!file_exists($tmpDir)) mkdir($tmpDir, 0777, true);
+
+                function promoteTempFile($relPath, $uploadDir) {
+                  // $relPath expected like 'uploads/tmp/tmp_xxx_filename'
+                  $src = __DIR__ . DIRECTORY_SEPARATOR . ltrim(str_replace('/', DIRECTORY_SEPARATOR, $relPath), DIRECTORY_SEPARATOR);
+                  if (!file_exists($src)) return '';
+                  $newName = time() . '_' . basename($src);
+                  $destFS = __DIR__ . DIRECTORY_SEPARATOR . rtrim(str_replace('/', DIRECTORY_SEPARATOR, $uploadDir), DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . $newName;
+                  if (rename($src, $destFS)) {
+                    // return relative web path (uploads/filename)
+                    return rtrim($uploadDir, '/') . $newName;
+                  }
+                  return '';
+                }
+
+                // Use session-saved temp files if user didn't re-upload on final submit
+                $sessionFiles = $_SESSION['af3']['files'] ?? [];
+
                 // formal_pic: only JPG/PNG ; others: PDF only
                 $formal_pic      = uploadFile("formal_pic", $uploadDir, ['image/jpeg','image/png']);
+                if (empty($formal_pic) && !empty($sessionFiles['formal_pic'])) {
+                  $formal_pic = promoteTempFile($sessionFiles['formal_pic'], $uploadDir);
+                  unset($sessionFiles['formal_pic']);
+                }
+
                 $letter_intent   = uploadFile("letter_intent", $uploadDir, ['application/pdf']);
+                if (empty($letter_intent) && !empty($sessionFiles['letter_intent'])) {
+                  $letter_intent = promoteTempFile($sessionFiles['letter_intent'], $uploadDir);
+                  unset($sessionFiles['letter_intent']);
+                }
+
                 $resume          = uploadFile("resume", $uploadDir, ['application/pdf']);
+                if (empty($resume) && !empty($sessionFiles['resume'])) {
+                  $resume = promoteTempFile($sessionFiles['resume'], $uploadDir);
+                  unset($sessionFiles['resume']);
+                }
+
                 $endorsement     = uploadFile("endorsement", $uploadDir, ['application/pdf']);
+                if (empty($endorsement) && !empty($sessionFiles['endorsement'])) {
+                  $endorsement = promoteTempFile($sessionFiles['endorsement'], $uploadDir);
+                  unset($sessionFiles['endorsement']);
+                }
+
                 // if a valid MOA already exists for the applicant's school, use that file path
                 if (!empty($existing_moa)) {
-                    $moa = $existing_moa;
+                  $moa = $existing_moa;
                 } else {
-                    $moa = uploadFile("moa", $uploadDir, ['application/pdf']);
+                  $moa = uploadFile("moa", $uploadDir, ['application/pdf']);
+                  if (empty($moa) && !empty($sessionFiles['moa'])) {
+                    $moa = promoteTempFile($sessionFiles['moa'], $uploadDir);
+                    unset($sessionFiles['moa']);
+                  }
+                }
+
+                // persist any remaining sessionFiles changes
+                if (!empty($sessionFiles)) {
+                  $_SESSION['af3']['files'] = $sessionFiles;
+                } else {
+                  unset($_SESSION['af3']['files']);
                 }
 
                 // Server-side required file/type checks
@@ -485,6 +585,12 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     background-color: rgba(74, 111, 243, 0.1);
 }
 
+  /* Saved-file link style: match primary site blue and underline */
+  .saved-file .file-name,
+  .saved-file a {
+    color: #4a6ff3;
+    text-decoration: underline;
+  }
 /* Login button */
 .nav-links .login a {
     background-color: #344265;
@@ -581,22 +687,78 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
           <fieldset>
             <div style="flex:1;">
               <label>1x1 Formal Picture * (JPG / PNG only)</label>
-              <input type="file" name="formal_pic" accept=".jpg,.jpeg,.png" required>
+              <?php if (!empty($af3['files']['formal_pic'])): ?>
+                <?php $fp = htmlspecialchars($af3['files']['formal_pic']); ?>
+                <div class="saved-file" data-field="formal_pic">
+                  <a href="<?= $fp ?>" target="_blank"><?= htmlspecialchars(basename($fp)) ?></a>
+                  <button type="button" class="change-file" data-field="formal_pic">Change</button>
+                </div>
+                <input type="hidden" name="saved_formal_pic" value="1">
+                <input type="file" name="formal_pic" accept=".jpg,.jpeg,.png" style="display:none;" data-field-input="formal_pic">
+              <?php else: ?>
+                <div class="saved-file" data-field="formal_pic" style="display:none;">
+                  <span class="file-name"></span>
+                  <button type="button" class="change-file" data-field="formal_pic">Change</button>
+                </div>
+                <input type="file" name="formal_pic" accept=".jpg,.jpeg,.png" required data-field-input="formal_pic">
+              <?php endif; ?>
             </div>
             <div style="flex:1;">
               <label>Letter of Intent * (PDF only)</label>
-              <input type="file" name="letter_intent" accept=".pdf" required>
+              <?php if (!empty($af3['files']['letter_intent'])): ?>
+                <?php $fp = htmlspecialchars($af3['files']['letter_intent']); ?>
+                <div class="saved-file" data-field="letter_intent">
+                  <a href="<?= $fp ?>" target="_blank"><?= htmlspecialchars(basename($fp)) ?></a>
+                  <button type="button" class="change-file" data-field="letter_intent">Change</button>
+                </div>
+                <input type="hidden" name="saved_letter_intent" value="1">
+                <input type="file" name="letter_intent" accept=".pdf" style="display:none;" data-field-input="letter_intent">
+              <?php else: ?>
+                <div class="saved-file" data-field="letter_intent" style="display:none;">
+                  <span class="file-name"></span>
+                  <button type="button" class="change-file" data-field="letter_intent">Change</button>
+                </div>
+                <input type="file" name="letter_intent" accept=".pdf" required data-field-input="letter_intent">
+              <?php endif; ?>
             </div>
           </fieldset>
 
           <fieldset>
             <div style="flex:1;">
               <label>Resume * (PDF only)</label>
-              <input type="file" name="resume" accept=".pdf" required>
+              <?php if (!empty($af3['files']['resume'])): ?>
+                <?php $fp = htmlspecialchars($af3['files']['resume']); ?>
+                <div class="saved-file" data-field="resume">
+                  <a href="<?= $fp ?>" target="_blank"><?= htmlspecialchars(basename($fp)) ?></a>
+                  <button type="button" class="change-file" data-field="resume">Change</button>
+                </div>
+                <input type="hidden" name="saved_resume" value="1">
+                <input type="file" name="resume" accept=".pdf" style="display:none;" data-field-input="resume">
+              <?php else: ?>
+                <div class="saved-file" data-field="resume" style="display:none;">
+                  <span class="file-name"></span>
+                  <button type="button" class="change-file" data-field="resume">Change</button>
+                </div>
+                <input type="file" name="resume" accept=".pdf" required data-field-input="resume">
+              <?php endif; ?>
             </div>
             <div style="flex:1;">
               <label>Endorsement Letter * (PDF only)</label>
-              <input type="file" name="endorsement" accept=".pdf" required>
+              <?php if (!empty($af3['files']['endorsement'])): ?>
+                <?php $fp = htmlspecialchars($af3['files']['endorsement']); ?>
+                <div class="saved-file" data-field="endorsement">
+                  <a href="<?= $fp ?>" target="_blank"><?= htmlspecialchars(basename($fp)) ?></a>
+                  <button type="button" class="change-file" data-field="endorsement">Change</button>
+                </div>
+                <input type="hidden" name="saved_endorsement" value="1">
+                <input type="file" name="endorsement" accept=".pdf" style="display:none;" data-field-input="endorsement">
+              <?php else: ?>
+                <div class="saved-file" data-field="endorsement" style="display:none;">
+                  <span class="file-name"></span>
+                  <button type="button" class="change-file" data-field="endorsement">Change</button>
+                </div>
+                <input type="file" name="endorsement" accept=".pdf" required data-field-input="endorsement">
+              <?php endif; ?>
             </div>
           </fieldset>
 
@@ -634,7 +796,21 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 ?>
           <?php else: ?>
             <label>Memorandum of Agreement (to follow) (PDF preferred)</label>
-            <input type="file" name="moa" accept=".pdf">
+            <?php if (!empty($af3['files']['moa'])): ?>
+              <?php $fp = htmlspecialchars($af3['files']['moa']); ?>
+              <div class="saved-file" data-field="moa">
+                <a href="<?= $fp ?>" target="_blank"><?= htmlspecialchars(basename($fp)) ?></a>
+                <button type="button" class="change-file" data-field="moa">Change</button>
+              </div>
+              <input type="hidden" name="saved_moa" value="1">
+              <input type="file" name="moa" accept=".pdf" style="display:none;" data-field-input="moa">
+            <?php else: ?>
+              <div class="saved-file" data-field="moa" style="display:none;">
+                <span class="file-name"></span>
+                <button type="button" class="change-file" data-field="moa">Change</button>
+              </div>
+              <input type="file" name="moa" accept=".pdf" data-field-input="moa">
+            <?php endif; ?>
           <?php endif; ?>
 
           <p class="note">
@@ -739,13 +915,15 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
       e.preventDefault();
       return false;
     }
-    // file validations
+    // file validations (accept server-saved files via hidden flags)
     const fFormal = form.querySelector('input[name="formal_pic"]');
-    if (!fFormal || !fFormal.files || fFormal.files.length === 0) {
+    const savedFormal = form.querySelector('input[name="saved_formal_pic"]');
+    if ((!fFormal || !fFormal.files || fFormal.files.length === 0) && !savedFormal) {
       alert('Please upload your 1x1 Formal Picture (JPG/PNG).');
       e.preventDefault();
       return false;
-    } else {
+    }
+    if (fFormal && fFormal.files && fFormal.files.length > 0) {
       const f = fFormal.files[0];
       if (!/image\/(jpeg|png)/.test(f.type)) {
         alert('Formal Picture must be JPG or PNG.');
@@ -758,25 +936,29 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         return false;
       }
     }
-    // other required PDFs
+    // other required PDFs (accept saved drafts)
     const pdfFields = ['letter_intent','resume','endorsement'];
     for (let i=0;i<pdfFields.length;i++){
-      const el = form.querySelector('input[name="'+pdfFields[i]+'"]');
-      if (!el || !el.files || el.files.length === 0) {
-        alert('Please upload ' + (el ? el.previousElementSibling.textContent.replace('*','').trim() : pdfFields[i]) + ' (PDF).');
+      const name = pdfFields[i];
+      const el = form.querySelector('input[name="'+name+'"]');
+      const saved = form.querySelector('input[name="saved_'+name+'"]');
+      if ((!el || !el.files || el.files.length === 0) && !saved) {
+        alert('Please upload ' + (el ? el.previousElementSibling.textContent.replace('*','').trim() : name) + ' (PDF).');
         e.preventDefault();
         return false;
       }
-      const pf = el.files[0];
-      if (pf.type !== 'application/pdf' && !/\.pdf$/i.test(pf.name)) {
-        alert('Only PDF is accepted for ' + (el ? el.previousElementSibling.textContent.replace('*','').trim() : pdfFields[i]) + '.');
-        e.preventDefault();
-        return false;
-      }
-      if (pf.size > 2 * 1024 * 1024) {
-        alert((el ? el.previousElementSibling.textContent.replace('*','').trim() : pdfFields[i]) + ' must be 2MB or smaller.');
-        e.preventDefault();
-        return false;
+      if (el && el.files && el.files.length > 0) {
+        const pf = el.files[0];
+        if (pf.type !== 'application/pdf' && !/\.pdf$/i.test(pf.name)) {
+          alert('Only PDF is accepted for ' + (el ? el.previousElementSibling.textContent.replace('*','').trim() : name) + '.');
+          e.preventDefault();
+          return false;
+        }
+        if (pf.size > 2 * 1024 * 1024) {
+          alert((el ? el.previousElementSibling.textContent.replace('*','').trim() : name) + ' must be 2MB or smaller.');
+          e.preventDefault();
+          return false;
+        }
       }
     }
 
@@ -790,6 +972,51 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     return true;
   });
 })();
+</script>
+
+<script>
+// Toggle saved-file display -> show file input when user clicks Change
+document.addEventListener('DOMContentLoaded', function(){
+  document.querySelectorAll('.change-file').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      var field = btn.getAttribute('data-field');
+      // remove saved flag hidden input if present
+      var savedEl = document.querySelector('input[name="saved_'+field+'"]');
+      if (savedEl) savedEl.parentNode.removeChild(savedEl);
+      // hide saved-file display
+      var disp = document.querySelector('.saved-file[data-field="'+field+'"]');
+      if (disp) disp.style.display = 'none';
+      // show file input
+      var fin = document.querySelector('input[data-field-input="'+field+'"]');
+      if (fin) {
+        fin.style.display = '';
+        fin.focus();
+      }
+    });
+  });
+  // If user selects a file, also remove saved flag (defensive)
+  document.querySelectorAll('input[type=file][data-field-input]').forEach(function(inp){
+    inp.addEventListener('change', function(){
+      var field = inp.getAttribute('data-field-input');
+      // If a file was selected, populate the saved-file UI to match 'previous' appearance
+      var disp = document.querySelector('.saved-file[data-field="'+field+'"]');
+      if (disp) {
+        var nameSpan = disp.querySelector('.file-name');
+        var fname = '';
+        try { fname = inp.files[0].name; } catch(e) { fname = ''; }
+        if (fname) nameSpan.textContent = fname;
+        // show as link-like blue text (client-side only until promoted on submit)
+        // visual styling handled by CSS (.saved-file .file-name)
+        disp.style.display = '';
+      }
+      // hide the file input (but file remains selected)
+      inp.style.display = 'none';
+      // remove any server-saved hidden flag since this is a new selection
+      var savedEl = document.querySelector('input[name="saved_'+field+'"]');
+      if (savedEl) savedEl.parentNode.removeChild(savedEl);
+    });
+  });
+});
 </script>
 
 </body>

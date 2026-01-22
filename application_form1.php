@@ -116,10 +116,18 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         $error_email = 'This email is already in use. Please use a different email.';
         // fall through to show form with error and preserved values
       } else {
-        // no duplicate -> save and proceed
-        $_SESSION['af1'] = $af1;
-        header("Location: application_form2.php");
-        exit;
+        // Ensure contact and emergency contact differ (server-side)
+        $contact_clean = preg_replace('/[^0-9]/', '', ($_POST['contact'] ?? ''));
+        $emg_contact_clean = preg_replace('/[^0-9]/', '', ($_POST['emg_contact'] ?? ''));
+        if ($contact_clean !== '' && $contact_clean === $emg_contact_clean) {
+          $error_contact_same = 'Contact number and emergency contact number cannot be the same.';
+          // fall through to re-render form with preserved values and error
+        } else {
+          // no duplicate and contacts differ -> save and proceed
+          $_SESSION['af1'] = $af1;
+          header("Location: application_form2.php");
+          exit;
+        }
       }
     }
 }
@@ -408,7 +416,7 @@ $af1 = isset($_SESSION['af1']) ? $_SESSION['af1'] : [];
           </fieldset>
  
           <div class="form-nav">
-            <button type="button" id="cancelBtn" class="secondary" data-href="clear_application.php">Cancel</button>
+            <button type="button" id="cancelBtn" class="secondary" data-href="home.php">Cancel</button>
              <button type="submit">Next →</button>
            </div>
         </form>
@@ -418,6 +426,10 @@ $af1 = isset($_SESSION['af1']) ? $_SESSION['af1'] : [];
 
   <?php if (!empty($error_age)): ?>
     <script>window.addEventListener('load',function(){ alert(<?= json_encode($error_age) ?>); });</script>
+  <?php endif; ?>
+
+  <?php if (!empty($error_contact_same)): ?>
+    <script>window.addEventListener('load',function(){ alert(<?= json_encode($error_contact_same) ?>); });</script>
   <?php endif; ?>
 
   <script>
@@ -653,6 +665,13 @@ $af1 = isset($_SESSION['af1']) ? $_SESSION['af1'] : [];
           const contact = contactInput ? contactInput.value : '';
           if (contact.length !== 11) {
             alert('Contact number must be exactly 11 digits.' );
+            return false;
+          }
+          // 3.1) Ensure contact and emergency contact differ
+          const emg = emgContact ? emgContact.value : '';
+          if (contact === emg && contact !== '') {
+            alert('Contact number and emergency contact number cannot be the same.');
+            if (emgContact) emgContact.focus();
             return false;
           }
 
