@@ -1,3 +1,3 @@
-2026/01/22-00:03:19.242 6a54 Reusing MANIFEST C:\xampp\htdocs\capstone_sample\CapstoneSample\.kiosk_profile\Default\Local Storage\leveldb/MANIFEST-000001
-2026/01/22-00:03:19.247 6a54 Recovering log #3
-2026/01/22-00:03:19.248 6a54 Reusing old log C:\xampp\htdocs\capstone_sample\CapstoneSample\.kiosk_profile\Default\Local Storage\leveldb/000003.log 
+2026/01/22-11:11:39.077 46d8 Reusing MANIFEST C:\xampp\htdocs\capstone_sample\CapstoneSample\.kiosk_profile\Default\Local Storage\leveldb/MANIFEST-000001
+2026/01/22-11:11:39.083 46d8 Recovering log #3
+2026/01/22-11:11:39.084 46d8 Reusing old log C:\xampp\htdocs\capstone_sample\CapstoneSample\.kiosk_profile\Default\Local Storage\leveldb/000003.log 
