@@ -1129,7 +1129,7 @@ if ($moa_q) {
         });
 
         // wire print buttons (simple open new window to printable endpoint)
-        document.getElementById('printEndorse').onclick = function(){ window.open('print_endorsement.php?id=' + encodeURIComponent(appId),'_blank'); };
+        document.getElementById('printEndorse').onclick = function(){ window.open('../hr_head/print_endorsement.php?id=' + encodeURIComponent(appId),'_blank'); };
         document.getElementById('printDTR').onclick = function(){ window.open('print_dtr.php?id=' + encodeURIComponent(appId),'_blank'); };
 
       }catch(err){

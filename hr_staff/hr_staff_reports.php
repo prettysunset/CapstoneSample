@@ -809,6 +809,16 @@ $evaluations = fetch_evaluations($conn);
      const a = document.createElement('a'); a.href = url; a.download = 'reports_export.csv'; document.body.appendChild(a); a.click(); a.remove();
      URL.revokeObjectURL(url);
    });
+
+   // handle print certificate button clicks (open printable certificate in new tab)
+   document.addEventListener('click', function(e){
+     const btn = e.target.closest && e.target.closest('.print-btn');
+     if (!btn) return;
+     const evalId = btn.getAttribute('data-eval-id');
+     if (!evalId) return alert('Missing evaluation id');
+     const url = 'print_certificate_staff.php?eval_id=' + encodeURIComponent(evalId);
+     window.open(url, '_blank');
+   });
  })();
 </script>
 

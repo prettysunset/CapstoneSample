@@ -57,6 +57,8 @@ if ($office_id) {
     }
 }
 
+function fmtDate($d){ if (!$d) return '-'; $dt = date_create($d); return $dt ? $dt->format('M j, Y') : '-'; }
+
 // status filter from querystring — include "all" and default to all
 $allowed = ['all','pending','approved','ongoing','completed','evaluated','no_response','rejected'];
 $statusFilter = isset($_GET['status']) ? strtolower(trim($_GET['status'])) : 'all';
@@ -272,6 +274,7 @@ foreach ($ojts as &$o) {
     }
 }
 unset($o); // break reference
+
 ?>
 <!doctype html>
 <html>

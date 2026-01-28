@@ -1,0 +1,28 @@
+NSSM (Non-Sucking Service Manager) install steps (Windows)
+
+1) Download NSSM
+   - Official: https://nssm.cc/download
+   - Extract and copy `nssm.exe` to a known folder (e.g. C:\nssm\nssm.exe) or add it to PATH.
+
+2) Install the service (run in an elevated Command Prompt)
+   REM replace C:\full\path with your project absolute path
+   C:\nssm\nssm.exe install Antispoof "C:\full\path\.venv\Scripts\python.exe" "C:\full\path\antispoof_service.py"
+
+3) Configure AppDirectory (optional but recommended)
+   C:\nssm\nssm.exe set Antispoof AppDirectory "C:\full\path"
+
+4) Set environment variables for the service (important)
+   REM disable fallback in production
+   C:\nssm\nssm.exe set Antispoof Environment "ALLOW_FALLBACK=0"
+   REM set model path if not default
+   C:\nssm\nssm.exe set Antispoof Environment "ANTISPOOF_MODEL_PATH=C:\full\path\models\antispoof_best_model.onnx"
+
+5) Start the service
+   C:\nssm\nssm.exe start Antispoof
+
+6) Verify
+   curl http://127.0.0.1:5001/ping
+
+Notes
+- Running these commands requires Administrator privileges.
+- If you prefer, use the NSSM GUI: `C:\nssm\nssm.exe install` opens a dialog to configure arguments and environment variables.
