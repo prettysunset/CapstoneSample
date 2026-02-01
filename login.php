@@ -320,8 +320,7 @@ button[type="submit"]:hover {
 
             <!-- ✅ Remember Me checkbox -->
             <div class="checkbox-container">
-                <input type="checkbox" id="remember" name="remember">
-                <label for="remember">Remember Me</label>
+                <a href="forgot_password.php" style="font-size: 14px; color: #4a6ff3; text-decoration: none;">Forgot Password?</a>
             </div>
 
             <button type="submit">Login</button>
