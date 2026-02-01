@@ -15,7 +15,7 @@ CORS(app)
 MODEL_PATH = os.environ.get('ANTISPOOF_MODEL_PATH', "models/antispoof_best_model.onnx")
 
 # Threshold for considering an input 'live' (probability of real). Tune as needed.
-LIVE_PROB_THRESHOLD = float(os.environ.get('LIVE_PROB_THRESHOLD', '0.70'))
+LIVE_PROB_THRESHOLD = float(os.environ.get('LIVE_PROB_THRESHOLD', '0.90'))
 
 
 def load_model(path):

@@ -71,6 +71,18 @@ function json_resp($arr){
     exit;
 }
 
+// Load attendance API keys from external config if present.
+// Create `config/attendance_keys.php` returning an array of `key => client_id|true`.
+$ATTENDANCE_API_KEYS = [];
+$keysFile = __DIR__ . '/config/attendance_keys.php';
+if (file_exists($keysFile)) {
+    $loaded = include $keysFile;
+    if (is_array($loaded)) $ATTENDANCE_API_KEYS = $loaded;
+}
+// fallback (empty) — keep none allowed until admin populates the config file
+// NOTE: for single-kiosk setups we'll auto-embed the only key into the page below.
+
+ 
 // detect if dtr table has office_id column (optional)
 $hasOfficeCol = false;
 try {
@@ -104,6 +116,35 @@ if (isset($_GET['debug_db'])) {
     }
 }
 
+// Serve templates to clients: GET ?action=get_templates
+if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['action']) && $_GET['action'] === 'get_templates') {
+    try {
+        $rows = [];
+        $q = $conn->query("SELECT ft.user_id, ft.descriptor, u.username, u.role, u.status FROM face_templates ft JOIN users u ON ft.user_id = u.user_id WHERE ft.descriptor IS NOT NULL");
+        if ($q) {
+            while ($r = $q->fetch_assoc()) {
+                $d = json_decode($r['descriptor'], true);
+                if (!is_array($d)) continue;
+                $rows[] = [
+                    'user_id' => (int)$r['user_id'],
+                    'username' => $r['username'] ?? '',
+                    'role' => $r['role'] ?? '',
+                    'status' => $r['status'] ?? '',
+                    'descriptor' => $d
+                ];
+            }
+            $q->close();
+        }
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode(['ok'=>true,'templates'=>$rows,'threshold'=>0.60]);
+        exit;
+    } catch (Exception $e) {
+        header('Content-Type: application/json; charset=utf-8', true, 500);
+        echo json_encode(['ok'=>false,'message'=>$e->getMessage()]);
+        exit;
+    }
+}
+
 // Handle AJAX POST actions
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
@@ -118,7 +159,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     $client_local_time = trim($_POST['client_local_time'] ?? '');
 
     // username/password only required for manual time_in/time_out actions
-    if ($action !== 'face_scan' && ($username === '' || $password === '')) {
+    // allow 'face_scan' and 'attendance_event' to bypass username/password (client does recognition)
+    if (!in_array($action, ['face_scan','attendance_event']) && ($username === '' || $password === '')) {
         json_resp(['success'=>false,'message'=>'Enter username and password']);
     }
 
@@ -232,7 +274,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         }
         $q->close();
 
-        $threshold = 0.55;
+        $threshold = 0.60;
         if ($best['user_id'] === null || $best['dist'] > $threshold) {
             json_resp(['success'=>false,'message'=>'No face match','best_distance'=>$best['dist'],'templates_scanned'=>$templatesScanned]);
         }
@@ -260,8 +302,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $client_ts = trim($_POST['client_ts'] ?? '');
         $today = null; $now = null;
         if ($client_local_date && $client_local_time) { $today = $client_local_date; $now = $client_local_time; }
-        elseif ($client_ts) { try { $cdt = new DateTime($client_ts); $today = $cdt->format('Y-m-d'); $now = $cdt->format('H:i:s'); } catch(Exception $e) { } }
-        if (!$today || !$now) { $dtRow = $conn->query("SELECT DATE_FORMAT(NOW(), '%Y-%m-%d') AS today, DATE_FORMAT(NOW(), '%H:%i:%s') AS now_time")->fetch_assoc(); $today = $dtRow['today'] ?? date('Y-m-d'); $now = $dtRow['now_time'] ?? date('H:i:s'); }
+        elseif ($client_ts) { try { $cdt = new DateTime($client_ts); $today = $cdt->format('Y-m-d'); $now = $cdt->format('g:i'); } catch(Exception $e) { } }
+        if (!$today || !$now) {
+            $dtRow = $conn->query("SELECT DATE_FORMAT(NOW(), '%Y-%m-%d') AS today, DATE_FORMAT(NOW(), '%H:%i:%s') AS now_time")->fetch_assoc();
+            $today = $dtRow['today'] ?? date('Y-m-d');
+            if (!empty($dtRow['now_time'])) {
+                $tmpNow = DateTime::createFromFormat('H:i:s', $dtRow['now_time']);
+                $now = $tmpNow ? $tmpNow->format('g:i') : date('g:i');
+            } else {
+                $now = date('g:i');
+            }
+        }
+        // determine hour (24-hour) for deciding AM vs PM, then normalize stored time to 12-hour like "2:01"
+        $hourForDecision = null;
+        try {
+            if (!empty($now)) {
+                $tmpHour = DateTime::createFromFormat('H:i:s', $now) ?: DateTime::createFromFormat('H:i', $now) ?: new DateTime($today . ' ' . $now);
+                if ($tmpHour) $hourForDecision = (int)$tmpHour->format('H');
+                // store normalized time in 12-hour form for display (avoid military time)
+                if ($tmpHour) $now = $tmpHour->format('g:i');
+            }
+        } catch (Exception $e) { /* leave $now as-is on parse error */ }
 
         // perform simplified time-in/time-out logic for matched user
         try {
@@ -284,9 +345,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $dtr = $q2->get_result()->fetch_assoc();
             $q2->close();
 
+            // disallow Time In after 17:00 unless this is completing an existing IN (i.e., a Time Out)
+            $isAfterCutoff = false;
+            if (!is_null($hourForDecision)) {
+                $isAfterCutoff = ($hourForDecision >= 17);
+            } else {
+                try {
+                    $clickDt = DateTime::createFromFormat('Y-m-d H:i:s', $today . ' ' . $now) ?: DateTime::createFromFormat('Y-m-d H:i', $today . ' ' . $now);
+                } catch (Exception $e) { $clickDt = null; }
+                $cutoff = DateTime::createFromFormat('Y-m-d H:i:s', $today . ' 17:00:00');
+                if ($clickDt && $cutoff) $isAfterCutoff = ($clickDt >= $cutoff);
+            }
+            $hasPendingOut = ($dtr && ((!empty($dtr['am_in']) && empty($dtr['am_out'])) || (!empty($dtr['pm_in']) && empty($dtr['pm_out']))));
+            if ($isAfterCutoff && !$hasPendingOut) {
+                $conn->rollback();
+                json_resp(['success'=>false,'message'=>'Time In not allowed after 17:00']);
+            }
+
             if (!$dtr) {
-                // create new row -> record am_in
-                $ins = $conn->prepare("INSERT INTO dtr (student_id, log_date, am_in) VALUES (?, ?, ?)");
+                // create new row -> decide am_in vs pm_in based on parsed 24-hour value
+                $hour = is_null($hourForDecision) ? (int)date('H') : $hourForDecision;
+                if ($hour < 12) {
+                    $ins = $conn->prepare("INSERT INTO dtr (student_id, log_date, am_in) VALUES (?, ?, ?)");
+                } else {
+                    $ins = $conn->prepare("INSERT INTO dtr (student_id, log_date, pm_in) VALUES (?, ?, ?)");
+                }
                 $ins->bind_param('iss', $dtr_owner, $today, $now);
                 $ins->execute();
                 $ins->close();
@@ -294,16 +377,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $updUser = $conn->prepare("UPDATE users SET status = 'ongoing' WHERE user_id = ?");
                 $updUser->bind_param('i', $matched_user_id); $updUser->execute(); $updUser->close();
                 $conn->commit();
-                json_resp(['success'=>true,'message'=>'Time in recorded (AM)','user_id'=>$matched_user_id,'username'=>$matched_username,'display_name'=>$matched_display,'distance'=>$best['dist'],'templates_scanned'=>$templatesScanned]);
+                json_resp(['success'=>true,'message'=>'Time in/out recorded. Have a good day, ' . $matched_display,'user_id'=>$matched_user_id,'username'=>$matched_username,'display_name'=>$matched_display]);
             }
 
-            // existing row -> decide next field
-            if (empty($dtr['am_in'])) {
-                $upd = $conn->prepare("UPDATE dtr SET am_in = ? WHERE dtr_id = ?");
-                $upd->bind_param('si', $now, $dtr['dtr_id']); $upd->execute(); $upd->close();
-                $conn->commit(); json_resp(['success'=>true,'message'=>'Time in recorded (AM)','user_id'=>$matched_user_id,'username'=>$matched_username,'display_name'=>$matched_display,'distance'=>$best['dist'],'templates_scanned'=>$templatesScanned]);
+            // existing row -> decide next field (sequence-based)
+            $hour = is_null($hourForDecision) ? (int)date('H') : $hourForDecision;
+            if (empty($dtr['am_in']) && empty($dtr['pm_in'])) {
+                // neither IN present: choose based on client hour
+                if ($hour < 12) {
+                    $upd = $conn->prepare("UPDATE dtr SET am_in = ? WHERE dtr_id = ?");
+                    $upd->bind_param('si', $now, $dtr['dtr_id']); $upd->execute(); $upd->close();
+                    $conn->commit(); json_resp(['success'=>true,'message'=>'Time in/out recorded. Have a good day, ' . $matched_display,'user_id'=>$matched_user_id,'username'=>$matched_username,'display_name'=>$matched_display]);
+                } else {
+                    $upd = $conn->prepare("UPDATE dtr SET pm_in = ? WHERE dtr_id = ?");
+                    $upd->bind_param('si', $now, $dtr['dtr_id']); $upd->execute(); $upd->close();
+                    $conn->commit(); json_resp(['success'=>true,'message'=>'Time in/out recorded. Have a good day, ' . $matched_display,'user_id'=>$matched_user_id,'username'=>$matched_username,'display_name'=>$matched_display]);
+                }
             }
-            if (!empty($dtr['am_in']) && empty($dtr['am_out'])) {
+            // if PM IN exists and PM OUT missing, prefer completing PM sequence
+            if (!empty($dtr['pm_in']) && empty($dtr['pm_out'])) {
                 // enforce minimum session length before allowing AM time out
                 $inTime = $dtr['am_in'];
                 $fmtIn = DateTime::createFromFormat('Y-m-d H:i:s', $today . ' ' . $inTime) ?: DateTime::createFromFormat('Y-m-d H:i', $today . ' ' . $inTime);
@@ -327,7 +419,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             if (!empty($dtr['am_out']) && empty($dtr['pm_in'])) {
                 $upd = $conn->prepare("UPDATE dtr SET pm_in = ? WHERE dtr_id = ?");
                 $upd->bind_param('si', $now, $dtr['dtr_id']); $upd->execute(); $upd->close();
-                $conn->commit(); json_resp(['success'=>true,'message'=>'Time in recorded (PM)','user_id'=>$matched_user_id,'username'=>$matched_username,'display_name'=>$matched_display,'distance'=>$best['dist'],'templates_scanned'=>$templatesScanned]);
+                $conn->commit(); json_resp(['success'=>true,'message'=>'Time in/out recorded. Have a good day, ' . $matched_display,'user_id'=>$matched_user_id,'username'=>$matched_username,'display_name'=>$matched_display]);
             }
             if (!empty($dtr['pm_in']) && empty($dtr['pm_out'])) {
                 // enforce minimum session length before allowing PM time out
@@ -372,8 +464,194 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $conn->rollback(); json_resp(['success'=>false,'message'=>'Already completed for today']);
         } catch (Exception $ex) {
             $conn->rollback(); json_resp(['success'=>false,'message'=>'Server error: '.$ex->getMessage()]);
-        }
-    }
+                }
+            }
+
+            // attendance_event: allow client to post an attendance event (bypasses username/password checks)
+            if ($action === 'attendance_event') {
+                // require a valid API key from client (POST param `api_key` or header `X-API-KEY`)
+                $provided_key = trim($_POST['api_key'] ?? '');
+                if (!$provided_key && function_exists('getallheaders')) {
+                    $h = getallheaders();
+                    if (isset($h['X-API-KEY'])) $provided_key = trim($h['X-API-KEY']);
+                    elseif (isset($h['x-api-key'])) $provided_key = trim($h['x-api-key']);
+                }
+                if (!$provided_key || !isset($ATTENDANCE_API_KEYS[$provided_key])) json_resp(['success'=>false,'message'=>'Unauthorized: invalid api_key']);
+
+                $posted_user = intval($_POST['user_id'] ?? 0);
+                if (!$posted_user) json_resp(['success'=>false,'message'=>'user_id required']);
+
+                // fetch user and ensure role is ojt
+                try {
+                    $uinfo = $conn->prepare("SELECT username, CONCAT(IFNULL(first_name,''),' ',IFNULL(last_name,'')) AS display_name, role FROM users WHERE user_id = ? LIMIT 1");
+                    $uinfo->bind_param('i', $posted_user);
+                    $uinfo->execute();
+                    $urow = $uinfo->get_result()->fetch_assoc();
+                    $uinfo->close();
+                } catch (Exception $e) { $urow = null; }
+                if (!$urow) json_resp(['success'=>false,'message'=>'Unknown user']);
+                if (($urow['role'] ?? '') !== 'ojt') json_resp(['success'=>false,'message'=>'User is not OJT']);
+
+                $matched_user_id = $posted_user;
+                $matched_username = $urow['username'] ?? '';
+                $matched_display = trim($urow['display_name'] ?? '') ?: $matched_username;
+
+                // determine client time/date
+                $client_local_date = trim($_POST['client_local_date'] ?? '');
+                $client_local_time = trim($_POST['client_local_time'] ?? '');
+                $client_ts = trim($_POST['client_ts'] ?? '');
+                $today = null; $now = null;
+                if ($client_local_date && $client_local_time) { $today = $client_local_date; $now = $client_local_time; }
+                elseif ($client_ts) { try { $cdt = new DateTime($client_ts); $today = $cdt->format('Y-m-d'); $now = $cdt->format('g:i'); } catch(Exception $e) { } }
+                if (!$today || !$now) {
+                    $dtRow = $conn->query("SELECT DATE_FORMAT(NOW(), '%Y-%m-%d') AS today, DATE_FORMAT(NOW(), '%H:%i:%s') AS now_time")->fetch_assoc();
+                    $today = $dtRow['today'] ?? date('Y-m-d');
+                    if (!empty($dtRow['now_time'])) {
+                        $tmpNow = DateTime::createFromFormat('H:i:s', $dtRow['now_time']);
+                        $now = $tmpNow ? $tmpNow->format('g:i') : date('g:i');
+                    } else {
+                        $now = date('g:i');
+                    }
+                }
+                // determine hour (24-hour) for deciding AM vs PM, then normalize stored time to 12-hour like "2:01"
+                $hourForDecision = null;
+                try {
+                    if (!empty($now)) {
+                        $tmpHour = DateTime::createFromFormat('H:i:s', $now) ?: DateTime::createFromFormat('H:i', $now) ?: new DateTime($today . ' ' . $now);
+                        if ($tmpHour) $hourForDecision = (int)$tmpHour->format('H');
+                        if ($tmpHour) $now = $tmpHour->format('g:i');
+                    }
+                } catch (Exception $e) { /* leave $now as-is on parse error */ }
+
+                // perform simplified time-in/time-out logic for posted user
+                try {
+                    $conn->begin_transaction();
+                    $s = $conn->prepare("SELECT student_id FROM students WHERE user_id = ? LIMIT 1");
+                    $s->bind_param('i', $matched_user_id);
+                    $s->execute();
+                    $st = $s->get_result()->fetch_assoc();
+                    $s->close();
+                    if (!$st) { $conn->rollback(); json_resp(['success'=>false,'message'=>'No student record for user']); }
+                    $student_id = (int)$st['student_id'];
+                    $dtr_owner = (int)$matched_user_id;
+
+                    $q2 = $conn->prepare("SELECT dtr_id, am_in, am_out, pm_in, pm_out FROM dtr WHERE student_id = ? AND log_date = ? LIMIT 1 FOR UPDATE");
+                    $q2->bind_param('is', $dtr_owner, $today);
+                    $q2->execute();
+                    $dtr = $q2->get_result()->fetch_assoc();
+                    $q2->close();
+
+                    // disallow Time In after 17:00 unless this is completing an existing IN (i.e., a Time Out)
+                        $isAfterCutoff = false;
+                        if (!is_null($hourForDecision)) {
+                            $isAfterCutoff = ($hourForDecision >= 17);
+                        } else {
+                            try {
+                                $clickDt = DateTime::createFromFormat('Y-m-d H:i:s', $today . ' ' . $now) ?: DateTime::createFromFormat('Y-m-d H:i', $today . ' ' . $now);
+                            } catch (Exception $e) { $clickDt = null; }
+                            $cutoff = DateTime::createFromFormat('Y-m-d H:i:s', $today . ' 17:00:00');
+                            if ($clickDt && $cutoff) $isAfterCutoff = ($clickDt >= $cutoff);
+                        }
+                        $hasPendingOut = ($dtr && ((!empty($dtr['am_in']) && empty($dtr['am_out'])) || (!empty($dtr['pm_in']) && empty($dtr['pm_out']))));
+                        if ($isAfterCutoff && !$hasPendingOut) {
+                            $conn->rollback();
+                            json_resp(['success'=>false,'message'=>'Time In not allowed after 17:00']);
+                        }
+
+                    if (!$dtr) {
+                        $hour = is_null($hourForDecision) ? (int)date('H') : $hourForDecision;
+                        if ($hour < 12) {
+                            $ins = $conn->prepare("INSERT INTO dtr (student_id, log_date, am_in) VALUES (?, ?, ?)");
+                            $msgLabel = 'Time in recorded (AM)';
+                        } else {
+                            $ins = $conn->prepare("INSERT INTO dtr (student_id, log_date, pm_in) VALUES (?, ?, ?)");
+                            $msgLabel = 'Time in recorded (PM)';
+                        }
+                        $ins->bind_param('iss', $dtr_owner, $today, $now);
+                        $ins->execute();
+                        $ins->close();
+                        $updUser = $conn->prepare("UPDATE users SET status = 'ongoing' WHERE user_id = ?");
+                        $updUser->bind_param('i', $matched_user_id); $updUser->execute(); $updUser->close();
+                        $conn->commit();
+                        json_resp(['success'=>true,'message'=>$msgLabel,'user_id'=>$matched_user_id,'username'=>$matched_username,'display_name'=>$matched_display]);
+                    }
+
+                    // existing row -> sequence-based decision
+                    $hour = is_null($hourForDecision) ? (int)date('H') : $hourForDecision;
+                    if (empty($dtr['am_in']) && empty($dtr['pm_in'])) {
+                        if ($hour < 12) {
+                            $upd = $conn->prepare("UPDATE dtr SET am_in = ? WHERE dtr_id = ?");
+                            $upd->bind_param('si', $now, $dtr['dtr_id']); $upd->execute(); $upd->close();
+                            $conn->commit(); json_resp(['success'=>true,'message'=>'Time in recorded (AM)','user_id'=>$matched_user_id,'username'=>$matched_username,'display_name'=>$matched_display]);
+                        } else {
+                            $upd = $conn->prepare("UPDATE dtr SET pm_in = ? WHERE dtr_id = ?");
+                            $upd->bind_param('si', $now, $dtr['dtr_id']); $upd->execute(); $upd->close();
+                            $conn->commit(); json_resp(['success'=>true,'message'=>'Time in recorded (PM)','user_id'=>$matched_user_id,'username'=>$matched_username,'display_name'=>$matched_display]);
+                        }
+                    }
+                    // prefer finishing PM sequence if PM IN exists
+                    if (!empty($dtr['pm_in']) && empty($dtr['pm_out'])) {
+                        $inTime = $dtr['am_in'];
+                        $fmtIn = DateTime::createFromFormat('Y-m-d H:i:s', $today . ' ' . $inTime) ?: DateTime::createFromFormat('Y-m-d H:i', $today . ' ' . $inTime);
+                        $fmtNow = DateTime::createFromFormat('Y-m-d H:i:s', $today . ' ' . $now) ?: DateTime::createFromFormat('Y-m-d H:i', $today . ' ' . $now);
+                        if ($fmtIn && $fmtNow) {
+                            $diffSec = $fmtNow->getTimestamp() - $fmtIn->getTimestamp();
+                        }
+
+                        if (empty($_POST['confirm']) || $_POST['confirm'] !== '1') {
+                            $conn->rollback();
+                            json_resp(['success'=>false,'confirm'=>'time_out','message'=>'ARE YOU SURE YOU WILL TIME OUT?','field'=>'am_out']);
+                        }
+
+                        $upd = $conn->prepare("UPDATE dtr SET am_out = ? WHERE dtr_id = ?");
+                        $upd->bind_param('si', $now, $dtr['dtr_id']); $upd->execute(); $upd->close();
+                        $conn->commit(); json_resp(['success'=>true,'message'=>'Time out recorded (AM)','user_id'=>$matched_user_id,'username'=>$matched_username,'display_name'=>$matched_display]);
+                    }
+                    if (!empty($dtr['am_out']) && empty($dtr['pm_in'])) {
+                        $upd = $conn->prepare("UPDATE dtr SET pm_in = ? WHERE dtr_id = ?");
+                        $upd->bind_param('si', $now, $dtr['dtr_id']); $upd->execute(); $upd->close();
+                        $conn->commit(); json_resp(['success'=>true,'message'=>'Time in recorded (PM)','user_id'=>$matched_user_id,'username'=>$matched_username,'display_name'=>$matched_display]);
+                    }
+                    if (!empty($dtr['pm_in']) && empty($dtr['pm_out'])) {
+                        $inTime = $dtr['pm_in'];
+                        $fmtIn = DateTime::createFromFormat('Y-m-d H:i:s', $today . ' ' . $inTime) ?: DateTime::createFromFormat('Y-m-d H:i', $today . ' ' . $inTime);
+                        $fmtNow = DateTime::createFromFormat('Y-m-d H:i:s', $today . ' ' . $now) ?: DateTime::createFromFormat('Y-m-d H:i', $today . ' ' . $now);
+                        if ($fmtIn && $fmtNow) {
+                            $diffSec = $fmtNow->getTimestamp() - $fmtIn->getTimestamp();
+                        }
+
+                        if (empty($_POST['confirm']) || $_POST['confirm'] !== '1') {
+                            $conn->rollback();
+                            json_resp(['success'=>false,'confirm'=>'time_out','message'=>'ARE YOU SURE YOU WILL TIME OUT?','field'=>'pm_out']);
+                        }
+
+                        $upd = $conn->prepare("UPDATE dtr SET pm_out = ? WHERE dtr_id = ?");
+                        $upd->bind_param('si', $now, $dtr['dtr_id']); $upd->execute(); $upd->close();
+                        $sel = $conn->prepare("SELECT am_in,am_out,pm_in,pm_out FROM dtr WHERE dtr_id = ? LIMIT 1");
+                        $sel->bind_param('i', $dtr['dtr_id']); $sel->execute(); $row = $sel->get_result()->fetch_assoc(); $sel->close();
+                        $totalMin = 0;
+                        foreach ([['am_in','am_out'], ['pm_in','pm_out']] as $p) {
+                            if (!empty($row[$p[0]]) && !empty($row[$p[1]])) {
+                                $fmt1 = DateTime::createFromFormat('Y-m-d H:i:s', $today . ' ' . $row[$p[0]]);
+                                if (!$fmt1) $fmt1 = DateTime::createFromFormat('Y-m-d H:i', $today . ' ' . $row[$p[0]]);
+                                $fmt2 = DateTime::createFromFormat('Y-m-d H:i:s', $today . ' ' . $row[$p[1]]);
+                                if (!$fmt2) $fmt2 = DateTime::createFromFormat('Y-m-d H:i', $today . ' ' . $row[$p[1]]);
+                                if ($fmt1 && $fmt2) { $diff = $fmt2->getTimestamp() - $fmt1->getTimestamp(); if ($diff > 0) $totalMin += intval($diff/60); }
+                            }
+                        }
+                        if ($totalMin > 480) $totalMin = 480;
+                        $hours = intdiv($totalMin, 60); $minutes = $totalMin % 60;
+                        $up2 = $conn->prepare("UPDATE dtr SET hours = ?, minutes = ? WHERE dtr_id = ?");
+                        $up2->bind_param('iii', $hours, $minutes, $dtr['dtr_id']); $up2->execute(); $up2->close();
+
+                        $conn->commit(); json_resp(['success'=>true,'message'=>'Time out recorded (PM)','user_id'=>$matched_user_id,'username'=>$matched_username,'display_name'=>$matched_display,'hours'=>$hours,'minutes'=>$minutes]);
+                    }
+
+                    $conn->rollback(); json_resp(['success'=>false,'message'=>'Already completed for today']);
+                } catch (Exception $ex) {
+                    $conn->rollback(); json_resp(['success'=>false,'message'=>'Server error: '.$ex->getMessage()]);
+                }
+            }
 
     // 1) Find user in users table
     $u = $conn->prepare("SELECT user_id, password, role, status FROM users WHERE username = ? LIMIT 1");
@@ -456,13 +734,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             // client_ts is an ISO string (UTC). Convert to server timezone only if needed.
             $cdt = new DateTime($client_ts);
             $today = $cdt->format('Y-m-d');
-            $now = $cdt->format('H:i:s'); // store with seconds, 24-hour
+            $now = $cdt->format('g:i'); // store/display in 12-hour format (g:i)
         } catch (Exception $e) { /* ignore, fallback to DB */ }
     }
     if (!$today || !$now) {
         $dtRow = $conn->query("SELECT DATE_FORMAT(NOW(), '%Y-%m-%d') AS today, DATE_FORMAT(NOW(), '%H:%i:%s') AS now_time")->fetch_assoc();
         $today = $dtRow['today'] ?? date('Y-m-d');
-        $now = $dtRow['now_time'] ?? date('H:i:s');
+        if (!empty($dtRow['now_time'])) {
+            $tmpNow = DateTime::createFromFormat('H:i:s', $dtRow['now_time']);
+            $now = $tmpNow ? $tmpNow->format('g:i') : date('g:i');
+        } else {
+            $now = date('g:i');
+        }
     }
 
     try {
@@ -540,48 +823,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $field = ($hour < 12) ? 'am_in' : 'pm_in';
             }
 
-            // validate chosen field ranges & duplicates
+            // Simplified rule: allow Time In as long as it's before 17:00; keep duplicate checks only.
+            $cutoff = DateTime::createFromFormat('Y-m-d H:i:s', $today . ' 17:00:00');
+            if ($clickDt >= $cutoff) {
+                $conn->rollback();
+                json_resp(['success'=>false,'message'=>'Time In allowed before 17:00']);
+            }
+
             if ($field === 'am_in') {
-                // duplicate check
                 if ($dtr && !empty($dtr['am_in'])) {
                     $conn->rollback();
                     json_resp(['success'=>false,'message'=>'AM already timed in']);
                 }
-                // allowed AM window
-                if ($clickDt < $AM_START || $clickDt > $AM_END) {
-                    $conn->rollback();
-                    json_resp(['success'=>false,'message'=>'AM Time In allowed between 06:00 and 12:30']);
-                }
-            } else { // pm_in
+            } else {
                 if ($dtr && !empty($dtr['pm_in'])) {
                     $conn->rollback();
                     json_resp(['success'=>false,'message'=>'PM already timed in']);
-                }
-                // if AM session exists, require AM to be completed (no overlap) and enforce standard PM window
-                $amExists = $dtr && (!empty($dtr['am_in']) || !empty($dtr['am_out']));
-                $amOutDt = $parseTime($dtr['am_out'] ?? null);
-                if ($amExists && empty($dtr['am_out']) && !empty($dtr['am_in'])) {
-                    // AM started but not finished -> disallow PM in
-                    $conn->rollback();
-                    json_resp(['success'=>false,'message'=>'Complete AM session before PM Time In']);
-                }
-                // normal PM window
-                if ($amExists) {
-                    if ($clickDt < $PM_START || $clickDt > $PM_END) {
-                        $conn->rollback();
-                        json_resp(['success'=>false,'message'=>'PM Time In allowed between 12:30 and 17:30']);
-                    }
-                    // cross-session: if am_out exists, ensure am_out < pm_in
-                    if ($amOutDt && $clickDt <= $amOutDt) {
-                        $conn->rollback();
-                        json_resp(['success'=>false,'message'=>'PM Time In must be after AM Time Out']);
-                    }
-                } else {
-                    // late arrival rule (no AM session): allow 12:00 - 16:00
-                    if ($clickDt < $LATE_PM_EARLIEST || $clickDt > $LATE_PM_LATEST) {
-                        $conn->rollback();
-                        json_resp(['success'=>false,'message'=>'Late PM Time In allowed between 12:00 and 16:00']);
-                    }
                 }
             }
         } elseif ($action === 'time_out') {
@@ -652,7 +909,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $upd->close();
             } else {
                 if ($hasOfficeCol && $office_id) {
-                    $ins = $conn->prepare("INSERT INTO dtr (student_id, log_date, am_in, office_id) VALUES (?, ?, ?, ?)");
+                    // choose AM or PM column even when office_id is present
+                    $dtTmp = DateTime::createFromFormat('H:i:s', $now) ?: DateTime::createFromFormat('H:i', $now);
+                    $hour = $dtTmp ? (int)$dtTmp->format('H') : (int)date('H');
+                    if ($hour < 12) {
+                        $ins = $conn->prepare("INSERT INTO dtr (student_id, log_date, am_in, office_id) VALUES (?, ?, ?, ?)");
+                    } else {
+                        $ins = $conn->prepare("INSERT INTO dtr (student_id, log_date, pm_in, office_id) VALUES (?, ?, ?, ?)");
+                    }
                     $ins->bind_param('issi', $dtr_owner, $today, $now, $office_id);
                 } else {
                     // determine hour using the $now value (client_ts preferred) so stored time/date
@@ -757,7 +1021,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $conn->rollback();
         json_resp(['success'=>false,'message'=>'Server error: '.$ex->getMessage()]);
     }
-}
+    }
 
 // Render minimal page
 $office_id = isset($_GET['office_id']) ? (int)$_GET['office_id'] : 0;
@@ -880,8 +1144,7 @@ if ($office_id) {
                 </div>
 
                 <div class="actions" style="margin-top:10px;align-items:center">
-                    <button id="startCam" class="btn in" type="button">Start Camera</button>
-                    <button id="scanBtn" class="btn out" type="button" disabled>Scan</button>
+                    <!-- Manual start/scan buttons removed: live automatic scanning enabled -->
                 </div>
 
                 <div style="position:relative;margin-top:10px">
@@ -921,24 +1184,35 @@ if ($office_id) {
   const officeId = document.getElementById('office_id').value;
   const msg = document.getElementById('msg');
 
-  function showMsg(text, ok=true){
-        // show a fixed toast so it's always visible above the video/canvas
-        msg.style.display = 'block';
-        msg.style.position = 'fixed';
-        msg.style.top = '18px';
-        msg.style.left = '50%';
-        msg.style.transform = 'translateX(-50%)';
-        msg.style.padding = '10px 18px';
-        msg.style.borderRadius = '8px';
-        msg.style.boxShadow = '0 6px 20px rgba(0,0,0,0.12)';
-        msg.style.background = ok ? '#e6f9ee' : '#fff4f4';
-        msg.style.border = ok ? '1px solid #bdeac8' : '1px solid #f5c2c2';
-        msg.style.color = ok ? '#0b7a3a' : '#a00';
-        msg.style.zIndex = 2147483647;
-        msg.textContent = text;
-        // auto-hide after 3.5s
-        setTimeout(()=>{ try{ msg.style.display = 'none'; }catch(e){} }, 3500);
-  }
+    // message hide timeout handle so we can control exact display duration
+    var _pc_msg_hide_timeout = null;
+    function showMsg(text, ok=true, durationMs = 3500){
+                if (_pc_msg_hide_timeout) { try { clearTimeout(_pc_msg_hide_timeout); } catch(e){} _pc_msg_hide_timeout = null; }
+                // show a fixed toast so it's always visible above the video/canvas
+                msg.style.display = 'block';
+                msg.style.position = 'fixed';
+                msg.style.top = '18px';
+                msg.style.left = '50%';
+                msg.style.transform = 'translateX(-50%)';
+                msg.style.padding = '10px 18px';
+                msg.style.borderRadius = '8px';
+                msg.style.boxShadow = '0 6px 20px rgba(0,0,0,0.12)';
+                msg.style.background = ok ? '#e6f9ee' : '#fff4f4';
+                msg.style.border = ok ? '1px solid #bdeac8' : '1px solid #f5c2c2';
+                msg.style.color = ok ? '#0b7a3a' : '#a00';
+                msg.style.zIndex = 2147483647;
+                msg.textContent = text;
+                // auto-hide after durationMs (default 3500ms)
+                _pc_msg_hide_timeout = setTimeout(()=>{ try{ msg.style.display = 'none'; }catch(e){} _pc_msg_hide_timeout = null; }, Number(durationMs) || 3500);
+    }
+
+        // Immediately show the friendly greeting (suppress the initial debug message)
+        // Duration specifies how long the greeting should remain visible (default 5000ms)
+        function showMsgThenGreet(initialText, followupText, durationMs = 3000, ok=true){
+                // keep the original (debug) message in console for diagnostics but do not display it
+                try { console.debug('suppressed initial message:', initialText); } catch(e){}
+                showMsg(followupText, ok, durationMs);
+        }
 
   // toggle eye (guarded)
   (function(){
@@ -992,9 +1266,10 @@ if ($office_id) {
         const res = await fetch(window.location.href, { method:'POST', body: form });
         const j = await res.json();
         console.log('pc_per_office response:', j); // DEBUG: open browser console
-        if (j.success) {
-          showMsg(j.message || (action==='time_in'?'Time in recorded':'Time out recorded'), true);
-        } else {
+                if (j.success) {
+                    const follow = (action === 'time_in' ? 'Time in recorded. Have a good day, ' : 'Time out recorded. Have a good day, ') + (u || '');
+                    showMsgThenGreet(j.message || (action==='time_in'?'Time in recorded':'Time out recorded'), follow, 3000, true);
+                } else {
           const extra = j.debug ? (' — ' + j.debug + (j.stored_preview ? ' ('+j.stored_preview+')' : '')) : '';
           showMsg((j.message || 'Action failed') + extra, false);
         }
@@ -1027,7 +1302,7 @@ if ($office_id) {
     }
 
     async function performScan(){
-        scanBtn.disabled = true;
+        if (scanBtn) scanBtn.disabled = true;
         try{
             if (!videoEl.srcObject) { showMsg('Start camera first', false); return; }
             const ctx = canvasEl.getContext('2d');
@@ -1047,7 +1322,7 @@ if ($office_id) {
                 const pmResp = await fetch(window.location.href, { method:'POST', body: probeForm });
                 const pmj = await pmResp.json().catch(()=>null);
                 console.log('probe_match result', pmj);
-                const bypassDist = (typeof window.ANTISPOOF_BYPASS_DISTANCE !== 'undefined') ? Number(window.ANTISPOOF_BYPASS_DISTANCE) : 0.0;
+                const bypassDist = (typeof window.ANTISPOOF_BYPASS_DISTANCE !== 'undefined') ? Number(window.ANTISPOOF_BYPASS_DISTANCE) : -1.0;
                 if (pmj && pmj.ok && pmj.user_id && pmj.best_distance !== undefined && Number(pmj.best_distance) <= Number(bypassDist)) {
                     skipAnti = true;
                     showMsg('High recognition confidence — skipping anti-spoof', true);
@@ -1084,7 +1359,7 @@ if ($office_id) {
                     }
                     if (!antiJson.live) {
                         console.debug('Anti-spoof check failed (spoof detected)', antiJson);
-                        showMsg('Anti-spoof failed — possible spoof detected', false);
+                        // showMsg('Anti-spoof failed — possible spoof detected', false);
                         return;
                     }
                 } catch (e) {
@@ -1141,7 +1416,9 @@ if ($office_id) {
                 const who = j.display_name || j.username || (j.user_id ? ('user id ' + j.user_id) : '');
                 const dist = (j.distance !== undefined) ? j.distance : j.best_distance;
                 const distText = (dist !== undefined) ? (' dist=' + Number(dist).toFixed(3)) : '';
-                showMsg((j.message || 'Timed in') + (who ? ' — ' + who : '') + distText, true);
+                const follow = 'Time in/out recorded. Have a good day' + (who ? (', ' + who) : '');
+                // suppress initial debug; immediately show friendly follow-up for 5s
+                showMsgThenGreet('', follow, 3000, true);
             } else {
                 let msgText = (j && j.message) ? j.message : 'No match';
                 if (j && j.best_distance !== undefined) msgText += ' (best_distance: ' + Number(j.best_distance).toFixed(3) + ')';
@@ -1153,14 +1430,14 @@ if ($office_id) {
             console.error('scan error', err);
             showMsg('Error during scan: ' + (err && err.message ? err.message : String(err)), false);
         } finally {
-            scanBtn.disabled = false;
+            if (scanBtn) scanBtn.disabled = false;
         }
     }
 
         // Start camera and run smooth live continuous scanning (requestAnimationFrame-driven)
         let liveScanning = true;
         let antiReady = false;
-        const DETECT_INTERVAL_MS = 200; // target detection interval (~5 FPS)
+        const DETECT_INTERVAL_MS = 200; // target detection interval (~1 FPS)
         const MIN_SEND_INTERVAL_MS = 900; // throttle server-side checks
         const MAX_INFLIGHT = 1; // max concurrent server requests
         let lastDetectTime = 0;
@@ -1187,14 +1464,17 @@ if ($office_id) {
                 showMsg('Camera started.', true);
 
                 // check antispoof service availability once (ping only for info)
-                // Always allow attempting anti-spoof calls — if the service is unreachable
-                // or returns non-live the later request will deny the scan.
                 try {
                     const ping = await fetch(window.ANTISPOOF_BASE + '/ping', { method: 'GET', cache: 'no-store' });
                     if (ping && ping.ok) {
                         const pj = await ping.json().catch(()=>null);
-                        if (pj && pj.model_loaded) { antiReady = true; showMsg('Anti-spoof service ready.', true); }
-                        else { antiReady = true; console.debug('Anti-spoof ping responded but model not loaded — will still attempt anti-spoof calls'); }
+                        if (pj) {
+                            if (pj.model_loaded) {
+                                antiReady = true; showMsg('', true);
+                            } else {
+                                antiReady = true; console.debug('Anti-spoof ping responded but model not loaded — will still attempt anti-spoof calls');
+                            }
+                        } else { antiReady = true; console.debug('Anti-spoof ping responded but parse failed — will still attempt anti-spoof calls'); }
                     } else { antiReady = true; console.debug('Anti-spoof ping failed — will still attempt anti-spoof calls'); }
                 } catch (err) { console.warn('ping error', err); antiReady = true; console.debug('Anti-spoof ping error — will still attempt anti-spoof calls', err); }
 
@@ -1253,13 +1533,14 @@ if ($office_id) {
         async function sendDescriptorNonBlocking(descriptor, box) {
             inflight++;
             try {
+                
                 // probe_match first
                 let skipAnti = false;
                 try {
                     const probeForm = new FormData(); probeForm.append('action','probe_match'); probeForm.append('descriptor', JSON.stringify(descriptor));
                     const pmResp = await fetch(window.location.href, { method:'POST', body: probeForm });
                     const pmj = await pmResp.json().catch(()=>null);
-                    const bypassDist = (typeof window.ANTISPOOF_BYPASS_DISTANCE !== 'undefined') ? Number(window.ANTISPOOF_BYPASS_DISTANCE) : 0.0;
+                    const bypassDist = (typeof window.ANTISPOOF_BYPASS_DISTANCE !== 'undefined') ? Number(window.ANTISPOOF_BYPASS_DISTANCE) : -1.0;
                     if (pmj && pmj.ok && pmj.user_id && pmj.best_distance !== undefined && Number(pmj.best_distance) <= Number(bypassDist)) {
                         skipAnti = true; showMsg('High recognition confidence — skipping anti-spoof', true);
                     }
@@ -1294,7 +1575,7 @@ if ($office_id) {
                         const antiJson = await antiResp.json().catch((e)=>{ console.debug('Anti-spoof JSON parse error', e); return null; });
                         console.log('antispoof result', antiJson);
                         if (!antiJson) { console.debug('Invalid anti-spoof response', antiResp); showMsg('Invalid anti-spoof response — scan denied', false); inflight--; return; }
-                        if (!antiJson.live) { console.debug('Anti-spoof check failed (spoof detected)', antiJson); showMsg('Anti-spoof failed — possible spoof detected', false); inflight--; return; }
+                        if (!antiJson.live) { console.debug('Anti-spoof check failed (spoof detected)', antiJson); /* showMsg('Anti-spoof failed — possible spoof detected', false); */ inflight--; return; }
                     } catch (e) { console.warn('Anti-spoof error', e); console.debug('Anti-spoof check error', e); inflight--; return; }
                 }
 
@@ -1321,7 +1602,9 @@ if ($office_id) {
                         const who = j.display_name || j.username || (j.user_id ? ('user id ' + j.user_id) : '');
                         const dist = (j.distance !== undefined) ? j.distance : j.best_distance;
                         const distText = (dist !== undefined) ? (' dist=' + Number(dist).toFixed(3)) : '';
-                        showMsg((j.message || 'Timed in') + (who ? ' — ' + who : '') + distText, true);
+                        const follow = 'Time in/out recorded. Have a good day' + (who ? (', ' + who) : '');
+                        // suppress initial debug; immediately show friendly follow-up for 5s
+                        showMsgThenGreet('', follow, 3000, true);
                     } else {
                         let msgText = (j && j.message) ? j.message : 'No match';
                         if (j && j.best_distance !== undefined) msgText += ' (best_distance: ' + Number(j.best_distance).toFixed(3) + ')';
@@ -1343,6 +1626,19 @@ if ($office_id) {
         showMsg('Promise error: ' + (e && e.reason ? (e.reason.message || String(e.reason)) : String(e)), false);
     });
 })();   
+</script>
+<script src="assets/attendance_sync.js"></script>
+</script>
+<?php
+// If exactly one API key exists, embed it into the page for this kiosk to use automatically.
+if (!empty($ATTENDANCE_API_KEYS) && count($ATTENDANCE_API_KEYS) === 1) {
+    $keys = array_keys($ATTENDANCE_API_KEYS);
+    $embedKey = $keys[0];
+    echo "<script>window.KIOSK_API_KEY = '" . htmlspecialchars($embedKey, ENT_QUOTES) . "';</script>\n";
+}
+?>
+<script>
+try { if (window.AttendanceSync) AttendanceSync.start(); else console.debug('AttendanceSync not available yet'); } catch(e) { console.warn('AttendanceSync.start() error', e); }
 </script>
 </body>
 </html>
