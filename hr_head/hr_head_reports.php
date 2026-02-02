@@ -10,7 +10,7 @@ if (!isset($_SESSION['user_id'])) {
 }
 
 $uid = (int)($_SESSION['user_id'] ?? 0);
-$stmt = $conn->prepare("SELECT first_name, middle_name, last_name, role FROM users WHERE user_id = ? LIMIT 1");
+$stmt = $conn->prepare("SELECT first_name, middle_name, last_name, role, office_name, avatar FROM users WHERE user_id = ? LIMIT 1");
 $stmt->bind_param("i",$uid); $stmt->execute();
 $user = $stmt->get_result()->fetch_assoc() ?: []; $stmt->close();
 $full_name = trim(($user['first_name'] ?? '') . ' ' . ($user['middle_name'] ?? '') . ' ' . ($user['last_name'] ?? ''));
@@ -268,7 +268,8 @@ $evaluations = fetch_evaluations($conn);
 <body>
   <div class="sidebar">
     <div class="profile">
-        <img src="https://cdn-icons-png.flaticon.com/512/149/149071.png" alt="Profile">
+        <?php $profileImg = !empty($user['avatar']) ? $user['avatar'] : 'https://cdn-icons-png.flaticon.com/512/149/149071.png'; ?>
+        <img src="<?php echo htmlspecialchars($profileImg); ?>" alt="Profile">
         <h3><?php echo htmlspecialchars($full_name ?: ($_SESSION['username'] ?? '')); ?></h3>
         <p><?php echo htmlspecialchars($role_label); ?></p>
         <?php if(!empty($user['office_name'])): ?>

@@ -297,7 +297,7 @@ if (is_array($inputJson) && isset($inputJson['action']) && $inputJson['action'] 
 
 // fetch HR user info for sidebar
 $user_id = (int)($_SESSION['user_id'] ?? 0);
-$stmtU = $conn->prepare("SELECT first_name, middle_name, last_name, role FROM users WHERE user_id = ? LIMIT 1");
+$stmtU = $conn->prepare("SELECT first_name, middle_name, last_name, role, office_name, avatar FROM users WHERE user_id = ? LIMIT 1");
 $stmtU->bind_param("i", $user_id);
 $stmtU->execute();
 $user = $stmtU->get_result()->fetch_assoc() ?: [];
@@ -410,7 +410,8 @@ foreach ($ojts as $zz) {
 <body>
   <div class="sidebar">
     <div class="profile">
-        <img src="https://cdn-icons-png.flaticon.com/512/149/149071.png" alt="Profile">
+        <?php $profileImg = !empty($user['avatar']) ? $user['avatar'] : 'https://cdn-icons-png.flaticon.com/512/149/149071.png'; ?>
+        <img src="<?php echo htmlspecialchars($profileImg); ?>" alt="Profile">
         <h3><?php echo htmlspecialchars($full_name ?: ($_SESSION['username'] ?? '')); ?></h3>
         <p><?php echo htmlspecialchars($role_label); ?></p>
         <?php if(!empty($user['office_name'])): ?>

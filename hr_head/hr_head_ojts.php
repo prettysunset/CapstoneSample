@@ -12,8 +12,7 @@ if (!isset($_SESSION['user_id'])) {
 
 $user_id = (int) $_SESSION['user_id'];
 
-// fetch user info
-$stmtUser = $conn->prepare("SELECT first_name, middle_name, last_name, role FROM users WHERE user_id = ?");
+$stmtUser = $conn->prepare("SELECT first_name, middle_name, last_name, role, office_name, avatar FROM users WHERE user_id = ?");
 $stmtUser->bind_param("i", $user_id);
 $stmtUser->execute();
 $user = $stmtUser->get_result()->fetch_assoc() ?: [];
@@ -349,12 +348,13 @@ if ($moa_q) {
 <body>
 <div class="sidebar">
     <div class="profile">
-        <img src="https://cdn-icons-png.flaticon.com/512/149/149071.png" alt="Profile">
-        <h3><?php echo htmlspecialchars($full_name ?: ($_SESSION['username'] ?? '')); ?></h3>
-        <p><?php echo htmlspecialchars($role_label); ?></p>
-        <?php if(!empty($user['office_name'])): ?>
-            <p style="font-size:12px;color:#bfc4d1"><?php echo htmlspecialchars($user['office_name']); ?></p>
-        <?php endif; ?>
+      <?php $profileImg = !empty($user['avatar']) ? $user['avatar'] : 'https://cdn-icons-png.flaticon.com/512/149/149071.png'; ?>
+      <img src="<?php echo htmlspecialchars($profileImg); ?>" alt="Profile">
+      <h3><?php echo htmlspecialchars($full_name ?: ($_SESSION['username'] ?? '')); ?></h3>
+      <p><?php echo htmlspecialchars($role_label); ?></p>
+      <?php if(!empty($user['office_name'])): ?>
+        <p style="font-size:12px;color:#bfc4d1"><?php echo htmlspecialchars($user['office_name']); ?></p>
+      <?php endif; ?>
     </div>
 
     <div class="nav">
