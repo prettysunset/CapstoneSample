@@ -55,8 +55,149 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     $client_local_date = trim($_POST['client_local_date'] ?? '');
     $client_local_time = trim($_POST['client_local_time'] ?? '');
 
-    if ($username === '' || $password === '') {
+    // username/password only required for manual time_in/time_out actions
+    if ($action !== 'face_scan' && ($username === '' || $password === '')) {
         json_resp(['success'=>false,'message'=>'Enter username and password']);
+    }
+
+    // --- Face-scan flow: descriptor posted from client (face-api.js) ---
+    if ($action === 'face_scan') {
+        $descriptorRaw = $_POST['descriptor'] ?? '';
+        if (!$descriptorRaw) json_resp(['success'=>false,'message'=>'Missing descriptor']);
+        $probe = json_decode($descriptorRaw, true);
+        if (!is_array($probe) || count($probe) === 0) json_resp(['success'=>false,'message'=>'Invalid descriptor']);
+
+        // fetch stored descriptors
+        $q = $conn->query("SELECT ft.user_id, ft.descriptor, u.role, u.status FROM face_templates ft JOIN users u ON ft.user_id = u.user_id WHERE ft.descriptor IS NOT NULL");
+        if (!$q) json_resp(['success'=>false,'message'=>'No templates available']);
+        $best = ['dist' => INF, 'user_id' => null, 'role'=>null, 'status'=>null];
+        $templatesScanned = 0;
+        while ($r = $q->fetch_assoc()) {
+            $d = json_decode($r['descriptor'], true);
+            if (!is_array($d)) continue;
+            if (count($d) !== count($probe)) continue;
+            $templatesScanned++;
+            $sum = 0.0;
+            for ($i=0,$n=count($d); $i<$n; $i++) { $diff = ($d[$i] - $probe[$i]); $sum += $diff * $diff; }
+            $dist = sqrt($sum);
+            if ($dist < $best['dist']) {
+                $best['dist'] = $dist;
+                $best['user_id'] = (int)$r['user_id'];
+                $best['role'] = $r['role'];
+                $best['status'] = $r['status'];
+            }
+        }
+        $q->close();
+
+        $threshold = 0.8;
+        if ($best['user_id'] === null || $best['dist'] > $threshold) {
+            json_resp(['success'=>false,'message'=>'No face match','best_distance'=>$best['dist'],'templates_scanned'=>$templatesScanned]);
+        }
+
+        // matched user
+        $matched_user_id = $best['user_id'];
+        // ensure role is ojt
+        if (($best['role'] ?? '') !== 'ojt') json_resp(['success'=>false,'message'=>'Matched user is not OJT']);
+
+        // fetch username / display name for friendly UI
+        try {
+            $uinfo = $conn->prepare("SELECT username, CONCAT(IFNULL(first_name,''),' ',IFNULL(last_name,'')) AS display_name FROM users WHERE user_id = ? LIMIT 1");
+            $uinfo->bind_param('i', $matched_user_id);
+            $uinfo->execute();
+            $urow = $uinfo->get_result()->fetch_assoc();
+            $uinfo->close();
+        } catch (Exception $e) { $urow = null; }
+        $matched_username = $urow['username'] ?? '';
+        $matched_display = trim($urow['display_name'] ?? '');
+        if (!$matched_display && $matched_username) $matched_display = $matched_username;
+
+        // determine client time/date
+        $client_local_date = trim($_POST['client_local_date'] ?? '');
+        $client_local_time = trim($_POST['client_local_time'] ?? '');
+        $client_ts = trim($_POST['client_ts'] ?? '');
+        $today = null; $now = null;
+        if ($client_local_date && $client_local_time) { $today = $client_local_date; $now = $client_local_time; }
+        elseif ($client_ts) { try { $cdt = new DateTime($client_ts); $today = $cdt->format('Y-m-d'); $now = $cdt->format('H:i:s'); } catch(Exception $e) { } }
+        if (!$today || !$now) { $dtRow = $conn->query("SELECT DATE_FORMAT(NOW(), '%Y-%m-%d') AS today, DATE_FORMAT(NOW(), '%H:%i:%s') AS now_time")->fetch_assoc(); $today = $dtRow['today'] ?? date('Y-m-d'); $now = $dtRow['now_time'] ?? date('H:i:s'); }
+
+        // perform simplified time-in/time-out logic for matched user
+        try {
+            $conn->begin_transaction();
+            // map to student_id and determine dtr owner
+            // Note: in this schema `dtr.student_id` references `users.user_id`, so use the matched user id as the dtr owner.
+            $s = $conn->prepare("SELECT student_id FROM students WHERE user_id = ? LIMIT 1");
+            $s->bind_param('i', $matched_user_id);
+            $s->execute();
+            $st = $s->get_result()->fetch_assoc();
+            $s->close();
+            if (!$st) { $conn->rollback(); json_resp(['success'=>false,'message'=>'No student record for matched user']); }
+            $student_id = (int)$st['student_id'];
+            $dtr_owner = (int)$matched_user_id; // use users.user_id for dtr.student_id
+
+            // lock today's dtr row (use dtr_owner which maps to users.user_id)
+            $q2 = $conn->prepare("SELECT dtr_id, am_in, am_out, pm_in, pm_out FROM dtr WHERE student_id = ? AND log_date = ? LIMIT 1 FOR UPDATE");
+            $q2->bind_param('is', $dtr_owner, $today);
+            $q2->execute();
+            $dtr = $q2->get_result()->fetch_assoc();
+            $q2->close();
+
+            if (!$dtr) {
+                // create new row -> record am_in
+                $ins = $conn->prepare("INSERT INTO dtr (student_id, log_date, am_in) VALUES (?, ?, ?)");
+                $ins->bind_param('iss', $dtr_owner, $today, $now);
+                $ins->execute();
+                $ins->close();
+                // update statuses if needed
+                $updUser = $conn->prepare("UPDATE users SET status = 'ongoing' WHERE user_id = ?");
+                $updUser->bind_param('i', $matched_user_id); $updUser->execute(); $updUser->close();
+                $conn->commit();
+                json_resp(['success'=>true,'message'=>'Time in recorded (AM)','user_id'=>$matched_user_id,'username'=>$matched_username,'display_name'=>$matched_display,'distance'=>$best['dist'],'templates_scanned'=>$templatesScanned]);
+            }
+
+            // existing row -> decide next field
+            if (empty($dtr['am_in'])) {
+                $upd = $conn->prepare("UPDATE dtr SET am_in = ? WHERE dtr_id = ?");
+                $upd->bind_param('si', $now, $dtr['dtr_id']); $upd->execute(); $upd->close();
+                $conn->commit(); json_resp(['success'=>true,'message'=>'Time in recorded (AM)','user_id'=>$matched_user_id,'username'=>$matched_username,'display_name'=>$matched_display,'distance'=>$best['dist'],'templates_scanned'=>$templatesScanned]);
+            }
+            if (!empty($dtr['am_in']) && empty($dtr['am_out'])) {
+                $upd = $conn->prepare("UPDATE dtr SET am_out = ? WHERE dtr_id = ?");
+                $upd->bind_param('si', $now, $dtr['dtr_id']); $upd->execute(); $upd->close();
+                $conn->commit(); json_resp(['success'=>true,'message'=>'Time out recorded (AM)','user_id'=>$matched_user_id,'username'=>$matched_username,'display_name'=>$matched_display,'distance'=>$best['dist'],'templates_scanned'=>$templatesScanned]);
+            }
+            if (!empty($dtr['am_out']) && empty($dtr['pm_in'])) {
+                $upd = $conn->prepare("UPDATE dtr SET pm_in = ? WHERE dtr_id = ?");
+                $upd->bind_param('si', $now, $dtr['dtr_id']); $upd->execute(); $upd->close();
+                $conn->commit(); json_resp(['success'=>true,'message'=>'Time in recorded (PM)','user_id'=>$matched_user_id,'username'=>$matched_username,'display_name'=>$matched_display,'distance'=>$best['dist'],'templates_scanned'=>$templatesScanned]);
+            }
+            if (!empty($dtr['pm_in']) && empty($dtr['pm_out'])) {
+                $upd = $conn->prepare("UPDATE dtr SET pm_out = ? WHERE dtr_id = ?");
+                $upd->bind_param('si', $now, $dtr['dtr_id']); $upd->execute(); $upd->close();
+                // recompute hours/minutes (reuse existing logic minimal)
+                $sel = $conn->prepare("SELECT am_in,am_out,pm_in,pm_out FROM dtr WHERE dtr_id = ? LIMIT 1");
+                $sel->bind_param('i', $dtr['dtr_id']); $sel->execute(); $row = $sel->get_result()->fetch_assoc(); $sel->close();
+                $totalMin = 0;
+                foreach ([['am_in','am_out'], ['pm_in','pm_out']] as $p) {
+                    if (!empty($row[$p[0]]) && !empty($row[$p[1]])) {
+                        $fmt1 = DateTime::createFromFormat('Y-m-d H:i:s', $today . ' ' . $row[$p[0]]);
+                        if (!$fmt1) $fmt1 = DateTime::createFromFormat('Y-m-d H:i', $today . ' ' . $row[$p[0]]);
+                        $fmt2 = DateTime::createFromFormat('Y-m-d H:i:s', $today . ' ' . $row[$p[1]]);
+                        if (!$fmt2) $fmt2 = DateTime::createFromFormat('Y-m-d H:i', $today . ' ' . $row[$p[1]]);
+                        if ($fmt1 && $fmt2) { $diff = $fmt2->getTimestamp() - $fmt1->getTimestamp(); if ($diff > 0) $totalMin += intval($diff/60); }
+                    }
+                }
+                if ($totalMin > 480) $totalMin = 480;
+                $hours = intdiv($totalMin, 60); $minutes = $totalMin % 60;
+                $up2 = $conn->prepare("UPDATE dtr SET hours = ?, minutes = ? WHERE dtr_id = ?");
+                $up2->bind_param('iii', $hours, $minutes, $dtr['dtr_id']); $up2->execute(); $up2->close();
+
+                $conn->commit(); json_resp(['success'=>true,'message'=>'Time out recorded (PM)','user_id'=>$matched_user_id,'username'=>$matched_username,'display_name'=>$matched_display,'hours'=>$hours,'minutes'=>$minutes,'distance'=>$best['dist'],'templates_scanned'=>$templatesScanned]);
+            }
+
+            $conn->rollback(); json_resp(['success'=>false,'message'=>'Already completed for today']);
+        } catch (Exception $ex) {
+            $conn->rollback(); json_resp(['success'=>false,'message'=>'Server error: '.$ex->getMessage()]);
+        }
     }
 
     // 1) Find user in users table
@@ -561,34 +702,29 @@ if ($office_id) {
         <div class="office-name"><?php echo htmlspecialchars($office_name); ?></div>
       <?php endif; ?>
 
-      <form id="pcForm" onsubmit="return false;" style="margin-top:6px">
-        <input type="hidden" id="office_id" value="<?php echo (int)$office_id; ?>">
-        <input id="username" class="input" type="text" placeholder="Username" autocomplete="username">
-        <div class="password-container">
-          <input id="password" class="input" type="password" placeholder="Password" autocomplete="current-password">
-          <button type="button" id="togglePassword" aria-label="Show password">
-            <svg id="eyeOpen" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#3a4163" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8S1 12 1 12z"></path>
-              <circle cx="12" cy="12" r="3"></circle>
-            </svg>
-            <svg id="eyeClosed" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#3a4163" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none;">
-              <path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a18.65 18.65 0 0 1 4.11-5.05"></path>
-              <path d="M1 1l22 22"></path>
-              <path d="M9.88 9.88A3 3 0 0 0 14.12 14.12"></path>
-            </svg>
-          </button>
-        </div>
+            <form id="pcForm" onsubmit="return false;" style="margin-top:6px">
+                <input type="hidden" id="office_id" value="<?php echo (int)$office_id; ?>">
+                <div style="text-align:center;margin-bottom:10px">
+                    <a href="register_face.php" target="_blank" style="display:inline-block;padding:8px 12px;border-radius:8px;background:#4a6ff3;color:#fff;text-decoration:none;font-weight:600">Register Face</a>
+                </div>
 
-        <div class="actions">
-          <button id="btnIn" class="btn in" type="button">Time In</button>
-          <button id="btnOut" class="btn out" type="button">Time Out</button>
-        </div>
+                <div class="actions" style="margin-top:10px">
+                    <button id="startCam" class="btn in" type="button">Start Camera</button>
+                    <button id="scanBtn" class="btn out" type="button" disabled>Scan</button>
+                </div>
 
-        <div id="msg" class="msg" role="status" aria-live="polite"></div>
-      </form>
+                <div style="position:relative;margin-top:10px">
+                    <video id="video" autoplay playsinline style="width:100%;border-radius:8px;background:#000;display:block"></video>
+                    <canvas id="canvas" style="position:absolute;left:0;top:0;width:100%;height:100%;border-radius:8px;pointer-events:none;display:block"></canvas>
+                    <div id="blinkPrompt" style="position:absolute;left:50%;top:8%;transform:translateX(-50%);background:rgba(0,0,0,0.6);color:#fff;padding:8px 12px;border-radius:8px;font-weight:700;display:none;z-index:9999">Blink when prompted</div>
+                </div>
+
+                <div id="msg" class="msg" role="status" aria-live="polite"></div>
+            </form>
     </div>
   </div>
 
+<script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
 <script>
 (function(){
   const nowEl = document.getElementById('now');
@@ -609,30 +745,42 @@ if ($office_id) {
   const msg = document.getElementById('msg');
 
   function showMsg(text, ok=true){
-    msg.style.display = 'block';
-    msg.style.background = ok ? '#e6f9ee' : '#fff4f4';
-    msg.style.color = ok ? '#0b7a3a' : '#a00';
-    msg.textContent = text;
-    setTimeout(()=> msg.style.display = 'none', 3000);
+        // show a fixed toast so it's always visible above the video/canvas
+        msg.style.display = 'block';
+        msg.style.position = 'fixed';
+        msg.style.top = '18px';
+        msg.style.left = '50%';
+        msg.style.transform = 'translateX(-50%)';
+        msg.style.padding = '10px 18px';
+        msg.style.borderRadius = '8px';
+        msg.style.boxShadow = '0 6px 20px rgba(0,0,0,0.12)';
+        msg.style.background = ok ? '#e6f9ee' : '#fff4f4';
+        msg.style.border = ok ? '1px solid #bdeac8' : '1px solid #f5c2c2';
+        msg.style.color = ok ? '#0b7a3a' : '#a00';
+        msg.style.zIndex = 2147483647;
+        msg.textContent = text;
+        // auto-hide after 3.5s
+        setTimeout(()=>{ try{ msg.style.display = 'none'; }catch(e){} }, 3500);
   }
 
-  // toggle eye
+  // toggle eye (guarded)
   (function(){
     var btn = document.getElementById('togglePassword');
     var pwd = document.getElementById('password');
     var openEye = document.getElementById('eyeOpen');
     var closedEye = document.getElementById('eyeClosed');
+    if (!btn || !pwd) return;
     btn.addEventListener('click', function(e){
         e.preventDefault();
         if (pwd.type === 'password') {
             pwd.type = 'text';
-            openEye.style.display = 'none';
-            closedEye.style.display = 'inline';
+            if (openEye) openEye.style.display = 'none';
+            if (closedEye) closedEye.style.display = 'inline';
             btn.setAttribute('aria-label', 'Hide password');
         } else {
             pwd.type = 'password';
-            openEye.style.display = 'inline';
-            closedEye.style.display = 'none';
+            if (openEye) openEye.style.display = 'inline';
+            if (closedEye) closedEye.style.display = 'none';
             btn.setAttribute('aria-label', 'Show password');
         }
     }, true);
@@ -681,9 +829,164 @@ if ($office_id) {
       }
     }
 
-  btnIn.addEventListener('click', ()=>send('time_in'));
-  btnOut.addEventListener('click', ()=>{ if (!confirm('Confirm Time Out?')) return; send('time_out'); });
-})();
+    if (btnIn) btnIn.addEventListener('click', ()=>send('time_in'));
+    if (btnOut) btnOut.addEventListener('click', ()=>{ if (!confirm('Confirm Time Out?')) return; send('time_out'); });
+  
+    // --- camera & face-scan UI ---
+    const startCamBtn = document.getElementById('startCam');
+    const scanBtn = document.getElementById('scanBtn');
+    const videoEl = document.getElementById('video');
+    const canvasEl = document.getElementById('canvas');
+    let camStream = null;
+
+    console.log('faceapi typeof ->', typeof faceapi);
+    async function loadModels(){
+        try{
+            await faceapi.nets.tinyFaceDetector.load('models/');
+            await faceapi.nets.faceLandmark68Net.load('models/');
+            await faceapi.nets.faceRecognitionNet.load('models/');
+            return true;
+        }catch(e){ showMsg('Model load failed: '+e.message, false); return false; }
+    }
+
+    async function performScan(){
+        scanBtn.disabled = true;
+        try{
+            if (!videoEl.srcObject) { showMsg('Start camera first', false); return; }
+            const ctx = canvasEl.getContext('2d');
+            // pre-countdown so user knows when to blink
+            const promptEl = document.getElementById('blinkPrompt');
+            const beep = () => {
+                try {
+                    const actx = new (window.AudioContext || window.webkitAudioContext)();
+                    const o = actx.createOscillator();
+                    const g = actx.createGain();
+                    o.connect(g); g.connect(actx.destination);
+                    o.frequency.value = 1000; g.gain.value = 0.05; o.start();
+                    setTimeout(()=>{ try{ o.stop(); actx.close(); }catch(e){} }, 150);
+                } catch(e) { /* ignore audio errors */ }
+            };
+            if (promptEl) { promptEl.style.display = 'block'; promptEl.textContent = 'Get ready...'; }
+            // countdown 3..1
+            for (let i=3;i>=1;i--) {
+                if (promptEl) promptEl.textContent = 'Get ready: ' + i;
+                await new Promise(r=>setTimeout(r, 750));
+            }
+            if (promptEl) { promptEl.textContent = 'Blink now!'; }
+            beep();
+            // liveness via blink detection: monitor frames for a short window and detect a blink
+            const START = Date.now();
+            const WINDOW_MS = 4000; // ms to wait for a blink after prompt
+            const FRAME_DELAY = 250;
+            const EAR_THRESHOLD = 0.22;
+            const MIN_CONSEC_BELOW = 2;
+            let consecBelow = 0;
+            let blinkDetected = false;
+            let lastDetection = null;
+            while (Date.now() - START < WINDOW_MS && !blinkDetected) {
+                // size canvas
+                canvasEl.width = videoEl.videoWidth || videoEl.clientWidth || 640;
+                canvasEl.height = videoEl.videoHeight || Math.round(canvasEl.width * (3/4)) || 480;
+                ctx.clearRect(0,0,canvasEl.width,canvasEl.height);
+                ctx.drawImage(videoEl,0,0,canvasEl.width,canvasEl.height);
+                const det = await faceapi.detectSingleFace(canvasEl, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();
+                if (det && det.descriptor) lastDetection = det;
+                if (det && det.landmarks) {
+                    const pts = det.landmarks.positions;
+                    const dist = (a,b) => Math.hypot(a.x-b.x, a.y-b.y);
+                    const l = pts.slice(36,42);
+                    const r = pts.slice(42,48);
+                    const ear = ( (dist(l[1],l[5]) + dist(l[2],l[4])) / (2*dist(l[0],l[3])) + (dist(r[1],r[5]) + dist(r[2],r[4])) / (2*dist(r[0],r[3])) ) / 2;
+                    // indicator in prompt
+                    if (promptEl) promptEl.textContent = 'Blink now! (EAR ' + ear.toFixed(3) + ')';
+                    if (ear < EAR_THRESHOLD) {
+                        consecBelow++;
+                    } else {
+                        if (consecBelow >= MIN_CONSEC_BELOW) { blinkDetected = true; break; }
+                        consecBelow = 0;
+                    }
+                }
+                await new Promise(r=>setTimeout(r, FRAME_DELAY));
+            }
+            if (promptEl) promptEl.style.display = 'none';
+            if (!lastDetection || !lastDetection.descriptor) { showMsg('No face detected', false); return; }
+            if (!blinkDetected) { showMsg('Liveness not confirmed (no blink detected)', false); return; }
+
+            // draw final overlay and prepare descriptor
+            try{
+                const box = lastDetection.detection.box;
+                ctx.strokeStyle = '#00FF00'; ctx.lineWidth = 3; ctx.globalAlpha = 0.9;
+                ctx.strokeRect(box.x, box.y, box.width, box.height);
+                if (lastDetection.landmarks) {
+                    ctx.fillStyle = '#00FF00';
+                    const pts = lastDetection.landmarks.positions || [];
+                    for (let p of pts) { ctx.fillRect(p.x-2, p.y-2, 4, 4); }
+                }
+            }catch(e){ console.warn('draw overlay failed', e); }
+
+            const desc = Array.from(lastDetection.descriptor);
+            const fd = new FormData(); fd.append('action','face_scan'); fd.append('descriptor', JSON.stringify(desc));
+            const dNow = new Date();
+            fd.append('client_ts', dNow.toISOString());
+            const localDate = dNow.getFullYear() + '-' + String(dNow.getMonth()+1).padStart(2,'0') + '-' + String(dNow.getDate()).padStart(2,'0');
+            const localTime = String(dNow.getHours()).padStart(2,'0') + ':' + String(dNow.getMinutes()).padStart(2,'0') + ':' + String(dNow.getSeconds()).padStart(2,'0');
+            fd.append('client_local_date', localDate); fd.append('client_local_time', localTime);
+            const res = await fetch(window.location.href, { method:'POST', body: fd });
+            if (!res.ok) {
+                const txt = await res.text().catch(()=> '');
+                showMsg('Server error: ' + res.status + ' ' + res.statusText + (txt ? ' — ' + txt.slice(0,200) : ''), false);
+                return;
+            }
+            let j = null;
+            try { j = await res.json(); } catch(parseErr) {
+                const txt = await res.text().catch(()=> '');
+                showMsg('Invalid JSON response' + (txt ? ': '+txt.slice(0,200) : ''), false);
+                return;
+            }
+            console.log('face_scan response:', j);
+            if (j.success) {
+                const who = j.display_name || j.username || (j.user_id ? ('user id ' + j.user_id) : '');
+                const dist = (j.distance !== undefined) ? j.distance : j.best_distance;
+                const distText = (dist !== undefined) ? (' dist=' + Number(dist).toFixed(3)) : '';
+                showMsg((j.message || 'Timed in') + (who ? ' — ' + who : '') + distText, true);
+            } else {
+                let msgText = j.message || 'No match';
+                if (j.best_distance !== undefined) msgText += ' (best_distance: ' + Number(j.best_distance).toFixed(3) + ')';
+                if (j.templates_scanned !== undefined) msgText += ' scanned=' + j.templates_scanned;
+                showMsg(msgText, false);
+                console.debug('face_scan debug:', j);
+            }
+        } catch (err) {
+            console.error('scan error', err);
+            showMsg('Error during scan: ' + (err && err.message ? err.message : String(err)), false);
+        } finally {
+            scanBtn.disabled = false;
+        }
+    }
+
+    startCamBtn && startCamBtn.addEventListener('click', async (e)=>{
+        e.preventDefault();
+        startCamBtn.disabled = true;
+        const ok = await loadModels();
+        if (!ok) { startCamBtn.disabled = false; return; }
+        try{
+            camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
+            videoEl.srcObject = camStream;
+            showMsg('Camera started.', true);
+            scanBtn.disabled = false;
+        }catch(e){ showMsg('Cannot access camera: '+e.message, false); startCamBtn.disabled = false; }
+    });
+
+    scanBtn && scanBtn.addEventListener('click', performScan);
+
+    // global error handlers to help debugging in the UI
+    window.addEventListener('error', function(e){
+        showMsg('JS error: ' + (e && e.message ? e.message : String(e)), false);
+    });
+    window.addEventListener('unhandledrejection', function(e){
+        showMsg('Promise error: ' + (e && e.reason ? (e.reason.message || String(e.reason)) : String(e)), false);
+    });
+})();   
 </script>
 </body>
 </html>
