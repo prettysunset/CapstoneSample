@@ -218,6 +218,10 @@
           if (!$hasAssign) { echo json_encode(['success'=>false,'message'=>'assignments table missing']); exit; }
           $sA = $conn->prepare("SELECT * FROM orientation_assignments WHERE session_id = ?"); $sA->bind_param('i',$origSessionId); $sA->execute(); $resA = $sA->get_result(); $assigns=[]; while($ar=$resA->fetch_assoc()) { $assigns[]=$ar; } $sA->close();
 
+          // we'll collect moved students/apps to notify by email (best-effort)
+          $movedApplicationIds = [];
+          $movedStudentIds = [];
+
           // build selected lists if provided
           $selectedApps = [];
           $selectedStudents = [];
@@ -247,13 +251,104 @@
               $chk->bind_param('iii',$targetSessionId, $appId, $appId); $chk->execute(); $cres = $chk->get_result(); $crow = $cres?$cres->fetch_assoc():null; $cnt = $crow? (int)$crow['cnt'] : 0; $chk->close();
               if ($cnt === 0) {
                 $up = $conn->prepare("UPDATE orientation_assignments SET session_id = ? WHERE session_id = ? AND (application_id = ? OR student_id = ?) LIMIT 1"); $up->bind_param('iiii', $targetSessionId, $origSessionId, $appId, $appId); $up->execute(); $up->close();
+                // record moved application/student for notification
+                if (!empty($ar['application_id'])) $movedApplicationIds[] = (int)$ar['application_id'];
+                if (!empty($ar['student_id'])) $movedStudentIds[] = (int)$ar['student_id'];
               } else {
                 $del = $conn->prepare("DELETE FROM orientation_assignments WHERE session_id = ? AND (application_id = ? OR student_id = ?) LIMIT 1"); $del->bind_param('iii', $origSessionId, $appId, $appId); $del->execute(); $del->close();
               }
             } else {
               $assignId = $ar['id'] ?? $ar['assignment_id'] ?? null;
-              if ($assignId) { $up = $conn->prepare("UPDATE orientation_assignments SET session_id = ? WHERE (id = ? OR assignment_id = ?) LIMIT 1"); $up->bind_param('iii',$targetSessionId,$assignId,$assignId); $up->execute(); $up->close(); }
+              if ($assignId) { $up = $conn->prepare("UPDATE orientation_assignments SET session_id = ? WHERE (id = ? OR assignment_id = ?) LIMIT 1"); $up->bind_param('iii',$targetSessionId,$assignId,$assignId); $up->execute(); $up->close();
+                if (!empty($ar['student_id'])) $movedStudentIds[] = (int)$ar['student_id'];
+              }
             }
+          }
+
+          // --- Send notification emails to moved students (best-effort) ---
+          try {
+            // resolve application ids to student ids when necessary
+            if (!empty($movedApplicationIds)) {
+              $placeholders = implode(',', array_fill(0, count($movedApplicationIds), '?'));
+              // fetch student_id for each application
+              $sqlA = "SELECT application_id, student_id FROM ojt_applications WHERE application_id IN ($placeholders)";
+              $stmtA = $conn->prepare($sqlA);
+              // bind params dynamically
+              $types = str_repeat('i', count($movedApplicationIds));
+              $stmtA->bind_param($types, ...$movedApplicationIds);
+              $stmtA->execute(); $resA2 = $stmtA->get_result(); $appToStud = []; while($r = $resA2->fetch_assoc()) { if (!empty($r['student_id'])) $appToStud[(int)$r['application_id']] = (int)$r['student_id']; }
+              $stmtA->close();
+              foreach ($movedApplicationIds as $aid) {
+                if (isset($appToStud[$aid])) $movedStudentIds[] = $appToStud[$aid];
+              }
+            }
+
+            // get unique student ids
+            $movedStudentIds = array_values(array_unique(array_filter($movedStudentIds)));
+            $emails = [];
+            if (!empty($movedStudentIds)) {
+              $place = implode(',', array_fill(0, count($movedStudentIds), '?'));
+              $sqlS = "SELECT student_id, email, first_name, last_name FROM students WHERE student_id IN ($place)";
+              $stmtS = $conn->prepare($sqlS);
+              $typesS = str_repeat('i', count($movedStudentIds));
+              $stmtS->bind_param($typesS, ...$movedStudentIds);
+              $stmtS->execute(); $resS = $stmtS->get_result(); while($r = $resS->fetch_assoc()) { if (!empty($r['email'])) $emails[] = ['id'=>$r['student_id'],'email'=>$r['email'],'name'=>trim(($r['first_name']??'').' '.($r['last_name']??''))]; }
+              $stmtS->close();
+            }
+
+            if (!empty($emails)) {
+              // include PHPMailer if available (pattern used in other pages)
+              $autoload = __DIR__ . '/../vendor/autoload.php';
+              if (file_exists($autoload)) require_once $autoload;
+              if (!class_exists(\PHPMailer\PHPMailer\PHPMailer::class)) {
+                $pmPath = __DIR__ . '/../PHPMailer/src/';
+                if (file_exists($pmPath . 'PHPMailer.php')) {
+                  require_once $pmPath . 'PHPMailer.php';
+                  require_once $pmPath . 'Exception.php';
+                  require_once $pmPath . 'SMTP.php';
+                }
+              }
+
+              // SMTP config (reuse local defaults from accounts page)
+              $SMTP_HOST_LOCAL = 'smtp.gmail.com';
+              $SMTP_PORT_LOCAL = 587;
+              $SMTP_USER_LOCAL = 'sample.mail00000000@gmail.com';
+              $SMTP_PASS_LOCAL = 'qitthwgfhtogjczq';
+              $SMTP_FROM_EMAIL_LOCAL = 'sample.mail00000000@gmail.com';
+              $SMTP_FROM_NAME_LOCAL  = 'OJTMS HR';
+
+              foreach ($emails as $rcpt) {
+                try {
+                  if (!class_exists(\PHPMailer\PHPMailer\PHPMailer::class)) continue;
+                  $mail = new \PHPMailer\PHPMailer\PHPMailer(true);
+                  $mail->isSMTP();
+                  $mail->Host = $SMTP_HOST_LOCAL;
+                  $mail->SMTPAuth = true;
+                  $mail->Username = $SMTP_USER_LOCAL;
+                  $mail->Password = $SMTP_PASS_LOCAL;
+                  $mail->SMTPSecure = 'tls';
+                  $mail->Port = $SMTP_PORT_LOCAL;
+                  $mail->CharSet = 'UTF-8';
+                  $mail->setFrom($SMTP_FROM_EMAIL_LOCAL, $SMTP_FROM_NAME_LOCAL);
+                  $mail->addAddress($rcpt['email'], $rcpt['name']);
+                  $mail->isHTML(true);
+                  $subject = 'Orientation Rescheduled';
+                  $newLabel = $targetDate . (!empty($useTime) ? ' ' . $useTime : '');
+                  $body = '<p>Dear ' . htmlspecialchars($rcpt['name'] ? $rcpt['name'] : 'Student') . ',</p>';
+                  $body .= '<p>Your orientation has been rescheduled to <strong>' . htmlspecialchars($newLabel) . '</strong>';
+                  if (!empty($useLoc)) $body .= ' at <strong>' . htmlspecialchars($useLoc) . '</strong>';
+                  if (!empty($fromDate)) $body .= '. (Previously scheduled on ' . htmlspecialchars(date('M j, Y', strtotime($fromDate))) . ')';
+                  $body .= '.</p><p>Regards,<br/>HR Department</p>';
+                  $mail->Subject = $subject;
+                  $mail->Body = $body;
+                  $mail->send();
+                } catch (Exception $e) {
+                  // ignore email errors — reschedule should not fail because of mail
+                }
+              }
+            }
+          } catch (Exception $e) {
+            // suppress
           }
 
           $fromDate = $orig[$dateCol2] ?? null;
@@ -338,6 +433,8 @@
     #orientationContent .student-actions{display:inline-flex;gap:8px;align-items:center}
     #orientationContent .print-all{display:block;margin-top:8px;padding:8px 12px;border-radius:8px;border:1px solid #6a3db5;background:transparent;color:#6a3db5;text-align:center;text-decoration:none;width:100%}
     #orientationContent .print-all.disabled{pointer-events:none;opacity:0.6}
+    /* disable style for reschedule button when no students selected */
+    .resched.disabled{pointer-events:none;opacity:0.6}
     .dot{width:12px;height:12px;border-radius:50%;background:#efe6ff;flex:0 0 12px;margin-top:4px}
     .dot.purple{background:#efe6ff}
     /* today's day number: filled purple circle */
@@ -570,9 +667,13 @@
 
         // session-level reschedule button (Reschedule selected students)
         var sessionBtn = document.createElement('a'); sessionBtn.className = 'resched'; sessionBtn.href = '#'; sessionBtn.textContent = 'Reschedule';
+        // start disabled until at least one student is selected (match print-all behavior)
+        sessionBtn.classList.add('disabled'); sessionBtn.setAttribute('aria-disabled','true');
         sessionBtn.style.marginTop = '10px';
         sessionBtn.dataset.sessionId = s.session_id || '';
         sessionBtn.addEventListener('click', function(ev){
+          // don't act when button is disabled
+          if (this.classList && this.classList.contains('disabled')) return;
           ev.preventDefault();
           // collect checked students inside this session element
           var sessEl = this.closest('.session');
@@ -806,6 +907,9 @@
       }
       var ra = e.target.closest && e.target.closest('.resched');
       if (ra) {
+        // ignore clicks on disabled resched buttons
+        if (ra.classList && ra.classList.contains('disabled')) return;
+        if (ra.getAttribute && ra.getAttribute('aria-disabled') === 'true') return;
         e.preventDefault();
         var sid2 = ra.dataset.sessionId || '';
         if (!sid2) { alert('Session id missing'); return; }
@@ -818,8 +922,9 @@
   <!-- Reschedule modal -->
   <div id="reschedModal" style="display:none;position:fixed;inset:0;align-items:center;justify-content:center;z-index:10020;background:rgba(0,0,0,0.35);">
     <div style="background:#fff;border-radius:10px;padding:16px;width:420px;max-width:calc(100% - 32px);box-shadow:0 12px 40px rgba(0,0,0,0.2);">
-      <h3 style="margin:0 0 8px 0;color:#2f3850">Reschedule Selected Students</h3>
+      <h3 style="margin:0 0 8px 0;color:#2f3850">Reschedule</h3>
       <div style="font-size:13px;color:#444;margin-bottom:8px">Choose new date for the selected students in this session.</div>
+      <div id="resched_selected" style="margin-bottom:8px;font-size:13px;color:#333;max-height:120px;overflow:auto;border:1px dashed #eee;padding:8px;border-radius:6px;display:none"></div>
       <div style="margin-bottom:8px">
         <label style="font-weight:600;display:block;margin-bottom:4px">Date</label>
         <input id="resched_date" type="date" style="width:100%;padding:8px;border-radius:6px;border:1px solid #ccc" />
@@ -863,6 +968,7 @@
       var dateIn = document.getElementById('resched_date');
       var timeIn = document.getElementById('resched_time');
       var locIn = document.getElementById('resched_location');
+      var selContainer = document.getElementById('resched_selected');
       var msg = document.getElementById('resched_msg');
       msg.style.display = 'none'; msg.textContent = '';
       if (found && found.session) {
@@ -895,6 +1001,46 @@
         timeIn.value = '';
         locIn.value = '';
       }
+      // if no selected list provided, try to collect checked boxes from the session DOM
+      try {
+        if (!currentReschedSelected || !Array.isArray(currentReschedSelected) || currentReschedSelected.length === 0) {
+          var sessEl = document.querySelector('[data-session-id="' + sessionId + '"]');
+          var checks = sessEl ? Array.from(sessEl.querySelectorAll('.resched-checkbox:checked')) : [];
+          var sel = [];
+          checks.forEach(function(c){ sel.push({ application_id: c.dataset.applicationId || null, student_id: c.dataset.studentId || null }); });
+          if (sel.length > 0) currentReschedSelected = sel;
+        }
+      } catch (e) { console.error(e); }
+
+      // populate selected students list in the modal
+      try {
+        if (selContainer) {
+          selContainer.innerHTML = '';
+          if (currentReschedSelected && Array.isArray(currentReschedSelected) && currentReschedSelected.length > 0) {
+            var list = document.createElement('div');
+            list.style.display = 'flex'; list.style.flexDirection = 'column'; list.style.gap = '6px';
+            currentReschedSelected.forEach(function(it){
+              var name = '(unknown)';
+              if (found && found.session && Array.isArray(found.session.students)) {
+                for (var i=0;i<found.session.students.length;i++){
+                  var ss = found.session.students[i];
+                  if ((it.application_id && String(ss.application_id) === String(it.application_id)) || (it.student_id && String(ss.student_id) === String(it.student_id))) { name = ss.name || name; break; }
+                }
+              }
+              var row = document.createElement('div'); row.style.display='flex'; row.style.justifyContent='space-between'; row.style.alignItems='center';
+              var left = document.createElement('div'); left.textContent = name; left.style.flex='1';
+              var right = document.createElement('div'); right.style.fontSize='12px'; right.style.color='#666';
+              right.textContent = '';
+              row.appendChild(left); row.appendChild(right);
+              list.appendChild(row);
+            });
+            selContainer.appendChild(list);
+            selContainer.style.display = 'block';
+          } else {
+            selContainer.style.display = 'none';
+          }
+        }
+      } catch (e) { console.error('populate selected failed', e); }
       // disable today and past dates: set min to tomorrow's date
       try {
         var minD = new Date();
@@ -915,6 +1061,7 @@
 
     document.getElementById('resched_cancel').addEventListener('click', function(){
       document.getElementById('reschedModal').style.display = 'none';
+      currentReschedSelected = null;
     });
 
     document.getElementById('resched_confirm').addEventListener('click', function(){
