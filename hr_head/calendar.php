@@ -161,6 +161,106 @@
         }
       }
     }
+      // Handle AJAX reschedule POST to this same script
+      if ($_SERVER['REQUEST_METHOD'] === 'POST' && strpos($_SERVER['CONTENT_TYPE'] ?? '', 'application/json') !== false) {
+        $input = json_decode(file_get_contents('php://input'), true);
+        if ($input && ($input['action'] ?? '') === 'reschedule_all') {
+          $origSessionId = isset($input['session_id']) ? (int)$input['session_id'] : 0;
+          $targetDate = trim($input['target_date'] ?? '');
+          $targetTime = trim($input['target_time'] ?? '');
+          $targetLocation = trim($input['target_location'] ?? '');
+          if (!$origSessionId || !$targetDate) {
+            echo json_encode(['success'=>false,'message'=>'Missing parameters']); exit;
+          }
+          // detect columns
+          $cols2 = [];
+          $resCols2 = $conn->query("SHOW COLUMNS FROM orientation_sessions");
+          if ($resCols2) { while ($r = $resCols2->fetch_assoc()) $cols2[] = $r['Field']; }
+          $dateCandidates2 = ['session_date','date','start','session_datetime','datetime','scheduled_at'];
+          $timeCandidates2 = ['session_time','time','start_time'];
+          $locCandidates2 = ['location','venue','place'];
+          $dateCol2=null;$timeCol2=null;$locCol2=null;
+          foreach ($dateCandidates2 as $c) if (in_array($c,$cols2)) { $dateCol2=$c; break; }
+          foreach ($timeCandidates2 as $c) if (in_array($c,$cols2)) { $timeCol2=$c; break; }
+          foreach ($locCandidates2 as $c) if (in_array($c,$cols2)) { $locCol2=$c; break; }
+          if (!$dateCol2) { echo json_encode(['success'=>false,'message'=>'No date column']); exit; }
+
+          // fetch original session
+          $orig=null;
+          $st0=$conn->prepare("SELECT * FROM orientation_sessions WHERE session_id = ? LIMIT 1");
+          $st0->bind_param('i',$origSessionId); $st0->execute(); $r0=$st0->get_result(); if ($r0) $orig=$r0->fetch_assoc(); $st0->close();
+          $defaultTime = $orig[$timeCol2] ?? ($orig['time'] ?? '');
+          $defaultLoc = $orig[$locCol2] ?? ($orig['location'] ?? '');
+          $useTime = $targetTime !== '' ? $targetTime : $defaultTime;
+          $useLoc = $targetLocation !== '' ? $targetLocation : $defaultLoc;
+
+          // check existing session on target date
+          $stmtChk = $conn->prepare("SELECT * FROM orientation_sessions WHERE DATE(`$dateCol2`) = ? LIMIT 1");
+          $stmtChk->bind_param('s', $targetDate); $stmtChk->execute(); $resChk = $stmtChk->get_result(); $found = $resChk ? $resChk->fetch_assoc() : null; $stmtChk->close();
+          $targetSessionId = null;
+          if ($found) { $targetSessionId = (int)$found['session_id']; }
+          else {
+            // create new session row
+            if ($timeCol2 && $dateCol2 && $timeCol2 !== $dateCol2) {
+              $ins = $conn->prepare("INSERT INTO orientation_sessions (`$dateCol2`, `$timeCol2`" . ($locCol2?",`$locCol2`":"") . ") VALUES (? , ?" . ($locCol2?",?":"") . ")");
+              if ($locCol2) $ins->bind_param('sss', $targetDate, $useTime, $useLoc); else $ins->bind_param('ss', $targetDate, $useTime);
+            } else {
+              $dtval = $targetDate . (!empty($useTime) ? ' ' . $useTime : '');
+              $ins = $conn->prepare("INSERT INTO orientation_sessions (`$dateCol2`" . ($locCol2?",`$locCol2`":"") . ") VALUES (?" . ($locCol2?",?":"") . ")");
+              if ($locCol2) $ins->bind_param('ss', $dtval, $useLoc); else $ins->bind_param('s', $dtval);
+            }
+            $ok = $ins->execute(); if (!$ok) { echo json_encode(['success'=>false,'message'=>'Create session failed','error'=>$ins->error]); exit; }
+            $targetSessionId = (int)$ins->insert_id; $ins->close();
+          }
+
+          // move assignments (optionally only selected students)
+          $hasAssign = $conn->query("SHOW TABLES LIKE 'orientation_assignments'")->num_rows > 0;
+          if (!$hasAssign) { echo json_encode(['success'=>false,'message'=>'assignments table missing']); exit; }
+          $sA = $conn->prepare("SELECT * FROM orientation_assignments WHERE session_id = ?"); $sA->bind_param('i',$origSessionId); $sA->execute(); $resA = $sA->get_result(); $assigns=[]; while($ar=$resA->fetch_assoc()) { $assigns[]=$ar; } $sA->close();
+
+          // build selected lists if provided
+          $selectedApps = [];
+          $selectedStudents = [];
+          if (!empty($input['selected']) && is_array($input['selected'])) {
+            foreach ($input['selected'] as $it) {
+              if (isset($it['application_id']) && $it['application_id'] !== '') $selectedApps[] = (int)$it['application_id'];
+              if (isset($it['student_id']) && $it['student_id'] !== '') $selectedStudents[] = (int)$it['student_id'];
+            }
+          } else {
+            // null means process all
+            $selectedApps = null; $selectedStudents = null;
+          }
+
+          foreach($assigns as $ar) {
+            // skip if selection is provided and this assignment not selected
+            if ($selectedApps !== null || $selectedStudents !== null) {
+              $aidCheck = $ar['application_id'] ?? ($ar['applicationid'] ?? null);
+              $sidCheck = $ar['student_id'] ?? null;
+              $matched = false;
+              if ($aidCheck && is_array($selectedApps) && in_array((int)$aidCheck, $selectedApps, true)) $matched = true;
+              if (!$matched && $sidCheck && is_array($selectedStudents) && in_array((int)$sidCheck, $selectedStudents, true)) $matched = true;
+              if (!$matched) continue; // not selected
+            }
+            $appId = $ar['application_id'] ?? ($ar['applicationid'] ?? null);
+            if ($appId) {
+              $chk = $conn->prepare("SELECT COUNT(*) AS cnt FROM orientation_assignments WHERE session_id = ? AND (application_id = ? OR student_id = ?) LIMIT 1");
+              $chk->bind_param('iii',$targetSessionId, $appId, $appId); $chk->execute(); $cres = $chk->get_result(); $crow = $cres?$cres->fetch_assoc():null; $cnt = $crow? (int)$crow['cnt'] : 0; $chk->close();
+              if ($cnt === 0) {
+                $up = $conn->prepare("UPDATE orientation_assignments SET session_id = ? WHERE session_id = ? AND (application_id = ? OR student_id = ?) LIMIT 1"); $up->bind_param('iiii', $targetSessionId, $origSessionId, $appId, $appId); $up->execute(); $up->close();
+              } else {
+                $del = $conn->prepare("DELETE FROM orientation_assignments WHERE session_id = ? AND (application_id = ? OR student_id = ?) LIMIT 1"); $del->bind_param('iii', $origSessionId, $appId, $appId); $del->execute(); $del->close();
+              }
+            } else {
+              $assignId = $ar['id'] ?? $ar['assignment_id'] ?? null;
+              if ($assignId) { $up = $conn->prepare("UPDATE orientation_assignments SET session_id = ? WHERE (id = ? OR assignment_id = ?) LIMIT 1"); $up->bind_param('iii',$targetSessionId,$assignId,$assignId); $up->execute(); $up->close(); }
+            }
+          }
+
+          $fromDate = $orig[$dateCol2] ?? null;
+          $fromLabel = $fromDate ? date('M j, Y', strtotime($fromDate)) : null;
+          echo json_encode(['success'=>true,'message'=>'Rescheduled','target_session_id'=>$targetSessionId,'from_date'=>$fromLabel]); exit;
+        }
+      }
     // navigation helpers
     $prevMonth = (clone $first)->modify('-1 month');
     $nextMonth = (clone $first)->modify('+1 month');
@@ -229,11 +329,15 @@
     #orientationContent .text.small{font-size:13px;color:#111}
     /* students list */
     #orientationContent .students{margin-top:6px}
-    #orientationContent .student-row{display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px dashed #f2eef9}
-    #orientationContent .student-row .student-name{color:#111;font-size:14px}
+    #orientationContent .student-row{display:flex;align-items:center;justify-content:flex-start;padding:8px 0;border-bottom:1px dashed #f2eef9}
+    #orientationContent .student-row .student-name{color:#111;font-size:14px;flex:1;text-align:left;margin-left:6px}
     #orientationContent .print-icon{width:36px;height:36px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;border:1px solid #6a3db5;background:transparent;color:#6a3db5;cursor:pointer}
     #orientationContent .print-icon svg{width:16px;height:16px;fill:none;stroke:#6a3db5;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+    #orientationContent .resched-icon{width:36px;height:36px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;border:1px solid #6a3db5;background:transparent;color:#6a3db5;cursor:pointer}
+    #orientationContent .resched-icon svg{width:16px;height:16px;fill:none;stroke:#6a3db5;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+    #orientationContent .student-actions{display:inline-flex;gap:8px;align-items:center}
     #orientationContent .print-all{display:block;margin-top:8px;padding:8px 12px;border-radius:8px;border:1px solid #6a3db5;background:transparent;color:#6a3db5;text-align:center;text-decoration:none;width:100%}
+    #orientationContent .print-all.disabled{pointer-events:none;opacity:0.6}
     .dot{width:12px;height:12px;border-radius:50%;background:#efe6ff;flex:0 0 12px;margin-top:4px}
     .dot.purple{background:#efe6ff}
     /* today's day number: filled purple circle */
@@ -242,6 +346,7 @@
     .cell.selected .date{background:transparent;color:#6a3db5;border:2px solid #6a3db5;width:22px;height:22px;line-height:18px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;padding:0}
     .upcoming .meta{color:#6d6d6d;font-size:13px}
     .resched{display:block;margin-top:12px;padding:8px 12px;border-radius:8px;background:#6a3db5;color:#fff;text-align:center;text-decoration:none;width:100%}
+    .resched-badge{display:inline-block;margin-top:8px;padding:4px 8px;background:#eef6ff;color:#0b3b8a;border-radius:8px;font-size:12px}
     @media (max-width:1200px){ .outer-panel .panel{width:100%;padding:18px} }
     @media (max-width:980px){ .content{grid-template-columns:1fr 260px} }
     @media (max-width:820px){
@@ -369,6 +474,7 @@
       // render sessions with left icons and rows
       sessions.forEach(function(s){
         var sess = document.createElement('div'); sess.className = 'session';
+        sess.dataset.sessionId = s.session_id || '';
 
         // time row
         var row1 = document.createElement('div'); row1.className = 'row';
@@ -397,37 +503,92 @@
         // students list with label and print actions
         var studentsWrap = document.createElement('div'); studentsWrap.className = 'students';
         if (s.students && s.students.length > 0) {
+          // header: Students label + Select All checkbox
+          var header = document.createElement('div'); header.style.display = 'flex'; header.style.justifyContent = 'space-between'; header.style.alignItems = 'center';
           var label = document.createElement('div'); label.className = 'students-label'; label.textContent = 'Students';
-          studentsWrap.appendChild(label);
+          header.appendChild(label);
+          var saWrap = document.createElement('div'); saWrap.style.display='flex'; saWrap.style.alignItems='center';
+          var sa = document.createElement('input'); sa.type = 'checkbox'; sa.className = 'select-all'; sa.id = 'select_all_' + (s.session_id || Math.random().toString(36).slice(2,7));
+          var saLabel = document.createElement('label'); saLabel.setAttribute('for', sa.id); saLabel.style.marginLeft='6px'; saLabel.style.fontSize='12px'; saLabel.style.color='#444'; saLabel.textContent = 'Select all';
+          saWrap.appendChild(sa); saWrap.appendChild(saLabel);
+          header.appendChild(saWrap);
+          studentsWrap.appendChild(header);
+
           s.students.forEach(function(st){
             var r = document.createElement('div'); r.className = 'student-row';
+            // checkbox for selecting which students to reschedule
+            var cb = document.createElement('input'); cb.type = 'checkbox'; cb.className = 'resched-checkbox';
+            cb.style.marginRight = '8px';
+            if (st.application_id) cb.dataset.applicationId = st.application_id;
+            if (st.student_id) cb.dataset.studentId = st.student_id;
+            // name
             var name = document.createElement('div'); name.className = 'student-name'; name.textContent = st.name || '';
-            var pbtn = document.createElement('button'); pbtn.className = 'print-icon'; pbtn.type = 'button';
-            pbtn.dataset.studentId = st.student_id || st.id || '';
-            pbtn.dataset.applicationId = st.application_id || '';
-            pbtn.title = 'Print Endorsement Letter';
-            pbtn.setAttribute('aria-label', 'Print Endorsement Letter for ' + (st.name || 'student'));
-            pbtn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 7v6a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V7"/><path d="M17 3H7v4h10V3z"/></svg>';
-            r.appendChild(name); r.appendChild(pbtn);
+            // assemble row: checkbox + name
+            r.appendChild(name);
+            // prepend checkbox before name for easy selection
+            r.insertBefore(cb, r.firstChild);
             studentsWrap.appendChild(r);
           });
-          // Print All button
-          var printAll = document.createElement('a'); printAll.className = 'print-all'; printAll.href = '#'; printAll.textContent = 'Print All Endorsement Letter';
+          // select-all behavior
+          sa.addEventListener('change', function(){
+            var sessParent = this.closest('.students');
+            if (!sessParent) return;
+            var checks = sessParent.querySelectorAll('.resched-checkbox');
+            checks.forEach(function(ch){ ch.checked = sa.checked; });
+            // update print button state when select-all toggles (use class to preserve layout)
+            try {
+              var btn = sessParent.querySelector('.print-all');
+              if (btn) {
+                if (sa.checked) { btn.classList.remove('disabled'); btn.removeAttribute('aria-disabled'); } else { btn.classList.add('disabled'); btn.setAttribute('aria-disabled','true'); }
+              }
+            } catch(e){}
+          });
+          // Print button (prints selected students) — use anchor to preserve original layout
+          var printAll = document.createElement('a'); printAll.className = 'print-all'; printAll.href = '#'; printAll.textContent = 'Print Endorsement Letter';
+          // start disabled until at least one student is selected (use disabled class)
+          printAll.classList.add('disabled'); printAll.setAttribute('aria-disabled','true');
           // attach session id for Print All
           printAll.dataset.sessionId = s.session_id || '';
           studentsWrap.appendChild(printAll);
+
+          // enable/disable print button based on checkbox selections (toggle class)
+          function updatePrintButtonState() {
+            try {
+              var anyChecked = Array.from(studentsWrap.querySelectorAll('.resched-checkbox')).some(function(ch){ return ch.checked; });
+              if (anyChecked) { printAll.classList.remove('disabled'); printAll.removeAttribute('aria-disabled'); }
+              else { printAll.classList.add('disabled'); printAll.setAttribute('aria-disabled','true'); }
+            } catch(e){}
+          }
+          // wire checkbox change events to update button state
+          var allChecks = studentsWrap.querySelectorAll('.resched-checkbox');
+          allChecks.forEach(function(ch){ ch.addEventListener('change', updatePrintButtonState); });
         } else {
           var none = document.createElement('div'); none.className = 'meta'; none.textContent = 'No students assigned.';
           studentsWrap.appendChild(none);
         }
         sess.appendChild(studentsWrap);
 
+        // session-level reschedule button (Reschedule selected students)
+        var sessionBtn = document.createElement('a'); sessionBtn.className = 'resched'; sessionBtn.href = '#'; sessionBtn.textContent = 'Reschedule';
+        sessionBtn.style.marginTop = '10px';
+        sessionBtn.dataset.sessionId = s.session_id || '';
+        sessionBtn.addEventListener('click', function(ev){
+          ev.preventDefault();
+          // collect checked students inside this session element
+          var sessEl = this.closest('.session');
+          var checks = sessEl ? sessEl.querySelectorAll('.resched-checkbox:checked') : [];
+          if (!checks || checks.length === 0) { alert('Please select one or more students to reschedule.'); return; }
+          // build selected list and store globally for modal
+          var sel = [];
+          checks.forEach(function(c){ sel.push({ application_id: c.dataset.applicationId || null, student_id: c.dataset.studentId || null }); });
+          // attach to currentReschedSelected
+          currentReschedSelected = sel;
+          openRescheduleModalForSession(this.dataset.sessionId);
+        });
+        sess.appendChild(sessionBtn);
+
         container.appendChild(sess);
       });
-      // reschedule remains last
-      var btn = document.createElement('a'); btn.className='resched'; btn.href='#'; btn.textContent='Reschedule';
-      btn.style.marginTop='10px';
-      container.appendChild(btn);
     }
 
     // small keyboard-friendly focus for cells and click handling to populate Orientation panel
@@ -440,6 +601,68 @@
       c.addEventListener('keydown', function(e){ if(e.key==='Enter' || e.key===' ') { var d = this.dataset.day; clearSelected(); if(d) this.classList.add('selected'); renderOrientation(d); } });
       c.addEventListener('click', function(){ var d = this.dataset.day; clearSelected(); if(d) this.classList.add('selected'); renderOrientation(d); });
     });
+
+    // Delegated selection handlers for students and select-all
+    (function(){
+      var oc = document.getElementById('orientationContent');
+      if (!oc) return;
+
+      function updateButtonsForWrap(studentsWrap){
+        if (!studentsWrap) return;
+        var checks = Array.from(studentsWrap.querySelectorAll('.resched-checkbox'));
+        var checkedCount = checks.filter(function(ch){ return ch.checked; }).length;
+        var printAllBtn = studentsWrap.querySelector('.print-all');
+        if (printAllBtn) {
+          if (checkedCount > 0) { printAllBtn.classList.remove('disabled'); printAllBtn.removeAttribute('aria-disabled'); }
+          else { printAllBtn.classList.add('disabled'); printAllBtn.setAttribute('aria-disabled','true'); }
+        }
+        var sessEl = studentsWrap.closest && studentsWrap.closest('.session');
+        var reschedBtn = sessEl ? sessEl.querySelector('.resched') : null;
+        if (reschedBtn) {
+          if (checkedCount > 0) { reschedBtn.classList.remove('disabled'); reschedBtn.removeAttribute('aria-disabled'); }
+          else { reschedBtn.classList.add('disabled'); reschedBtn.setAttribute('aria-disabled','true'); }
+        }
+        // update select-all checkbox state
+        var sa = studentsWrap.querySelector('.select-all');
+        if (sa) {
+          if (checks.length === 0) { sa.checked = false; sa.indeterminate = false; }
+          else if (checkedCount === 0) { sa.checked = false; sa.indeterminate = false; }
+          else if (checkedCount === checks.length) { sa.checked = true; sa.indeterminate = false; }
+          else { sa.checked = false; sa.indeterminate = true; }
+        }
+        // reflect row selected class
+        checks.forEach(function(ch){ var row = ch.closest && ch.closest('.student-row'); if (row) { if (ch.checked) row.classList.add('selected'); else row.classList.remove('selected'); } });
+      }
+
+      oc.addEventListener('click', function(e){
+        var t = e.target;
+        // select-all clicked
+        var sa = t.closest && t.closest('.select-all');
+        if (sa) {
+          var wrap = sa.closest && sa.closest('.students');
+          if (!wrap) return;
+          var checks = wrap.querySelectorAll('.resched-checkbox');
+          checks.forEach(function(ch){ ch.checked = sa.checked; ch.dispatchEvent(new Event('change',{bubbles:true})); });
+          updateButtonsForWrap(wrap);
+          return;
+        }
+        // row click toggles checkbox (ignore clicks on inputs/links)
+        var row = t.closest && t.closest('.student-row');
+        if (row && !t.matches('input, a, button, label')) {
+          var cb = row.querySelector('.resched-checkbox');
+          if (cb) { cb.checked = !cb.checked; cb.dispatchEvent(new Event('change',{bubbles:true})); updateButtonsForWrap(row.closest('.students')); }
+          return;
+        }
+      }, true);
+
+      // listen for checkbox changes to update buttons
+      oc.addEventListener('change', function(e){
+        var target = e.target;
+        if (target && target.classList && target.classList.contains('resched-checkbox')){
+          updateButtonsForWrap(target.closest('.students'));
+        }
+      });
+    })();
 
     // try to show today's sessions when loading if in current month
     (function(){
@@ -461,18 +684,203 @@
         if (appId) url += 'application_id=' + encodeURIComponent(appId);
         else if (studId) url += 'student_id=' + encodeURIComponent(studId);
         else { alert('No application or student id available'); return; }
-        window.open(url, '_blank');
+        // open via temporary anchor click to improve multi-tab reliability
+        try {
+          var a = document.createElement('a'); a.href = url; a.target = '_blank'; a.rel = 'noopener'; document.body.appendChild(a); a.click(); a.remove();
+        } catch(e) { window.open(url, '_blank'); }
+        return;
+      }
+      var r = e.target.closest && e.target.closest('.resched-icon');
+      if (r) {
+        var appIdR = r.dataset.applicationId || '';
+        var studIdR = r.dataset.studentId || '';
+        var urlR = 'reschedule.php?';
+        if (appIdR) urlR += 'application_id=' + encodeURIComponent(appIdR);
+        else if (studIdR) urlR += 'student_id=' + encodeURIComponent(studIdR);
+        else { alert('No application or student id available'); return; }
+        window.open(urlR, '_blank');
         return;
       }
       var pa = e.target.closest && e.target.closest('.print-all');
       if (pa) {
         e.preventDefault();
-        var sid = pa.dataset.sessionId || '';
-        if (!sid) { alert('Session id missing'); return; }
-        var url = 'print_endorsement.php?session_id=' + encodeURIComponent(sid) + '&all=1';
-        window.open(url, '_blank');
+        // print only selected students in this session
+        var sessEl = pa.closest('.session');
+        if (!sessEl) { alert('Session element not found'); return; }
+        var checks = sessEl.querySelectorAll('.resched-checkbox:checked');
+        if (!checks || checks.length === 0) { alert('Please select one or more students to print.'); return; }
+        checks.forEach(function(c){
+          var appId = c.dataset.applicationId || '';
+          var studId = c.dataset.studentId || '';
+          var url = 'print_endorsement.php?';
+          if (appId) url += 'application_id=' + encodeURIComponent(appId);
+          else if (studId) url += 'student_id=' + encodeURIComponent(studId);
+          else return;
+          try {
+            var a2 = document.createElement('a'); a2.href = url; a2.target = '_blank'; a2.rel = 'noopener'; document.body.appendChild(a2); a2.click(); a2.remove();
+          } catch(e) { window.open(url, '_blank'); }
+        });
         return;
       }
+      var ra = e.target.closest && e.target.closest('.resched');
+      if (ra) {
+        e.preventDefault();
+        var sid2 = ra.dataset.sessionId || '';
+        if (!sid2) { alert('Session id missing'); return; }
+        // open inline reschedule modal
+        openRescheduleModalForSession(sid2);
+        return;
+      }
+    });
+  </script>
+  <!-- Reschedule modal -->
+  <div id="reschedModal" style="display:none;position:fixed;inset:0;align-items:center;justify-content:center;z-index:10020;background:rgba(0,0,0,0.35);">
+    <div style="background:#fff;border-radius:10px;padding:16px;width:420px;max-width:calc(100% - 32px);box-shadow:0 12px 40px rgba(0,0,0,0.2);">
+      <h3 style="margin:0 0 8px 0;color:#2f3850">Reschedule Selected Students</h3>
+      <div style="font-size:13px;color:#444;margin-bottom:8px">Choose new date for the selected students in this session.</div>
+      <div style="margin-bottom:8px">
+        <label style="font-weight:600;display:block;margin-bottom:4px">Date</label>
+        <input id="resched_date" type="date" style="width:100%;padding:8px;border-radius:6px;border:1px solid #ccc" />
+      </div>
+      <div style="margin-bottom:8px">
+        <label style="font-weight:600;display:block;margin-bottom:4px">Time</label>
+        <input id="resched_time" type="time" style="width:100%;padding:8px;border-radius:6px;border:1px solid #ccc" />
+      </div>
+      <div style="margin-bottom:8px">
+        <label style="font-weight:600;display:block;margin-bottom:4px">Location</label>
+        <input id="resched_location" type="text" style="width:100%;padding:8px;border-radius:6px;border:1px solid #ccc" />
+      </div>
+      <div id="resched_msg" style="display:none;margin-bottom:8px;padding:8px;border-radius:6px"></div>
+      <div style="display:flex;justify-content:flex-end;gap:8px">
+        <button type="button" id="resched_cancel" style="padding:8px 12px;border-radius:6px;border:1px solid #ddd;background:#fff">Cancel</button>
+        <button type="button" id="resched_confirm" style="padding:8px 12px;border-radius:6px;background:#6a3db5;color:#fff;border:0">Confirm</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // helper: find session object by session_id in eventsData
+    function findSessionById(id) {
+      if (!id) return null;
+      for (var day in eventsData) {
+        if (!eventsData.hasOwnProperty(day)) continue;
+        var arr = eventsData[day];
+        for (var i = 0; i < arr.length; i++) {
+          if (String(arr[i].session_id) === String(id)) return { session: arr[i], day: day };
+        }
+      }
+      return null;
+    }
+
+    var currentReschedSession = null;
+    var currentReschedSelected = null; // array of selected {application_id, student_id}
+    function openRescheduleModalForSession(sessionId) {
+      currentReschedSession = sessionId;
+      var found = findSessionById(sessionId);
+      var modal = document.getElementById('reschedModal');
+      var dateIn = document.getElementById('resched_date');
+      var timeIn = document.getElementById('resched_time');
+      var locIn = document.getElementById('resched_location');
+      var msg = document.getElementById('resched_msg');
+      msg.style.display = 'none'; msg.textContent = '';
+      if (found && found.session) {
+        // default date: session.date (may be datetime)
+        var dt = new Date(found.session.date);
+        var yyyy = dt.getFullYear();
+        var mm = String(dt.getMonth()+1).padStart(2,'0');
+        var dd = String(dt.getDate()).padStart(2,'0');
+        dateIn.value = yyyy + '-' + mm + '-' + dd;
+        // default time if available
+        if (found.session.time) {
+          // parse time like "8:30 AM" -> 08:30
+          var t = found.session.time;
+          var dtmp = new Date('1970-01-01 ' + t);
+          if (!isNaN(dtmp)) {
+            var th = String(dtmp.getHours()).padStart(2,'0');
+            var tm = String(dtmp.getMinutes()).padStart(2,'0');
+            timeIn.value = th + ':' + tm;
+          } else {
+            timeIn.value = '';
+          }
+        } else {
+          timeIn.value = '';
+        }
+        locIn.value = found.session.location || '';
+      } else {
+        // fallback: set date to today
+        var d = new Date();
+        dateIn.value = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+        timeIn.value = '';
+        locIn.value = '';
+      }
+      // disable today and past dates: set min to tomorrow's date
+      try {
+        var minD = new Date();
+        minD.setDate(minD.getDate() + 1);
+        var minY = minD.getFullYear();
+        var minM = String(minD.getMonth()+1).padStart(2,'0');
+        var minDay = String(minD.getDate()).padStart(2,'0');
+        var minIso = minY + '-' + minM + '-' + minDay;
+        dateIn.min = minIso;
+        if (dateIn.value < minIso) dateIn.value = minIso;
+      } catch (e) {
+        // ignore if date input unsupported
+      }
+      modal.style.display = 'flex';
+      // focus date
+      dateIn.focus();
+    }
+
+    document.getElementById('resched_cancel').addEventListener('click', function(){
+      document.getElementById('reschedModal').style.display = 'none';
+    });
+
+    document.getElementById('resched_confirm').addEventListener('click', function(){
+      var sid = currentReschedSession;
+      if (!sid) return alert('Session id missing');
+      var dateVal = document.getElementById('resched_date').value;
+      if (!dateVal) return alert('Please select a date');
+      var timeVal = document.getElementById('resched_time').value || '';
+      var locVal = document.getElementById('resched_location').value || '';
+      var selected = currentReschedSelected || null;
+      var msg = document.getElementById('resched_msg');
+      var btn = document.getElementById('resched_confirm');
+      btn.disabled = true; btn.textContent = 'Working...';
+      fetch('calendar.php', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ action: 'reschedule_all', session_id: sid, target_date: dateVal, target_time: timeVal, target_location: locVal, selected: selected })
+      }).then(r=>r.json()).then(function(res){
+        btn.disabled = false; btn.textContent = 'Confirm';
+        if (res && res.success) {
+          msg.style.display = 'block'; msg.style.background = '#e6f9ee'; msg.style.color = '#0b7a3a'; msg.textContent = (res.message || 'Rescheduled.');
+          // show badge on the session element
+          try {
+            var sessEl = document.querySelector('[data-session-id="' + sid + '"]');
+            if (sessEl) {
+              var existing = sessEl.querySelector('.resched-badge');
+              if (!existing) {
+                var b = document.createElement('span'); b.className = 'resched-badge';
+                var fromLabel = res.from_date ? ('Rescheduled from ' + res.from_date) : 'Rescheduled';
+                b.textContent = fromLabel;
+                sessEl.appendChild(b);
+              } else {
+                existing.textContent = res.from_date ? ('Rescheduled from ' + res.from_date) : 'Rescheduled';
+              }
+            }
+          } catch (e) { /* ignore */ }
+          // keep modal visible briefly then close
+          setTimeout(function(){ document.getElementById('reschedModal').style.display = 'none'; }, 900);
+          // clear selection after reschedule
+          try { currentReschedSelected = null; var sessEl2 = document.querySelector('[data-session-id="' + sid + '"]'); if (sessEl2) { var checksAll = sessEl2.querySelectorAll('.resched-checkbox:checked'); checksAll.forEach(function(c){ c.checked = false; }); } } catch(e){}
+        } else {
+          msg.style.display = 'block'; msg.style.background = '#fff4f4'; msg.style.color = '#a00'; msg.textContent = (res && res.message) ? res.message : 'Error';
+        }
+      }).catch(function(err){
+        btn.disabled = false; btn.textContent = 'Confirm';
+        alert('Request failed');
+        console.error(err);
+      });
     });
   </script>
 </body>

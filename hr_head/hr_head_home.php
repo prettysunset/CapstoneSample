@@ -889,7 +889,7 @@ $stmtCompleted->close();
     <div class="row">
       <label>Time</label>
       <div style="position:relative;">
-        <input type="time" id="modal_time" value="08:30" style="width:100%;padding:8px;border-radius:6px;border:1px solid #ccc;">
+        <input type="time" id="modal_time" value="08:30" min="08:00" max="16:00" style="width:100%;padding:8px;border-radius:6px;border:1px solid #ccc;">
       </div>
     </div>
 
@@ -1171,6 +1171,24 @@ async function openApproveModal(btn) {
     ov.setAttribute('aria-hidden', 'false');
 
     dateInput.focus();
+
+    // enforce office hours on time input: only allow 08:00 - 16:00, default stays 08:30
+    try {
+      const timeInput = document.getElementById('modal_time');
+      if (timeInput) {
+        timeInput.min = '08:00';
+        timeInput.max = '16:00';
+        if (!timeInput.value) timeInput.value = '08:30';
+        // clamp any existing value into range
+        if (timeInput.value < timeInput.min) timeInput.value = timeInput.min;
+        if (timeInput.value > timeInput.max) timeInput.value = timeInput.max;
+        // safe-guard: prevent selecting outside range by clamping on input
+        timeInput.addEventListener('input', function(){
+          if (this.value && this.min && this.value < this.min) this.value = this.min;
+          if (this.value && this.max && this.value > this.max) this.value = this.max;
+        });
+      }
+    } catch (e) { /* ignore */ }
 }
 
 function closeModal(){
@@ -1193,6 +1211,20 @@ function sendApproval(){
     if (!date) {
         return alert('Please select the orientation / starting date.');
     }
+
+    // validate time is within office hours (08:00 - 16:00)
+    try {
+      const timeVal = document.getElementById('modal_time') ? document.getElementById('modal_time').value : '';
+      const timeEl = document.getElementById('modal_time');
+      const minTime = (timeEl && timeEl.min) ? timeEl.min : '08:00';
+      const maxTime = (timeEl && timeEl.max) ? timeEl.max : '16:00';
+      if (timeVal) {
+        if (timeVal < minTime || timeVal > maxTime) {
+          alert('Please choose a time between ' + minTime + ' and ' + maxTime + '.');
+          return;
+        }
+      }
+    } catch (e) { /* ignore validation errors */ }
 
     // disable button to prevent double submit
     const btnSend = document.getElementById('btnSend');
@@ -1650,6 +1682,12 @@ const orientationCounts = <?php
       dateFormat: 'Y-m-d',
       allowInput: false,
       clickOpens: false,
+      // disable weekends (Saturday=6, Sunday=0)
+      disable: [
+        function(date) {
+          return (date.getDay() === 0 || date.getDay() === 6);
+        }
+      ],
       // render the count badges reliably after calendar renders
       onReady: function(selectedDates, dateStr, fp) { renderCounts(fp); },
       onOpen: function(selectedDates, dateStr, fp) { renderCounts(fp); },
