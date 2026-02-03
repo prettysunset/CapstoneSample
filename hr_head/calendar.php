@@ -163,14 +163,19 @@
     }
       // Handle AJAX reschedule POST to this same script
       if ($_SERVER['REQUEST_METHOD'] === 'POST' && strpos($_SERVER['CONTENT_TYPE'] ?? '', 'application/json') !== false) {
-        $input = json_decode(file_get_contents('php://input'), true);
+        // capture any stray output and make responses robust for the JS client
+        ob_start();
+        $raw = file_get_contents('php://input');
+        error_log('calendar.php POST payload: ' . $raw);
+        $input = json_decode($raw, true);
         if ($input && ($input['action'] ?? '') === 'reschedule_all') {
+          try {
           $origSessionId = isset($input['session_id']) ? (int)$input['session_id'] : 0;
           $targetDate = trim($input['target_date'] ?? '');
           $targetTime = trim($input['target_time'] ?? '');
           $targetLocation = trim($input['target_location'] ?? '');
           if (!$origSessionId || !$targetDate) {
-            echo json_encode(['success'=>false,'message'=>'Missing parameters']); exit;
+            ob_end_clean(); header('Content-Type: application/json; charset=utf-8'); echo json_encode(['success'=>false,'message'=>'Missing parameters']); exit;
           }
           // detect columns
           $cols2 = [];
@@ -183,7 +188,7 @@
           foreach ($dateCandidates2 as $c) if (in_array($c,$cols2)) { $dateCol2=$c; break; }
           foreach ($timeCandidates2 as $c) if (in_array($c,$cols2)) { $timeCol2=$c; break; }
           foreach ($locCandidates2 as $c) if (in_array($c,$cols2)) { $locCol2=$c; break; }
-          if (!$dateCol2) { echo json_encode(['success'=>false,'message'=>'No date column']); exit; }
+          if (!$dateCol2) { ob_end_clean(); header('Content-Type: application/json; charset=utf-8'); echo json_encode(['success'=>false,'message'=>'No date column']); exit; }
 
           // fetch original session
           $orig=null;
@@ -209,13 +214,13 @@
               $ins = $conn->prepare("INSERT INTO orientation_sessions (`$dateCol2`" . ($locCol2?",`$locCol2`":"") . ") VALUES (?" . ($locCol2?",?":"") . ")");
               if ($locCol2) $ins->bind_param('ss', $dtval, $useLoc); else $ins->bind_param('s', $dtval);
             }
-            $ok = $ins->execute(); if (!$ok) { echo json_encode(['success'=>false,'message'=>'Create session failed','error'=>$ins->error]); exit; }
+            $ok = $ins->execute(); if (!$ok) { ob_end_clean(); header('Content-Type: application/json; charset=utf-8'); echo json_encode(['success'=>false,'message'=>'Create session failed','error'=>$ins->error]); exit; }
             $targetSessionId = (int)$ins->insert_id; $ins->close();
           }
 
           // move assignments (optionally only selected students)
           $hasAssign = $conn->query("SHOW TABLES LIKE 'orientation_assignments'")->num_rows > 0;
-          if (!$hasAssign) { echo json_encode(['success'=>false,'message'=>'assignments table missing']); exit; }
+          if (!$hasAssign) { ob_end_clean(); header('Content-Type: application/json; charset=utf-8'); echo json_encode(['success'=>false,'message'=>'assignments table missing']); exit; }
           $sA = $conn->prepare("SELECT * FROM orientation_assignments WHERE session_id = ?"); $sA->bind_param('i',$origSessionId); $sA->execute(); $resA = $sA->get_result(); $assigns=[]; while($ar=$resA->fetch_assoc()) { $assigns[]=$ar; } $sA->close();
 
           // we'll collect moved students/apps to notify by email (best-effort)
@@ -235,51 +240,100 @@
             $selectedApps = null; $selectedStudents = null;
           }
 
-          foreach($assigns as $ar) {
-            // skip if selection is provided and this assignment not selected
-            if ($selectedApps !== null || $selectedStudents !== null) {
-              $aidCheck = $ar['application_id'] ?? ($ar['applicationid'] ?? null);
-              $sidCheck = $ar['student_id'] ?? null;
-              $matched = false;
-              if ($aidCheck && is_array($selectedApps) && in_array((int)$aidCheck, $selectedApps, true)) $matched = true;
-              if (!$matched && $sidCheck && is_array($selectedStudents) && in_array((int)$sidCheck, $selectedStudents, true)) $matched = true;
-              if (!$matched) continue; // not selected
-            }
-            $appId = $ar['application_id'] ?? ($ar['applicationid'] ?? null);
-            if ($appId) {
-              $chk = $conn->prepare("SELECT COUNT(*) AS cnt FROM orientation_assignments WHERE session_id = ? AND (application_id = ? OR student_id = ?) LIMIT 1");
-              $chk->bind_param('iii',$targetSessionId, $appId, $appId); $chk->execute(); $cres = $chk->get_result(); $crow = $cres?$cres->fetch_assoc():null; $cnt = $crow? (int)$crow['cnt'] : 0; $chk->close();
-              if ($cnt === 0) {
-                $up = $conn->prepare("UPDATE orientation_assignments SET session_id = ? WHERE session_id = ? AND (application_id = ? OR student_id = ?) LIMIT 1"); $up->bind_param('iiii', $targetSessionId, $origSessionId, $appId, $appId); $up->execute(); $up->close();
-                // record moved application/student for notification
-                if (!empty($ar['application_id'])) $movedApplicationIds[] = (int)$ar['application_id'];
-                if (!empty($ar['student_id'])) $movedStudentIds[] = (int)$ar['student_id'];
-              } else {
-                $del = $conn->prepare("DELETE FROM orientation_assignments WHERE session_id = ? AND (application_id = ? OR student_id = ?) LIMIT 1"); $del->bind_param('iii', $origSessionId, $appId, $appId); $del->execute(); $del->close();
+          // If specific students/apps were selected, perform bulk updates for those
+          if (($selectedApps !== null && is_array($selectedApps) && count($selectedApps) > 0) || ($selectedStudents !== null && is_array($selectedStudents) && count($selectedStudents) > 0)) {
+            // handle application_id based moves first
+            if (!empty($selectedApps)) {
+              $apps = array_map('intval', $selectedApps);
+              $inApps = implode(',', $apps);
+              $already = [];
+              $q = $conn->query("SELECT application_id FROM orientation_assignments WHERE session_id = " . (int)$targetSessionId . " AND application_id IN ($inApps)");
+              if ($q) { while ($r = $q->fetch_assoc()) { $already[] = (int)$r['application_id']; } $q->free(); }
+              $toMove = array_values(array_diff($apps, $already));
+              if (!empty($toMove)) {
+                $inMove = implode(',', array_map('intval', $toMove));
+                $sqlUp = "UPDATE orientation_assignments SET session_id = " . (int)$targetSessionId . " WHERE session_id = " . (int)$origSessionId . " AND application_id IN ($inMove)";
+                $conn->query($sqlUp);
+                foreach ($toMove as $a) $movedApplicationIds[] = (int)$a;
               }
-            } else {
-              $assignId = $ar['id'] ?? $ar['assignment_id'] ?? null;
-              if ($assignId) { $up = $conn->prepare("UPDATE orientation_assignments SET session_id = ? WHERE (id = ? OR assignment_id = ?) LIMIT 1"); $up->bind_param('iii',$targetSessionId,$assignId,$assignId); $up->execute(); $up->close();
-                if (!empty($ar['student_id'])) $movedStudentIds[] = (int)$ar['student_id'];
+            }
+
+            // handle student_id selections by resolving to application_ids assigned in the original session
+            if (!empty($selectedStudents)) {
+              $studs = array_map('intval', $selectedStudents);
+              $inStuds = implode(',', $studs);
+              $appList = [];
+              $q2 = $conn->query("SELECT oa.application_id FROM orientation_assignments oa LEFT JOIN ojt_applications app ON oa.application_id = app.application_id WHERE oa.session_id = " . (int)$origSessionId . " AND app.student_id IN ($inStuds) AND oa.application_id IS NOT NULL");
+              if ($q2) { while ($rr = $q2->fetch_assoc()) { $appList[] = (int)$rr['application_id']; } $q2->free(); }
+              if (!empty($appList)) {
+                $inApps2 = implode(',', $appList);
+                $already2 = [];
+                $q3 = $conn->query("SELECT application_id FROM orientation_assignments WHERE session_id = " . (int)$targetSessionId . " AND application_id IN ($inApps2)");
+                if ($q3) { while ($r3 = $q3->fetch_assoc()) { $already2[] = (int)$r3['application_id']; } $q3->free(); }
+                $toMove2 = array_values(array_diff($appList, $already2));
+                if (!empty($toMove2)) {
+                  $inMove2 = implode(',', array_map('intval', $toMove2));
+                  $sqlUp2 = "UPDATE orientation_assignments SET session_id = " . (int)$targetSessionId . " WHERE session_id = " . (int)$origSessionId . " AND application_id IN ($inMove2)";
+                  $conn->query($sqlUp2);
+                  foreach ($toMove2 as $a2) $movedApplicationIds[] = (int)$a2;
+                }
+              }
+            }
+
+            // resolve moved applications to student ids for notifications
+            if (!empty($movedApplicationIds)) {
+              $ids = array_map('intval', array_unique($movedApplicationIds));
+              $in = implode(',', $ids);
+              $rmap = $conn->query("SELECT application_id, student_id FROM ojt_applications WHERE application_id IN ($in)");
+              if ($rmap) { while ($rr = $rmap->fetch_assoc()) { if (!empty($rr['student_id'])) $movedStudentIds[] = (int)$rr['student_id']; } $rmap->free(); }
+            }
+
+            // ensure unique student ids
+            $movedStudentIds = array_values(array_unique(array_filter($movedStudentIds)));
+          } else {
+            // no explicit selection: fallback to per-assignment loop (move all assignments from original session)
+            foreach($assigns as $ar) {
+              $appId = $ar['application_id'] ?? ($ar['applicationid'] ?? null);
+              if ($appId) {
+                $chk = $conn->prepare("SELECT COUNT(*) AS cnt FROM orientation_assignments WHERE session_id = ? AND (application_id = ? OR student_id = ?) LIMIT 1");
+                $chk->bind_param('iii',$targetSessionId, $appId, $appId); $chk->execute(); $cres = $chk->get_result(); $crow = $cres?$cres->fetch_assoc():null; $cnt = $crow? (int)$crow['cnt'] : 0; $chk->close();
+                if ($cnt === 0) {
+                  $up = $conn->prepare("UPDATE orientation_assignments SET session_id = ? WHERE session_id = ? AND (application_id = ? OR student_id = ?) LIMIT 1"); $up->bind_param('iiii', $targetSessionId, $origSessionId, $appId, $appId); $up->execute(); $up->close();
+                  if (!empty($ar['application_id'])) $movedApplicationIds[] = (int)$ar['application_id'];
+                  if (!empty($ar['student_id'])) $movedStudentIds[] = (int)$ar['student_id'];
+                } else {
+                  $del = $conn->prepare("DELETE FROM orientation_assignments WHERE session_id = ? AND (application_id = ? OR student_id = ?) LIMIT 1"); $del->bind_param('iii', $origSessionId, $appId, $appId); $del->execute(); $del->close();
+                }
+              } else {
+                $assignId = $ar['id'] ?? $ar['assignment_id'] ?? null;
+                if ($assignId) { $up = $conn->prepare("UPDATE orientation_assignments SET session_id = ? WHERE (id = ? OR assignment_id = ?) LIMIT 1"); $up->bind_param('iii',$targetSessionId,$assignId,$assignId); $up->execute(); $up->close();
+                  if (!empty($ar['student_id'])) $movedStudentIds[] = (int)$ar['student_id'];
+                }
               }
             }
           }
 
+          // prepare from-date early (used in notification body)
+          $fromDate = $orig[$dateCol2] ?? null;
+
           // --- Send notification emails to moved students (best-effort) ---
           try {
-            // resolve application ids to student ids when necessary
+            // resolve application ids to student ids when necessary using integer-safe IN lists
             if (!empty($movedApplicationIds)) {
-              $placeholders = implode(',', array_fill(0, count($movedApplicationIds), '?'));
-              // fetch student_id for each application
-              $sqlA = "SELECT application_id, student_id FROM ojt_applications WHERE application_id IN ($placeholders)";
-              $stmtA = $conn->prepare($sqlA);
-              // bind params dynamically
-              $types = str_repeat('i', count($movedApplicationIds));
-              $stmtA->bind_param($types, ...$movedApplicationIds);
-              $stmtA->execute(); $resA2 = $stmtA->get_result(); $appToStud = []; while($r = $resA2->fetch_assoc()) { if (!empty($r['student_id'])) $appToStud[(int)$r['application_id']] = (int)$r['student_id']; }
-              $stmtA->close();
+              $ids = array_map('intval', $movedApplicationIds);
+              $in = implode(',', $ids);
+              $sqlA = "SELECT application_id, student_id FROM ojt_applications WHERE application_id IN ($in)";
+              $resA2 = $conn->query($sqlA);
+              $appToStud = [];
+              if ($resA2) {
+                while ($r = $resA2->fetch_assoc()) {
+                  if (!empty($r['student_id'])) $appToStud[(int)$r['application_id']] = (int)$r['student_id'];
+                }
+                $resA2->free();
+              }
               foreach ($movedApplicationIds as $aid) {
-                if (isset($appToStud[$aid])) $movedStudentIds[] = $appToStud[$aid];
+                $aidI = (int)$aid;
+                if (isset($appToStud[$aidI])) $movedStudentIds[] = $appToStud[$aidI];
               }
             }
 
@@ -287,13 +341,16 @@
             $movedStudentIds = array_values(array_unique(array_filter($movedStudentIds)));
             $emails = [];
             if (!empty($movedStudentIds)) {
-              $place = implode(',', array_fill(0, count($movedStudentIds), '?'));
-              $sqlS = "SELECT student_id, email, first_name, last_name FROM students WHERE student_id IN ($place)";
-              $stmtS = $conn->prepare($sqlS);
-              $typesS = str_repeat('i', count($movedStudentIds));
-              $stmtS->bind_param($typesS, ...$movedStudentIds);
-              $stmtS->execute(); $resS = $stmtS->get_result(); while($r = $resS->fetch_assoc()) { if (!empty($r['email'])) $emails[] = ['id'=>$r['student_id'],'email'=>$r['email'],'name'=>trim(($r['first_name']??'').' '.($r['last_name']??''))]; }
-              $stmtS->close();
+              $idsS = array_map('intval', $movedStudentIds);
+              $inS = implode(',', $idsS);
+              $sqlS = "SELECT student_id, email, first_name, last_name FROM students WHERE student_id IN ($inS)";
+              $resS = $conn->query($sqlS);
+              if ($resS) {
+                while ($r = $resS->fetch_assoc()) {
+                  if (!empty($r['email'])) $emails[] = ['id' => $r['student_id'], 'email' => $r['email'], 'name' => trim(($r['first_name'] ?? '') . ' ' . ($r['last_name'] ?? ''))];
+                }
+                $resS->free();
+              }
             }
 
             if (!empty($emails)) {
@@ -342,18 +399,26 @@
                   $mail->Subject = $subject;
                   $mail->Body = $body;
                   $mail->send();
-                } catch (Exception $e) {
-                  // ignore email errors — reschedule should not fail because of mail
+                } catch (\Exception $e) {
+                  error_log('Reschedule email error: ' . $e->getMessage());
+                  // continue — don't let email errors break the main flow
                 }
               }
             }
-          } catch (Exception $e) {
-            // suppress
+          } catch (\Throwable $e) {
+            error_log('Reschedule notify error: ' . $e->getMessage());
+            // swallow errors to keep reschedule successful
           }
-
-          $fromDate = $orig[$dateCol2] ?? null;
           $fromLabel = $fromDate ? date('M j, Y', strtotime($fromDate)) : null;
-          echo json_encode(['success'=>true,'message'=>'Rescheduled','target_session_id'=>$targetSessionId,'from_date'=>$fromLabel]); exit;
+          // successful response — discard any buffered output and return JSON
+          ob_end_clean(); header('Content-Type: application/json; charset=utf-8'); echo json_encode(['success'=>true,'message'=>'Rescheduled','target_session_id'=>$targetSessionId,'from_date'=>$fromLabel]); exit;
+          } catch (\Throwable $e) {
+            $buf = ob_get_clean();
+            error_log('calendar.php reschedule exception: ' . $e->getMessage() . '\nBuffer:\n' . $buf . '\nTrace:\n' . $e->getTraceAsString());
+            header('Content-Type: application/json; charset=utf-8'); http_response_code(500);
+            echo json_encode(['success'=>false,'message'=>'Internal server error','error'=>$e->getMessage(),'output'=>substr($buf,0,2000)]);
+            exit;
+          }
         }
       }
     // navigation helpers
@@ -1079,7 +1144,12 @@
         method: 'POST',
         headers: {'Content-Type':'application/json'},
         body: JSON.stringify({ action: 'reschedule_all', session_id: sid, target_date: dateVal, target_time: timeVal, target_location: locVal, selected: selected })
-      }).then(r=>r.json()).then(function(res){
+      }).then(function(r){
+        return r.text().then(function(txt){
+          try { return JSON.parse(txt); }
+          catch(e) { console.warn('calendar.php non-JSON response:', txt); return { success: r.ok, message: txt }; }
+        });
+      }).then(function(res){
         btn.disabled = false; btn.textContent = 'Confirm';
         if (res && res.success) {
           msg.style.display = 'block'; msg.style.background = '#e6f9ee'; msg.style.color = '#0b7a3a'; msg.textContent = (res.message || 'Rescheduled.');
