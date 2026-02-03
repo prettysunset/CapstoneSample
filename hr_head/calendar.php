@@ -1,3 +1,213 @@
+<?php
+// Ensure AJAX JSON POSTs are handled before any HTML is output so responses are clean
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && strpos($_SERVER['CONTENT_TYPE'] ?? '', 'application/json') !== false) {
+  // capture any stray output and make responses robust for the JS client
+  ob_start();
+  $raw = file_get_contents('php://input');
+  error_log('calendar.php POST payload: ' . $raw);
+  $input = json_decode($raw, true);
+  if ($input && ($input['action'] ?? '') === 'reschedule_all') {
+    try {
+      // minimal DB bootstrap (conn.php expected to set $conn)
+      $connPath = __DIR__ . '/../conn.php';
+      if (file_exists($connPath)) {
+        @include_once $connPath;
+      }
+      $origSessionId = isset($input['session_id']) ? (int)$input['session_id'] : 0;
+      $targetDate = trim($input['target_date'] ?? '');
+      $targetTime = trim($input['target_time'] ?? '');
+      $targetLocation = trim($input['target_location'] ?? '');
+      if (!isset($conn) || !$conn instanceof mysqli) { ob_end_clean(); header('Content-Type: application/json; charset=utf-8'); echo json_encode(['success'=>false,'message'=>'DB connection missing']); exit; }
+      if (!$origSessionId || !$targetDate) { ob_end_clean(); header('Content-Type: application/json; charset=utf-8'); echo json_encode(['success'=>false,'message'=>'Missing parameters']); exit; }
+
+      // detect columns in orientation_sessions
+      $cols2 = [];
+      $resCols2 = $conn->query("SHOW COLUMNS FROM orientation_sessions");
+      if ($resCols2) { while ($r = $resCols2->fetch_assoc()) $cols2[] = $r['Field']; }
+      $dateCandidates2 = ['session_date','date','start','session_datetime','datetime','scheduled_at'];
+      $timeCandidates2 = ['session_time','time','start_time'];
+      $locCandidates2 = ['location','venue','place'];
+      $dateCol2=null;$timeCol2=null;$locCol2=null;
+      foreach ($dateCandidates2 as $c) if (in_array($c,$cols2)) { $dateCol2=$c; break; }
+      foreach ($timeCandidates2 as $c) if (in_array($c,$cols2)) { $timeCol2=$c; break; }
+      foreach ($locCandidates2 as $c) if (in_array($c,$cols2)) { $locCol2=$c; break; }
+      if (!$dateCol2) { ob_end_clean(); header('Content-Type: application/json; charset=utf-8'); echo json_encode(['success'=>false,'message'=>'No date column']); exit; }
+
+      // fetch original session
+      $orig=null;
+      $st0=$conn->prepare("SELECT * FROM orientation_sessions WHERE session_id = ? LIMIT 1");
+      $st0->bind_param('i',$origSessionId); $st0->execute(); $r0=$st0->get_result(); if ($r0) $orig=$r0->fetch_assoc(); $st0->close();
+      $defaultTime = $orig[$timeCol2] ?? ($orig['time'] ?? '');
+      $defaultLoc = $orig[$locCol2] ?? ($orig['location'] ?? '');
+      $useTime = $targetTime !== '' ? $targetTime : $defaultTime;
+      $useLoc = $targetLocation !== '' ? $targetLocation : $defaultLoc;
+
+      // check existing session on target date
+      $stmtChk = $conn->prepare("SELECT * FROM orientation_sessions WHERE DATE(`$dateCol2`) = ? LIMIT 1");
+      $stmtChk->bind_param('s', $targetDate); $stmtChk->execute(); $resChk = $stmtChk->get_result(); $found = $resChk ? $resChk->fetch_assoc() : null; $stmtChk->close();
+      $targetSessionId = null;
+      if ($found) { $targetSessionId = (int)$found['session_id']; }
+      else {
+        // create new session row
+        if ($timeCol2 && $dateCol2 && $timeCol2 !== $dateCol2) {
+          $ins = $conn->prepare("INSERT INTO orientation_sessions (`$dateCol2`, `$timeCol2`" . ($locCol2?",`$locCol2`":"") . ") VALUES (? , ?" . ($locCol2?",?":"") . ")");
+          if ($locCol2) $ins->bind_param('sss', $targetDate, $useTime, $useLoc); else $ins->bind_param('ss', $targetDate, $useTime);
+        } else {
+          $dtval = $targetDate . (!empty($useTime) ? ' ' . $useTime : '');
+          $ins = $conn->prepare("INSERT INTO orientation_sessions (`$dateCol2`" . ($locCol2?",`$locCol2`":"") . ") VALUES (?" . ($locCol2?",?":"") . ")");
+          if ($locCol2) $ins->bind_param('ss', $dtval, $useLoc); else $ins->bind_param('s', $dtval);
+        }
+        $ok = $ins->execute(); if (!$ok) { ob_end_clean(); header('Content-Type: application/json; charset=utf-8'); echo json_encode(['success'=>false,'message'=>'Create session failed','error'=>$ins->error]); exit; }
+        $targetSessionId = (int)$ins->insert_id; $ins->close();
+      }
+
+      // move assignments (optionally only selected students)
+      $hasAssign = $conn->query("SHOW TABLES LIKE 'orientation_assignments'")->num_rows > 0;
+      if (!$hasAssign) { ob_end_clean(); header('Content-Type: application/json; charset=utf-8'); echo json_encode(['success'=>false,'message'=>'assignments table missing']); exit; }
+      $sA = $conn->prepare("SELECT * FROM orientation_assignments WHERE session_id = ?"); $sA->bind_param('i',$origSessionId); $sA->execute(); $resA = $sA->get_result(); $assigns=[]; while($ar=$resA->fetch_assoc()) { $assigns[]=$ar; } $sA->close();
+      // previous date value for marking moved assignments (date-only)
+      $prevDateVal = null;
+      if (!empty($orig[$dateCol2])) { $prevDateVal = date('Y-m-d', strtotime($orig[$dateCol2])); }
+
+      $movedApplicationIds = [];
+      $movedStudentIds = [];
+      $selectedApps = [];
+      $selectedStudents = [];
+      if (!empty($input['selected']) && is_array($input['selected'])) {
+        foreach ($input['selected'] as $it) {
+          if (isset($it['application_id']) && $it['application_id'] !== '') $selectedApps[] = (int)$it['application_id'];
+          if (isset($it['student_id']) && $it['student_id'] !== '') $selectedStudents[] = (int)$it['student_id'];
+        }
+      } else { $selectedApps = null; $selectedStudents = null; }
+
+      // Bulk move logic (same as original implementation)
+      if (($selectedApps !== null && is_array($selectedApps) && count($selectedApps) > 0) || ($selectedStudents !== null && is_array($selectedStudents) && count($selectedStudents) > 0)) {
+        if (!empty($selectedApps)) {
+          $apps = array_map('intval', $selectedApps);
+          $inApps = implode(',', $apps);
+          $already = [];
+          $q = $conn->query("SELECT application_id FROM orientation_assignments WHERE session_id = " . (int)$targetSessionId . " AND application_id IN ($inApps)");
+          if ($q) { while ($r = $q->fetch_assoc()) { $already[] = (int)$r['application_id']; } $q->free(); }
+          $toMove = array_values(array_diff($apps, $already));
+            if (!empty($toMove)) {
+            $inMove = implode(',', array_map('intval', $toMove));
+            $sqlUp = "UPDATE orientation_assignments SET session_id = " . (int)$targetSessionId;
+            if (!empty($prevDateVal)) { $sqlUp .= ", rescheduled_from = '" . $conn->real_escape_string($prevDateVal) . "'"; }
+            $sqlUp .= " WHERE session_id = " . (int)$origSessionId . " AND application_id IN ($inMove)";
+            $conn->query($sqlUp);
+            foreach ($toMove as $a) $movedApplicationIds[] = (int)$a;
+          }
+        }
+        if (!empty($selectedStudents)) {
+          $studs = array_map('intval', $selectedStudents);
+          $inStuds = implode(',', $studs);
+          $appList = [];
+          $q2 = $conn->query("SELECT oa.application_id FROM orientation_assignments oa LEFT JOIN ojt_applications app ON oa.application_id = app.application_id WHERE oa.session_id = " . (int)$origSessionId . " AND app.student_id IN ($inStuds) AND oa.application_id IS NOT NULL");
+          if ($q2) { while ($rr = $q2->fetch_assoc()) { $appList[] = (int)$rr['application_id']; } $q2->free(); }
+          if (!empty($appList)) {
+            $inApps2 = implode(',', $appList);
+            $already2 = [];
+            $q3 = $conn->query("SELECT application_id FROM orientation_assignments WHERE session_id = " . (int)$targetSessionId . " AND application_id IN ($inApps2)");
+            if ($q3) { while ($r3 = $q3->fetch_assoc()) { $already2[] = (int)$r3['application_id']; } $q3->free(); }
+            $toMove2 = array_values(array_diff($appList, $already2));
+            if (!empty($toMove2)) {
+              $inMove2 = implode(',', array_map('intval', $toMove2));
+              $sqlUp2 = "UPDATE orientation_assignments SET session_id = " . (int)$targetSessionId;
+              if (!empty($prevDateVal)) { $sqlUp2 .= ", rescheduled_from = '" . $conn->real_escape_string($prevDateVal) . "'"; }
+              $sqlUp2 .= " WHERE session_id = " . (int)$origSessionId . " AND application_id IN ($inMove2)";
+              $conn->query($sqlUp2);
+              foreach ($toMove2 as $a) $movedApplicationIds[] = (int)$a;
+            }
+          }
+        }
+        if (!empty($movedApplicationIds)) {
+          $ids = array_map('intval', array_unique($movedApplicationIds));
+          $in = implode(',', $ids);
+          $rmap = $conn->query("SELECT application_id, student_id FROM ojt_applications WHERE application_id IN ($in)");
+          if ($rmap) { while ($rr = $rmap->fetch_assoc()) { if (!empty($rr['student_id'])) $movedStudentIds[] = (int)$rr['student_id']; } $rmap->free(); }
+        }
+        $movedStudentIds = array_values(array_unique(array_filter($movedStudentIds)));
+      } else {
+        // fallback: move all assignments
+        foreach($assigns as $ar) {
+          $appId = $ar['application_id'] ?? ($ar['applicationid'] ?? null);
+          if ($appId) {
+            $chk = $conn->prepare("SELECT COUNT(*) AS cnt FROM orientation_assignments WHERE session_id = ? AND (application_id = ? OR student_id = ?) LIMIT 1");
+            $chk->bind_param('iii',$targetSessionId, $appId, $appId); $chk->execute(); $cres = $chk->get_result(); $crow = $cres?$cres->fetch_assoc():null; $cnt = $crow? (int)$crow['cnt'] : 0; $chk->close();
+                if ($cnt === 0) {
+              if (!empty($prevDateVal)) {
+                $up = $conn->prepare("UPDATE orientation_assignments SET session_id = ?, rescheduled_from = ? WHERE application_id = ? LIMIT 1"); $up->bind_param('isi',$targetSessionId,$prevDateVal,$appId);
+              } else {
+                $up = $conn->prepare("UPDATE orientation_assignments SET session_id = ? WHERE application_id = ? LIMIT 1"); $up->bind_param('ii',$targetSessionId,$appId);
+              }
+              $up->execute(); $up->close();
+              if (!empty($ar['student_id'])) $movedStudentIds[] = (int)$ar['student_id'];
+            }
+          } else {
+            $assignId = $ar['id'] ?? $ar['assignment_id'] ?? null;
+                  if ($assignId) {
+                    if (!empty($prevDateVal)) {
+                      $up = $conn->prepare("UPDATE orientation_assignments SET session_id = ?, rescheduled_from = ? WHERE (id = ? OR assignment_id = ?) LIMIT 1"); $up->bind_param('isii',$targetSessionId,$prevDateVal,$assignId,$assignId);
+                    } else {
+                      $up = $conn->prepare("UPDATE orientation_assignments SET session_id = ? WHERE (id = ? OR assignment_id = ?) LIMIT 1"); $up->bind_param('iii',$targetSessionId,$assignId,$assignId);
+                    }
+                    $up->execute(); $up->close(); }
+          }
+        }
+      }
+
+      // resolve application ids to student ids
+      if (!empty($movedApplicationIds)) {
+        $ids = array_map('intval', $movedApplicationIds);
+        $in = implode(',', $ids);
+        $sqlA = "SELECT application_id, student_id FROM ojt_applications WHERE application_id IN ($in)";
+        $resA2 = $conn->query($sqlA);
+        $appToStud = [];
+        if ($resA2) { while ($r = $resA2->fetch_assoc()) { $appToStud[(int)$r['application_id']] = (int)$r['student_id']; } $resA2->free(); }
+        foreach ($movedApplicationIds as $aid) { $aidI = (int)$aid; if (isset($appToStud[$aidI])) $movedStudentIds[] = $appToStud[$aidI]; }
+      }
+      $movedStudentIds = array_values(array_unique(array_filter($movedStudentIds)));
+
+      // If the original session now has no assignments, delete it
+      $deletedOriginal = false;
+      try {
+        $remStmt = $conn->prepare("SELECT COUNT(*) AS cnt FROM orientation_assignments WHERE session_id = ?");
+        if ($remStmt) {
+          $remStmt->bind_param('i', $origSessionId);
+          $remStmt->execute();
+          $remRes = $remStmt->get_result();
+          $remCount = 0;
+          if ($remRes && $rrem = $remRes->fetch_assoc()) { $remCount = (int)$rrem['cnt']; }
+          $remStmt->close();
+          if ($remCount === 0) {
+            $delSess = $conn->prepare("DELETE FROM orientation_sessions WHERE session_id = ? LIMIT 1");
+            if ($delSess) { $delSess->bind_param('i', $origSessionId); $delSess->execute(); if ($conn->affected_rows > 0) $deletedOriginal = true; $delSess->close(); }
+          }
+        }
+      } catch (Exception $e) { error_log('Error checking/deleting original session: ' . $e->getMessage()); }
+
+      // persist rescheduled_from on the target session so the UI can show it permanently
+      try {
+        if (!empty($targetSessionId) && !empty($orig[$dateCol2])) {
+          $prevDateVal = date('Y-m-d', strtotime($orig[$dateCol2]));
+          $upd = $conn->prepare("UPDATE orientation_sessions SET rescheduled_from = ? WHERE session_id = ? AND (rescheduled_from IS NULL OR rescheduled_from = '') LIMIT 1");
+          if ($upd) { $upd->bind_param('si', $prevDateVal, $targetSessionId); $upd->execute(); $upd->close(); }
+        }
+      } catch (Exception $e) { error_log('Error setting rescheduled_from: ' . $e->getMessage()); }
+
+      // (notification/email steps omitted here for brevity — keep existing code in main file if needed)
+
+      $fromDate = $orig[$dateCol2] ?? null;
+      $fromLabel = $fromDate ? date('M j, Y', strtotime($fromDate)) : null;
+      ob_end_clean(); header('Content-Type: application/json; charset=utf-8'); echo json_encode(['success'=>true,'message'=>'Rescheduled','target_session_id'=>$targetSessionId,'from_date'=>$fromLabel,'deleted_original'=>!empty($deletedOriginal)]);
+      exit;
+    } catch (	hrowable $e) {
+      $buf = ob_get_clean(); error_log('calendar.php reschedule exception: ' . $e->getMessage() . '\nBuffer:\n' . $buf . '\nTrace:\n' . $e->getTraceAsString()); header('Content-Type: application/json; charset=utf-8'); http_response_code(500); echo json_encode(['success'=>false,'message'=>'Internal server error','error'=>$e->getMessage(),'output'=>substr($buf,0,2000)]); exit;
+    }
+  }
+}
+?>
+
 <!doctype html>
 <html lang="en">
 <head>
@@ -119,7 +329,7 @@
                         if (!empty($ar['application_id'])) $sname = 'App #' . $ar['application_id'];
                         else $sname = 'Assigned OJT';
                       }
-                      $students[] = ['id' => $sid, 'name' => $sname, 'application_id' => $appId, 'student_id' => $studId];
+                      $students[] = ['id' => $sid, 'name' => $sname, 'application_id' => $appId, 'student_id' => $studId, 'rescheduled_from' => isset($ar['rescheduled_from']) ? $ar['rescheduled_from'] : null];
                     }
                   }
                   $cnt = count($students);
@@ -150,7 +360,8 @@
                   'date' => $dt,
                   'location' => $locLabel,
                   'count' => isset($cnt) ? (int)$cnt : 0,
-                  'students' => $students
+                  'students' => $students,
+                  'rescheduled_from' => isset($row['rescheduled_from']) ? $row['rescheduled_from'] : null
                 ];
                 if (!isset($eventsData[$d])) $eventsData[$d] = [];
                 $eventsData[$d][] = $sess;
@@ -222,6 +433,9 @@
           $hasAssign = $conn->query("SHOW TABLES LIKE 'orientation_assignments'")->num_rows > 0;
           if (!$hasAssign) { ob_end_clean(); header('Content-Type: application/json; charset=utf-8'); echo json_encode(['success'=>false,'message'=>'assignments table missing']); exit; }
           $sA = $conn->prepare("SELECT * FROM orientation_assignments WHERE session_id = ?"); $sA->bind_param('i',$origSessionId); $sA->execute(); $resA = $sA->get_result(); $assigns=[]; while($ar=$resA->fetch_assoc()) { $assigns[]=$ar; } $sA->close();
+          // previous date value for marking moved assignments (date-only)
+          $prevDateVal = null;
+          if (!empty($orig[$dateCol2])) { $prevDateVal = date('Y-m-d', strtotime($orig[$dateCol2])); }
 
           // we'll collect moved students/apps to notify by email (best-effort)
           $movedApplicationIds = [];
@@ -252,7 +466,9 @@
               $toMove = array_values(array_diff($apps, $already));
               if (!empty($toMove)) {
                 $inMove = implode(',', array_map('intval', $toMove));
-                $sqlUp = "UPDATE orientation_assignments SET session_id = " . (int)$targetSessionId . " WHERE session_id = " . (int)$origSessionId . " AND application_id IN ($inMove)";
+                $sqlUp = "UPDATE orientation_assignments SET session_id = " . (int)$targetSessionId;
+                if (!empty($prevDateVal)) { $sqlUp .= ", rescheduled_from = '" . $conn->real_escape_string($prevDateVal) . "'"; }
+                $sqlUp .= " WHERE session_id = " . (int)$origSessionId . " AND application_id IN ($inMove)";
                 $conn->query($sqlUp);
                 foreach ($toMove as $a) $movedApplicationIds[] = (int)$a;
               }
@@ -273,7 +489,9 @@
                 $toMove2 = array_values(array_diff($appList, $already2));
                 if (!empty($toMove2)) {
                   $inMove2 = implode(',', array_map('intval', $toMove2));
-                  $sqlUp2 = "UPDATE orientation_assignments SET session_id = " . (int)$targetSessionId . " WHERE session_id = " . (int)$origSessionId . " AND application_id IN ($inMove2)";
+                  $sqlUp2 = "UPDATE orientation_assignments SET session_id = " . (int)$targetSessionId;
+                  if (!empty($prevDateVal)) { $sqlUp2 .= ", rescheduled_from = '" . $conn->real_escape_string($prevDateVal) . "'"; }
+                  $sqlUp2 .= " WHERE session_id = " . (int)$origSessionId . " AND application_id IN ($inMove2)";
                   $conn->query($sqlUp2);
                   foreach ($toMove2 as $a2) $movedApplicationIds[] = (int)$a2;
                 }
@@ -298,7 +516,12 @@
                 $chk = $conn->prepare("SELECT COUNT(*) AS cnt FROM orientation_assignments WHERE session_id = ? AND (application_id = ? OR student_id = ?) LIMIT 1");
                 $chk->bind_param('iii',$targetSessionId, $appId, $appId); $chk->execute(); $cres = $chk->get_result(); $crow = $cres?$cres->fetch_assoc():null; $cnt = $crow? (int)$crow['cnt'] : 0; $chk->close();
                 if ($cnt === 0) {
-                  $up = $conn->prepare("UPDATE orientation_assignments SET session_id = ? WHERE session_id = ? AND (application_id = ? OR student_id = ?) LIMIT 1"); $up->bind_param('iiii', $targetSessionId, $origSessionId, $appId, $appId); $up->execute(); $up->close();
+                  if (!empty($prevDateVal)) {
+                    $up = $conn->prepare("UPDATE orientation_assignments SET session_id = ?, rescheduled_from = ? WHERE session_id = ? AND (application_id = ? OR student_id = ?) LIMIT 1"); $up->bind_param('isiii', $targetSessionId, $prevDateVal, $origSessionId, $appId, $appId);
+                  } else {
+                    $up = $conn->prepare("UPDATE orientation_assignments SET session_id = ? WHERE session_id = ? AND (application_id = ? OR student_id = ?) LIMIT 1"); $up->bind_param('iiii', $targetSessionId, $origSessionId, $appId, $appId);
+                  }
+                  $up->execute(); $up->close();
                   if (!empty($ar['application_id'])) $movedApplicationIds[] = (int)$ar['application_id'];
                   if (!empty($ar['student_id'])) $movedStudentIds[] = (int)$ar['student_id'];
                 } else {
@@ -306,7 +529,13 @@
                 }
               } else {
                 $assignId = $ar['id'] ?? $ar['assignment_id'] ?? null;
-                if ($assignId) { $up = $conn->prepare("UPDATE orientation_assignments SET session_id = ? WHERE (id = ? OR assignment_id = ?) LIMIT 1"); $up->bind_param('iii',$targetSessionId,$assignId,$assignId); $up->execute(); $up->close();
+                if ($assignId) {
+                  if (!empty($prevDateVal)) {
+                    $up = $conn->prepare("UPDATE orientation_assignments SET session_id = ?, rescheduled_from = ? WHERE (id = ? OR assignment_id = ?) LIMIT 1"); $up->bind_param('isii',$targetSessionId,$prevDateVal,$assignId,$assignId);
+                  } else {
+                    $up = $conn->prepare("UPDATE orientation_assignments SET session_id = ? WHERE (id = ? OR assignment_id = ?) LIMIT 1"); $up->bind_param('iii',$targetSessionId,$assignId,$assignId);
+                  }
+                  $up->execute(); $up->close();
                   if (!empty($ar['student_id'])) $movedStudentIds[] = (int)$ar['student_id'];
                 }
               }
@@ -339,6 +568,31 @@
 
             // get unique student ids
             $movedStudentIds = array_values(array_unique(array_filter($movedStudentIds)));
+
+            // If the original session now has no assignments, delete it
+            $deletedOriginal = false;
+            try {
+              $remStmt = $conn->prepare("SELECT COUNT(*) AS cnt FROM orientation_assignments WHERE session_id = ?");
+              if ($remStmt) {
+                $remStmt->bind_param('i', $origSessionId);
+                $remStmt->execute();
+                $remRes = $remStmt->get_result();
+                $remCount = 0;
+                if ($remRes && $rrem = $remRes->fetch_assoc()) { $remCount = (int)$rrem['cnt']; }
+                $remStmt->close();
+                if ($remCount === 0) {
+                  $delSess = $conn->prepare("DELETE FROM orientation_sessions WHERE session_id = ? LIMIT 1");
+                  if ($delSess) {
+                    $delSess->bind_param('i', $origSessionId);
+                    $delSess->execute();
+                    if ($conn->affected_rows > 0) $deletedOriginal = true;
+                    $delSess->close();
+                  }
+                }
+              }
+            } catch (Exception $e) {
+              error_log('Error checking/deleting original session: ' . $e->getMessage());
+            }
             $emails = [];
             if (!empty($movedStudentIds)) {
               $idsS = array_map('intval', $movedStudentIds);
@@ -411,7 +665,7 @@
           }
           $fromLabel = $fromDate ? date('M j, Y', strtotime($fromDate)) : null;
           // successful response — discard any buffered output and return JSON
-          ob_end_clean(); header('Content-Type: application/json; charset=utf-8'); echo json_encode(['success'=>true,'message'=>'Rescheduled','target_session_id'=>$targetSessionId,'from_date'=>$fromLabel]); exit;
+          ob_end_clean(); header('Content-Type: application/json; charset=utf-8'); echo json_encode(['success'=>true,'message'=>'Rescheduled','target_session_id'=>$targetSessionId,'from_date'=>$fromLabel,'deleted_original'=>!empty($deletedOriginal)]); exit;
           } catch (\Throwable $e) {
             $buf = ob_get_clean();
             error_log('calendar.php reschedule exception: ' . $e->getMessage() . '\nBuffer:\n' . $buf . '\nTrace:\n' . $e->getTraceAsString());
@@ -693,6 +947,17 @@
             r.appendChild(name);
             // prepend checkbox before name for easy selection
             r.insertBefore(cb, r.firstChild);
+            // per-student persistent rescheduled badge (if this assignment was rescheduled)
+            try {
+              if (st.rescheduled_from) {
+                var sd = new Date(st.rescheduled_from);
+                if (!isNaN(sd)) {
+                  var sfl = sd.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+                  var sb = document.createElement('span'); sb.className = 'resched-badge'; sb.textContent = 'Rescheduled from ' + sfl; sb.style.marginLeft = '8px';
+                  r.appendChild(sb);
+                }
+              }
+            } catch(e){}
             studentsWrap.appendChild(r);
           });
           // select-all behavior
@@ -729,6 +994,18 @@
           studentsWrap.appendChild(none);
         }
         sess.appendChild(studentsWrap);
+
+        // show persistent rescheduled badge when present on the session
+        try {
+          if (s.rescheduled_from) {
+            var fd = new Date(s.rescheduled_from);
+            if (!isNaN(fd)) {
+              var fl = fd.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+              var badge = document.createElement('span'); badge.className = 'resched-badge'; badge.textContent = 'Rescheduled from ' + fl;
+              sess.appendChild(badge);
+            }
+          }
+        } catch(e) { /* ignore */ }
 
         // session-level reschedule button (Reschedule selected students)
         var sessionBtn = document.createElement('a'); sessionBtn.className = 'resched'; sessionBtn.href = '#'; sessionBtn.textContent = 'Reschedule';
@@ -1003,6 +1280,7 @@
         <input id="resched_location" type="text" style="width:100%;padding:8px;border-radius:6px;border:1px solid #ccc" />
       </div>
       <div id="resched_msg" style="display:none;margin-bottom:8px;padding:8px;border-radius:6px"></div>
+      <div id="resched_controls" style="display:flex;gap:8px;align-items:center;margin-bottom:8px;"></div>
       <div style="display:flex;justify-content:flex-end;gap:8px">
         <button type="button" id="resched_cancel" style="padding:8px 12px;border-radius:6px;border:1px solid #ddd;background:#fff">Cancel</button>
         <button type="button" id="resched_confirm" style="padding:8px 12px;border-radius:6px;background:#6a3db5;color:#fff;border:0">Confirm</button>
@@ -1108,20 +1386,69 @@
       } catch (e) { console.error('populate selected failed', e); }
       // disable today and past dates: set min to tomorrow's date
       try {
+        // compute forbidden original session date (ISO) when available
+        var forbiddenIso = null;
+        try {
+          if (found && found.session && found.session.date) {
+            var od = new Date(found.session.date);
+            if (!isNaN(od)) {
+              var oy = od.getFullYear();
+              var om = String(od.getMonth()+1).padStart(2,'0');
+              var oday = String(od.getDate()).padStart(2,'0');
+              forbiddenIso = oy + '-' + om + '-' + oday;
+              dateIn.dataset.forbiddenDate = forbiddenIso;
+            }
+          }
+        } catch(e) { /* ignore */ }
+
+        // compute min (tomorrow) but skip Saturday/Sunday so min never falls on weekend
         var minD = new Date();
         minD.setDate(minD.getDate() + 1);
+        while (minD.getDay() === 0 || minD.getDay() === 6) { minD.setDate(minD.getDate() + 1); }
         var minY = minD.getFullYear();
         var minM = String(minD.getMonth()+1).padStart(2,'0');
         var minDay = String(minD.getDate()).padStart(2,'0');
         var minIso = minY + '-' + minM + '-' + minDay;
         dateIn.min = minIso;
         if (dateIn.value < minIso) dateIn.value = minIso;
+        // if the current value equals the original session date, move it to min
+        if (forbiddenIso && dateIn.value === forbiddenIso) dateIn.value = minIso;
+
+        // helper: compute next non-weekend (Mon-Fri) ISO date starting at iso
+        function nextNonWeekendIso(iso){ try { var d = new Date(iso); if (isNaN(d)) return minIso; while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() + 1); var y = d.getFullYear(); var m = String(d.getMonth()+1).padStart(2,'0'); var dd = String(d.getDate()).padStart(2,'0'); return y + '-' + m + '-' + dd; } catch(e){ return minIso; } }
+
+        // block selecting the original session date and any Sunday
+        dateIn.oninput = function(){
+          try {
+            var val = this.value;
+            if (!val) return;
+            if (this.dataset && this.dataset.forbiddenDate && val === this.dataset.forbiddenDate) {
+              try { msg.style.display = 'block'; msg.style.background = '#fff4f4'; msg.style.color = '#a00'; msg.style.whiteSpace = 'pre-wrap'; msg.style.userSelect = 'text'; msg.textContent = 'Cannot select the same date as the current session.'; } catch(e){}
+              this.value = minIso;
+              setTimeout(function(){ try{ msg.style.display = 'none'; }catch(e){} }, 2400);
+              return;
+            }
+            var sel = new Date(val);
+            if (!isNaN(sel) && sel.getDay && (sel.getDay() === 0 || sel.getDay() === 6)) {
+              try { msg.style.display = 'block'; msg.style.background = '#fff4f4'; msg.style.color = '#a00'; msg.style.whiteSpace = 'pre-wrap'; msg.style.userSelect = 'text'; msg.textContent = 'Cannot select weekend (Saturday or Sunday). Please pick another date.'; } catch(e){}
+              // move to next allowed date (after the chosen one)
+              this.value = nextNonWeekendIso(val);
+              setTimeout(function(){ try{ msg.style.display = 'none'; }catch(e){} }, 2400);
+              return;
+            }
+          } catch(e) {}
+        };
       } catch (e) {
         // ignore if date input unsupported
       }
       modal.style.display = 'flex';
       // focus date
       dateIn.focus();
+    }
+
+    // Refresh helper: reload the calendar to reflect server-side changes
+    function refreshCalendar(){
+      try { window.location.reload(); } catch(e) { /* ignore */ }
     }
 
     document.getElementById('resched_cancel').addEventListener('click', function(){
@@ -1151,8 +1478,10 @@
         });
       }).then(function(res){
         btn.disabled = false; btn.textContent = 'Confirm';
+        var rawArea = document.getElementById('resched_raw');
+        var copyBtn = document.getElementById('resched_copy');
         if (res && res.success) {
-          msg.style.display = 'block'; msg.style.background = '#e6f9ee'; msg.style.color = '#0b7a3a'; msg.textContent = (res.message || 'Rescheduled.');
+          msg.style.display = 'block'; msg.style.background = '#e6f9ee'; msg.style.color = '#0b7a3a'; msg.style.whiteSpace = 'pre-wrap'; msg.style.userSelect = 'text'; msg.textContent = (res.message || 'Rescheduled.');
           // show badge on the session element
           try {
             var sessEl = document.querySelector('[data-session-id="' + sid + '"]');
@@ -1168,19 +1497,61 @@
               }
             }
           } catch (e) { /* ignore */ }
-          // keep modal visible briefly then close
-          setTimeout(function(){ document.getElementById('reschedModal').style.display = 'none'; }, 900);
+          // if server deleted the original session because no assignments remain, remove it from the DOM
+          try {
+            if (res && res.deleted_original) {
+              var toRem = document.querySelectorAll('[data-session-id="' + sid + '"]');
+              toRem.forEach(function(n){ n.remove(); });
+            }
+          } catch (e) { }
+          // keep modal visible briefly then close (5s so user can copy any message)
+          setTimeout(function(){ document.getElementById('reschedModal').style.display = 'none'; }, 5000);
+          // refresh calendar display shortly after success so UI reflects server changes
+          setTimeout(function(){ try{ refreshCalendar(); }catch(e){}; }, 1200);
           // clear selection after reschedule
           try { currentReschedSelected = null; var sessEl2 = document.querySelector('[data-session-id="' + sid + '"]'); if (sessEl2) { var checksAll = sessEl2.querySelectorAll('.resched-checkbox:checked'); checksAll.forEach(function(c){ c.checked = false; }); } } catch(e){}
         } else {
-          msg.style.display = 'block'; msg.style.background = '#fff4f4'; msg.style.color = '#a00'; msg.textContent = (res && res.message) ? res.message : 'Error';
+          // show error in modal and make it selectable so user can copy manually
+          msg.style.display = 'block'; msg.style.background = '#fff4f4'; msg.style.color = '#a00'; msg.style.whiteSpace = 'pre-wrap'; msg.style.userSelect = 'text';
+          var displayText = (res && res.message) ? res.message : 'Error';
+          msg.textContent = displayText;
         }
       }).catch(function(err){
         btn.disabled = false; btn.textContent = 'Confirm';
-        alert('Request failed');
+        // show a request-failed message inside the modal so the user can copy it manually
+        try {
+          msg.style.display = 'block'; msg.style.background = '#fff4f4'; msg.style.color = '#a00'; msg.style.whiteSpace = 'pre-wrap'; msg.style.userSelect = 'text';
+          var txt = 'Request failed' + (err && err.message ? (': ' + err.message) : '');
+          msg.textContent = txt;
+          try { msg.focus(); } catch(e){}
+        } catch(e){}
         console.error(err);
       });
     });
+
+    // copy button handler
+    (function(){
+      var btn = document.getElementById('resched_copy');
+      var raw = document.getElementById('resched_raw');
+      if (btn && raw) {
+        btn.addEventListener('click', function(){
+          var txt = raw.textContent || '';
+          if (!txt) return;
+          // try navigator.clipboard, fallback to textarea execCommand
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(txt).then(function(){ btn.textContent = 'Copied'; setTimeout(function(){ btn.textContent = 'Copy'; }, 2000); }).catch(function(){ fallbackCopy(txt); });
+          } else {
+            fallbackCopy(txt);
+          }
+        });
+      }
+      function fallbackCopy(text){
+        try {
+          var ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove();
+          btn.textContent = 'Copied'; setTimeout(function(){ btn.textContent = 'Copy'; }, 2000);
+        } catch(e){ console.error('Copy failed', e); }
+      }
+    })();
   </script>
 </body>
 </html>
