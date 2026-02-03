@@ -9,42 +9,63 @@ if (!isset($conn) || !($conn instanceof mysqli)) {
 }
 
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
-    $username = $_POST['username'];
-    $password = $_POST['password'];
+    $username = trim($_POST['username'] ?? '');
+    $password = $_POST['password'] ?? '';
 
-    $sql = "SELECT * FROM users WHERE username='$username' AND password='$password'";
-    $result = $conn->query($sql);
+    // fetch user by username
+    $stmt = $conn->prepare('SELECT * FROM users WHERE username = ? LIMIT 1');
+    $stmt->bind_param('s', $username);
+    $stmt->execute();
+    $result = $stmt->get_result();
 
-    if ($result->num_rows == 1) {
+    if ($result && $result->num_rows == 1) {
         $row = $result->fetch_assoc();
-
-        $_SESSION['user_id'] = $row['user_id'];
-        $_SESSION['username'] = $row['username'];
-        $_SESSION['role'] = $row['role']; // hr_head, hr_staff, office_head, student
-
-        // Redirect based on role
-        switch ($row['role']) {
-            case 'hr_head':
-                header("Location: hr_head/hr_head_home.php");
-                break;
-            case 'hr_staff':
-                header("Location: hr_staff/hr_staff_home.php");
-                break;
-            case 'office_head':
-                header("Location: office_head/office_head_home.php");
-                break;
-            case 'student':
-            case 'ojt':   
-                header("Location: ojts/ojt_profile.php");
-                break;
-            default:
-                header("Location: login.php");
-                break;
+        $stored = $row['password'] ?? '';
+        $ok = false;
+        // If stored value looks like a password hash, use password_verify
+        if ($stored !== '' && (str_starts_with($stored, '$') ? password_verify($password, $stored) : ($stored === $password))) {
+            $ok = true;
+            // If it was plain-text and matched, upgrade to hashed password
+            if (!str_starts_with($stored, '$')) {
+                $newHash = password_hash($password, PASSWORD_DEFAULT);
+                $u = $conn->prepare('UPDATE users SET password = ? WHERE user_id = ?');
+                $u->bind_param('si', $newHash, $row['user_id']);
+                $u->execute();
+            }
         }
-        exit();
+
+        if ($ok) {
+            $_SESSION['user_id'] = $row['user_id'];
+            $_SESSION['username'] = $row['username'];
+            $_SESSION['role'] = $row['role']; // hr_head, hr_staff, office_head, student
+
+            // Redirect based on role
+            switch ($row['role']) {
+                case 'hr_head':
+                    header("Location: hr_head/hr_head_home.php");
+                    break;
+                case 'hr_staff':
+                    header("Location: hr_staff/hr_staff_home.php");
+                    break;
+                case 'office_head':
+                    header("Location: office_head/office_head_home.php");
+                    break;
+                case 'student':
+                case 'ojt':
+                    header("Location: ojts/ojt_profile.php");
+                    break;
+                default:
+                    header("Location: login.php");
+                    break;
+            }
+            exit();
+        } else {
+            $error = "Invalid username or password!";
+        }
     } else {
         $error = "Invalid username or password!";
     }
+    if (isset($stmt) && $stmt) $stmt->close();
 }
 ?>
 <!DOCTYPE html>

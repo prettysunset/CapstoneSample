@@ -5,7 +5,7 @@ $host = "auth-db2090.hstgr.io";   // observed Hostinger host
 $user = "u389936701_user";       // DB user
 $pass = "CapstoneDefended1";  // <-- replace with actual DB password
 $db   = "u389936701_capstone";   // DB name
-//$port = 3306;
+$port = 3306;
 
 $mysqli = @new mysqli($host, $user, $pass, $db, $port);
 if ($mysqli->connect_errno) {

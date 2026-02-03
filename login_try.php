@@ -21,18 +21,31 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     if ($username === '' || $password === '') {
         $error = "Enter username and password.";
     } else {
-        // Prepared statement to avoid injection
-        $stmt = $conn->prepare("SELECT * FROM users WHERE username = ? AND password = ? LIMIT 1");
-        $stmt->bind_param('ss', $username, $password);
+        // Prepared statement to fetch user by username
+        $stmt = $conn->prepare("SELECT * FROM users WHERE username = ? LIMIT 1");
+        $stmt->bind_param('s', $username);
         $stmt->execute();
         $result = $stmt->get_result();
 
         if ($result && $result->num_rows === 1) {
             $row = $result->fetch_assoc();
+            $stored = $row['password'] ?? '';
+            $ok = false;
+            if ($stored !== '' && (str_starts_with($stored, '$') ? password_verify($password, $stored) : ($stored === $password))) {
+                $ok = true;
+                if (!str_starts_with($stored, '$')) {
+                    // upgrade stored plain-text password to a hash
+                    $newHash = password_hash($password, PASSWORD_DEFAULT);
+                    $u = $conn->prepare('UPDATE users SET password = ? WHERE user_id = ?');
+                    $u->bind_param('si', $newHash, $row['user_id']);
+                    $u->execute();
+                }
+            }
 
-            $_SESSION['user_id'] = $row['user_id'];
-            $_SESSION['username'] = $row['username'];
-            $_SESSION['role'] = $row['role'];
+            if ($ok) {
+                $_SESSION['user_id'] = $row['user_id'];
+                $_SESSION['username'] = $row['username'];
+                $_SESSION['role'] = $row['role'];
 
             // Redirect based on role
             switch ($row['role']) {
@@ -59,7 +72,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         }
         $stmt->close();
     }
-}
+}}
 ?>
 <!DOCTYPE html>
 <html lang="en">

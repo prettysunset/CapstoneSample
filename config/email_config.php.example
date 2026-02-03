@@ -1,0 +1,19 @@
+<?php
+// Copy this file to config/email_config.php and fill in your SMTP credentials.
+// Example for Gmail (you may need an App Password).
+
+// SMTP host
+define('EMAIL_SMTP_HOST', 'smtp.gmail.com');
+// SMTP username (your full Gmail address)
+define('EMAIL_SMTP_USER', 'your-email@gmail.com');
+// SMTP password (App Password or account password if allowed)
+define('EMAIL_SMTP_PASS', 'your-app-password');
+// SMTP port: 587 for tls, 465 for ssl
+define('EMAIL_SMTP_PORT', 587);
+// 'tls' or 'ssl'
+define('EMAIL_SMTP_SECURE', 'tls');
+
+define('EMAIL_FROM_ADDRESS', 'noreply@yourdomain.com');
+define('EMAIL_FROM_NAME', 'OJT-MS');
+
+?>
