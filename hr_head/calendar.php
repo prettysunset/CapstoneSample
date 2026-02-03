@@ -513,6 +513,7 @@
           var saWrap = document.createElement('div'); saWrap.style.display='flex'; saWrap.style.alignItems='center';
           var sa = document.createElement('input'); sa.type = 'checkbox'; sa.className = 'select-all'; sa.id = 'select_all_' + (s.session_id || Math.random().toString(36).slice(2,7));
           var saLabel = document.createElement('label'); saLabel.setAttribute('for', sa.id); saLabel.style.marginLeft='6px'; saLabel.style.fontSize='12px'; saLabel.style.color='#444'; saLabel.textContent = 'Select all';
+          saLabel.style.cursor = 'pointer';
           saWrap.appendChild(sa); saWrap.appendChild(saLabel);
           header.appendChild(saWrap);
           studentsWrap.appendChild(header);
@@ -537,14 +538,10 @@
             var sessParent = this.closest('.students');
             if (!sessParent) return;
             var checks = sessParent.querySelectorAll('.resched-checkbox');
+            // set checked state for all checkboxes
             checks.forEach(function(ch){ ch.checked = sa.checked; });
-            // update print button state when select-all toggles (use class to preserve layout)
-            try {
-              var btn = sessParent.querySelector('.print-all');
-              if (btn) {
-                if (sa.checked) { btn.classList.remove('disabled'); btn.removeAttribute('aria-disabled'); } else { btn.classList.add('disabled'); btn.setAttribute('aria-disabled','true'); }
-              }
-            } catch(e){}
+            // trigger a single change event to let delegated handlers update UI once
+            if (checks.length > 0) checks[0].dispatchEvent(new Event('change', { bubbles: true }));
           });
           // Print button (prints selected students) — use anchor to preserve original layout
           var printAll = document.createElement('a'); printAll.className = 'print-all'; printAll.href = '#'; printAll.textContent = 'Print Endorsement Letter';
@@ -668,14 +665,18 @@
 
       oc.addEventListener('click', function(e){
         var t = e.target;
-        // select-all clicked
-        var sa = t.closest && t.closest('.select-all');
+        // select-all clicked (support clicks on the checkbox OR its label)
+        var sa = (t.closest && t.closest('.select-all')) || null;
+        if (!sa && t && t.tagName === 'LABEL' && t.getAttribute('for')) {
+          var ref = document.getElementById(t.getAttribute('for'));
+          if (ref && ref.classList && ref.classList.contains('select-all')) sa = ref;
+        }
         if (sa) {
           var wrap = sa.closest && sa.closest('.students');
           if (!wrap) return;
           var checks = wrap.querySelectorAll('.resched-checkbox');
-          checks.forEach(function(ch){ ch.checked = sa.checked; ch.dispatchEvent(new Event('change',{bubbles:true})); });
-          updateButtonsForWrap(wrap);
+          checks.forEach(function(ch){ ch.checked = sa.checked; });
+          if (checks.length > 0) checks[0].dispatchEvent(new Event('change',{bubbles:true}));
           return;
         }
         // row click toggles checkbox (ignore clicks on inputs/links)
@@ -768,31 +769,37 @@
           '<div id="pages"></div></body></html>');
         helperWin.document.close();
 
-        // In the main window, sequentially fetch each endorsement and append to helperWin
-        (async function(){
+        // Fetch all endorsement pages in parallel, append them, then print once ready.
+        (function(){
           try {
             var container = helperWin.document.getElementById('pages');
-            for (var i = 0; i < urls.length; i++) {
+            var fetches = urls.map(function(u){
+              return fetch(u, { credentials: 'same-origin' }).then(function(r){
+                if (!r.ok) throw new Error('Fetch failed: ' + u);
+                return r.text();
+              }).catch(function(){
+                return '<div class="page">Failed to load: ' + u + '</div>';
+              });
+            });
+
+            Promise.all(fetches).then(function(results){
               try {
-                var resp = await fetch(urls[i], { credentials: 'same-origin' });
-                var txt = await resp.text();
-                var parsed = new DOMParser().parseFromString(txt, 'text/html');
-                var bodyHtml = (parsed && parsed.body) ? parsed.body.innerHTML : txt;
-                var wrap = helperWin.document.createElement('div');
-                wrap.className = 'page';
-                wrap.innerHTML = bodyHtml;
-                container.appendChild(wrap);
-                // small delay to allow resources to start loading in helper
-                await new Promise(function(r){ setTimeout(r, 200); });
-              } catch (errFetch) {
-                var errDiv = helperWin.document.createElement('div');
-                errDiv.className = 'page';
-                errDiv.textContent = 'Failed to load: ' + urls[i];
-                container.appendChild(errDiv);
-              }
-            }
-            // give the helper a moment then print once
-            setTimeout(function(){ try { helperWin.focus(); helperWin.print(); } catch(e){ console.error(e); } }, 350);
+                results.forEach(function(txt){
+                  var parsed = new DOMParser().parseFromString(txt, 'text/html');
+                  var bodyHtml = (parsed && parsed.body) ? parsed.body.innerHTML : txt;
+                  var wrap = helperWin.document.createElement('div');
+                  wrap.className = 'page';
+                  wrap.innerHTML = bodyHtml;
+                  container.appendChild(wrap);
+                });
+              } catch (e) { console.error('Error appending pages', e); }
+              // short delay to let the helper window render, then print
+              setTimeout(function(){ try { helperWin.focus(); helperWin.print(); } catch(e){ console.error(e); } }, 80);
+            }).catch(function(e){
+              console.error('Some fetches failed', e);
+              // still attempt to print whatever loaded
+              setTimeout(function(){ try { helperWin.focus(); helperWin.print(); } catch(e){} }, 400);
+            });
           } catch (e) { console.error('Error building print helper', e); }
         })();
         return;
