@@ -407,6 +407,8 @@
                 // leading prev-month days
                 $lead = $startWeekday; // number of empty cells before 1st
                 for ($i = 0; $i < 42; $i++, $cell++) {
+                  // reset dataAttr each iteration so it doesn't leak between cells
+                  $dataAttr = '';
                   if ($i < $lead) {
                     // previous month day
                     $num = $daysInPrev - ($lead - 1 - $i);
@@ -431,7 +433,8 @@
                     }
                     $class = implode(' ', $classes);
                     $eventHtml = $hasEvent ? '<div class="event">' . $events[$d] . '</div>' : '';
-                    $dataAttr = ' data-day="' . $d . '"';
+                    // include robust inline handlers so clicks always work even if delegation fails
+                    $dataAttr = ' data-day="' . $d . '" onclick="(function(el){try{var d=el.getAttribute(\'data-day\');var prev=document.querySelector(\'.cell.selected\');if(prev)prev.classList.remove(\'selected\');if(d){el.classList.add(\'selected\');if(window.renderOrientation)window.renderOrientation(d);} }catch(e){} })(this)" onkeydown="if(event.key==\'Enter\' || event.key==\' \'){ (function(el){try{var d=el.getAttribute(\'data-day\');var prev=document.querySelector(\'.cell.selected\');if(prev)prev.classList.remove(\'selected\');if(d){el.classList.add(\'selected\');if(window.renderOrientation)window.renderOrientation(d);} }catch(e){} })(this); event.preventDefault(); }"';
                   } else {
                     // next month filler
                     $num = $i - ($lead + $daysInMonth) + 1;
@@ -592,15 +595,44 @@
     }
 
     // small keyboard-friendly focus for cells and click handling to populate Orientation panel
-    // handle selection outline + rendering
+    // handle selection outline + rendering using event delegation so clicks work
+    // even if calendar DOM is re-rendered
     function clearSelected(){
       var prev = document.querySelector('.cell.selected');
       if (prev) prev.classList.remove('selected');
     }
-    document.querySelectorAll('.cell').forEach(function(c){
-      c.addEventListener('keydown', function(e){ if(e.key==='Enter' || e.key===' ') { var d = this.dataset.day; clearSelected(); if(d) this.classList.add('selected'); renderOrientation(d); } });
-      c.addEventListener('click', function(){ var d = this.dataset.day; clearSelected(); if(d) this.classList.add('selected'); renderOrientation(d); });
+
+    // delegated click handler: activate day when a .cell is clicked
+    document.addEventListener('click', function(e){
+      var cell = e.target.closest && e.target.closest('.cell');
+      if (!cell) return;
+      var d = cell.dataset.day;
+      clearSelected();
+      if (d) cell.classList.add('selected');
+      renderOrientation(d);
+    }, true);
+
+    // keyboard support: when a focused .cell receives Enter/Space, open it
+    document.addEventListener('keydown', function(e){
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      var el = document.activeElement;
+      if (!el || !(el.classList && el.classList.contains('cell'))) return;
+      e.preventDefault();
+      var d = el.dataset.day;
+      clearSelected();
+      if (d) el.classList.add('selected');
+      renderOrientation(d);
     });
+
+    // fallback handler used by inline cell attributes
+    function handleDayClick(el){
+      try {
+        var d = el && el.dataset ? el.dataset.day : null;
+        clearSelected();
+        if (d) el.classList.add('selected');
+        renderOrientation(d);
+      } catch (e) { console.error('handleDayClick error', e); }
+    }
 
     // Delegated selection handlers for students and select-all
     (function(){
@@ -704,22 +736,65 @@
       var pa = e.target.closest && e.target.closest('.print-all');
       if (pa) {
         e.preventDefault();
-        // print only selected students in this session
+        // print only selected students in this session — combine into one helper tab
         var sessEl = pa.closest('.session');
         if (!sessEl) { alert('Session element not found'); return; }
-        var checks = sessEl.querySelectorAll('.resched-checkbox:checked');
+        var checks = Array.from(sessEl.querySelectorAll('.resched-checkbox:checked'));
         if (!checks || checks.length === 0) { alert('Please select one or more students to print.'); return; }
-        checks.forEach(function(c){
+
+        var urls = checks.map(function(c){
           var appId = c.dataset.applicationId || '';
           var studId = c.dataset.studentId || '';
           var url = 'print_endorsement.php?';
           if (appId) url += 'application_id=' + encodeURIComponent(appId);
           else if (studId) url += 'student_id=' + encodeURIComponent(studId);
-          else return;
+          else return null;
+          return url;
+        }).filter(Boolean);
+        if (urls.length === 0) return;
+
+        // open helper window (user gesture) — fallback to opening separate tabs if blocked
+        var helperWin = null;
+        try { helperWin = window.open('', '_blank'); } catch (err) { helperWin = null; }
+        if (!helperWin) {
+          urls.forEach(function(u){ try { var a = document.createElement('a'); a.href = u; a.target = '_blank'; a.rel = 'noopener'; document.body.appendChild(a); a.click(); a.remove(); } catch(e){ window.open(u,'_blank'); } });
+          return;
+        }
+
+        // Prepare a basic helper window document, then fetch pages from the opener
+        helperWin.document.open();
+        helperWin.document.write('<!doctype html><html><head><meta charset="utf-8"><title>Print Queue</title>' +
+          '<style>body{font-family:Arial,Helvetica,sans-serif;margin:0;padding:12px} .page{page-break-after:always;margin:0;padding:0}</style></head><body>' +
+          '<div id="pages"></div></body></html>');
+        helperWin.document.close();
+
+        // In the main window, sequentially fetch each endorsement and append to helperWin
+        (async function(){
           try {
-            var a2 = document.createElement('a'); a2.href = url; a2.target = '_blank'; a2.rel = 'noopener'; document.body.appendChild(a2); a2.click(); a2.remove();
-          } catch(e) { window.open(url, '_blank'); }
-        });
+            var container = helperWin.document.getElementById('pages');
+            for (var i = 0; i < urls.length; i++) {
+              try {
+                var resp = await fetch(urls[i], { credentials: 'same-origin' });
+                var txt = await resp.text();
+                var parsed = new DOMParser().parseFromString(txt, 'text/html');
+                var bodyHtml = (parsed && parsed.body) ? parsed.body.innerHTML : txt;
+                var wrap = helperWin.document.createElement('div');
+                wrap.className = 'page';
+                wrap.innerHTML = bodyHtml;
+                container.appendChild(wrap);
+                // small delay to allow resources to start loading in helper
+                await new Promise(function(r){ setTimeout(r, 200); });
+              } catch (errFetch) {
+                var errDiv = helperWin.document.createElement('div');
+                errDiv.className = 'page';
+                errDiv.textContent = 'Failed to load: ' + urls[i];
+                container.appendChild(errDiv);
+              }
+            }
+            // give the helper a moment then print once
+            setTimeout(function(){ try { helperWin.focus(); helperWin.print(); } catch(e){ console.error(e); } }, 350);
+          } catch (e) { console.error('Error building print helper', e); }
+        })();
         return;
       }
       var ra = e.target.closest && e.target.closest('.resched');
