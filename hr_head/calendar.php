@@ -63,11 +63,86 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && strpos($_SERVER['CONTENT_TYPE'] ?? 
       $useTime = $targetTime !== '' ? $targetTime : $defaultTime;
       $useLoc = $targetLocation !== '' ? $targetLocation : $defaultLoc;
 
-      // check existing session on target date
-      $stmtChk = $conn->prepare("SELECT * FROM orientation_sessions WHERE DATE(`$dateCol2`) = ? LIMIT 1");
-      $stmtChk->bind_param('s', $targetDate); $stmtChk->execute(); $resChk = $stmtChk->get_result(); $found = $resChk ? $resChk->fetch_assoc() : null; $stmtChk->close();
+      // check existing sessions on target date and detect time conflicts (1 hour session length)
+      $stmtChk = $conn->prepare("SELECT * FROM orientation_sessions WHERE DATE(`$dateCol2`) = ?");
+      $stmtChk->bind_param('s', $targetDate); $stmtChk->execute(); $resChk = $stmtChk->get_result();
+      $existingSessions = [];
+      if ($resChk) {
+        while ($rchk = $resChk->fetch_assoc()) { $existingSessions[] = $rchk; }
+        $resChk->free();
+      }
+      $stmtChk->close();
       $targetSessionId = null;
-      if ($found) { $targetSessionId = (int)$found['session_id']; }
+      // if a suitable existing session exists (and no time conflict) we'll reuse it; otherwise we'll create a new one later
+      if (!empty($existingSessions)) {
+        // if a desired time is provided, ensure it does not overlap any existing session (1 hour rule)
+        if (!empty($useTime)) {
+          $conflict = false; $conflictMsg = '';
+          foreach ($existingSessions as $es) {
+            $existingTime = '';
+            if (!empty($timeCol2) && isset($es[$timeCol2]) && trim($es[$timeCol2]) !== '') { $existingTime = $es[$timeCol2]; }
+            else if (!empty($es[$dateCol2])) {
+              $tsTmp = strtotime($es[$dateCol2]); if ($tsTmp !== false) $existingTime = date('H:i:s', $tsTmp);
+            }
+            if (empty($existingTime)) continue;
+            $tUse = strtotime($targetDate . ' ' . $useTime);
+            $tExist = strtotime($targetDate . ' ' . $existingTime);
+            if ($tUse === false || $tExist === false) continue;
+            if (abs($tExist - $tUse) < 3600) {
+              // compare locations: if same location, allow (not a conflict)
+              $existingLoc = '';
+              if (!empty($locCol2) && isset($es[$locCol2])) { $existingLoc = trim((string)$es[$locCol2]); }
+              // compare case-insensitive; if different or one is empty, treat as conflict
+              $useLocTrim = trim((string)$useLoc);
+              if (strcasecmp($existingLoc, $useLocTrim) !== 0) {
+                $conflict = true;
+                $conflictMsg = 'Time conflict with existing session at ' . date('g:i A', $tExist) . ' on ' . date('F j, Y', strtotime($targetDate)) . ' (different location)';
+                break;
+              }
+            }
+          }
+          if ($conflict) { ob_end_clean(); header('Content-Type: application/json; charset=utf-8'); echo json_encode(['success'=>false,'message'=>$conflictMsg]); exit; }
+        }
+        // if no conflict and a requested time was provided, only reuse an existing session
+        // when its start time exactly matches the requested time (and location when provided).
+        if (!empty($useTime)) {
+          $matched = null;
+          $tUse = strtotime($targetDate . ' ' . $useTime);
+          foreach ($existingSessions as $es2) {
+            $existingTime2 = '';
+            if (!empty($timeCol2) && isset($es2[$timeCol2]) && trim($es2[$timeCol2]) !== '') { $existingTime2 = $es2[$timeCol2]; }
+            else if (!empty($es2[$dateCol2])) { $tsTmp2 = strtotime($es2[$dateCol2]); if ($tsTmp2 !== false) $existingTime2 = date('H:i:s', $tsTmp2); }
+            if ($tUse === false || empty($existingTime2)) continue;
+            $tExist2 = strtotime($targetDate . ' ' . $existingTime2);
+            if ($tExist2 === false) continue;
+            if ($tUse === $tExist2) {
+              // check location match if requested
+              $existingLoc2 = '';
+              if (!empty($locCol2) && isset($es2[$locCol2])) { $existingLoc2 = trim((string)$es2[$locCol2]); }
+              $useLocTrim2 = trim((string)$useLoc);
+              if ($useLocTrim2 === '' || strcasecmp($existingLoc2, $useLocTrim2) === 0) { $matched = (int)$es2['session_id']; break; }
+            }
+          }
+          if ($matched !== null) {
+            $targetSessionId = $matched;
+          } else {
+            // create new session row for the requested time
+            if ($timeCol2 && $dateCol2 && $timeCol2 !== $dateCol2) {
+              $ins = $conn->prepare("INSERT INTO orientation_sessions (`$dateCol2`, `$timeCol2`" . ($locCol2?",`$locCol2`":"") . ") VALUES (? , ?" . ($locCol2?",?":"") . ")");
+              if ($locCol2) $ins->bind_param('sss', $targetDate, $useTime, $useLoc); else $ins->bind_param('ss', $targetDate, $useTime);
+            } else {
+              $dtval = $targetDate . (!empty($useTime) ? ' ' . $useTime : '');
+              $ins = $conn->prepare("INSERT INTO orientation_sessions (`$dateCol2`" . ($locCol2?",`$locCol2`":"") . ") VALUES (?" . ($locCol2?",?":"") . ")");
+              if ($locCol2) $ins->bind_param('ss', $dtval, $useLoc); else $ins->bind_param('s', $dtval);
+            }
+            $ok = $ins->execute(); if (!$ok) { ob_end_clean(); header('Content-Type: application/json; charset=utf-8'); echo json_encode(['success'=>false,'message'=>'Create session failed','error'=>$ins->error]); exit; }
+            $targetSessionId = (int)$ins->insert_id; $ins->close();
+          }
+        } else {
+          // no specific time requested: reuse the first existing session
+          $targetSessionId = (int)$existingSessions[0]['session_id'];
+        }
+      }
       else {
         // create new session row
         if ($timeCol2 && $dateCol2 && $timeCol2 !== $dateCol2) {
@@ -80,6 +155,53 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && strpos($_SERVER['CONTENT_TYPE'] ?? 
         }
         $ok = $ins->execute(); if (!$ok) { ob_end_clean(); header('Content-Type: application/json; charset=utf-8'); echo json_encode(['success'=>false,'message'=>'Create session failed','error'=>$ins->error]); exit; }
         $targetSessionId = (int)$ins->insert_id; $ins->close();
+      }
+
+      // final server-side overlap check: build the day's session start times, include requested time if creating a new session,
+      // then ensure every adjacent session is at least 1 hour apart (allow exact same time only when location matches).
+      if (!empty($useTime)) {
+        $slots = [];
+        // collect existing sessions' start times for that date
+        if (!empty($existingSessions)) {
+          foreach ($existingSessions as $esCheck) {
+            $existingTime = '';
+            if (!empty($timeCol2) && isset($esCheck[$timeCol2]) && trim($esCheck[$timeCol2]) !== '') { $existingTime = $esCheck[$timeCol2]; }
+            else if (!empty($esCheck[$dateCol2]) && !empty($esCheck[$dateCol2])) {
+              $tsTmp = strtotime($esCheck[$dateCol2]); if ($tsTmp !== false) $existingTime = date('H:i:s', $tsTmp);
+            }
+            if (empty($existingTime)) continue;
+            $tExist = strtotime($targetDate . ' ' . $existingTime);
+            if ($tExist === false) continue;
+            $existingLoc = '';
+            if (!empty($locCol2) && isset($esCheck[$locCol2])) $existingLoc = trim((string)$esCheck[$locCol2]);
+            $slots[] = ['time'=>$tExist, 'loc'=>$existingLoc, 'sid'=> (int)($esCheck['session_id'] ?? 0)];
+          }
+        }
+        // determine if requested time matches an existing session exactly (and same location when provided)
+        $tReq = strtotime($targetDate . ' ' . $useTime);
+        if ($tReq !== false) {
+          $matchedExact = false;
+          foreach ($slots as $st) {
+            if ($st['time'] === $tReq) {
+              // if locations match (or request location empty), consider matched
+              $useLocTrimFinal = trim((string)$useLoc);
+              if ($useLocTrimFinal === '' || strcasecmp($st['loc'], $useLocTrimFinal) === 0) { $matchedExact = true; break; }
+            }
+          }
+          if (!$matchedExact) {
+            // add requested slot as a new session time to evaluate adjacency
+            $slots[] = ['time'=>$tReq, 'loc'=>trim((string)$useLoc), 'sid'=>0];
+          }
+        }
+        // sort slots by time
+        usort($slots, function($a,$b){ return $a['time'] <=> $b['time']; });
+        // check adjacent differences
+        for ($i=1;$i<count($slots);$i++) {
+          $diff = $slots[$i]['time'] - $slots[$i-1]['time'];
+            if ($diff < 3600) {
+                ob_end_clean(); header('Content-Type: application/json; charset=utf-8'); echo json_encode(['success'=>false,'message'=>'Time conflict with existing session at ' . date('g:i A', $slots[$i-1]['time']) . ' on ' . date('F j, Y', strtotime($targetDate))]); exit;
+            }
+        }
       }
 
       // move assignments (optionally only selected students)
@@ -496,11 +618,76 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && strpos($_SERVER['CONTENT_TYPE'] ?? 
           $useTime = $targetTime !== '' ? $targetTime : $defaultTime;
           $useLoc = $targetLocation !== '' ? $targetLocation : $defaultLoc;
 
-          // check existing session on target date
-          $stmtChk = $conn->prepare("SELECT * FROM orientation_sessions WHERE DATE(`$dateCol2`) = ? LIMIT 1");
-          $stmtChk->bind_param('s', $targetDate); $stmtChk->execute(); $resChk = $stmtChk->get_result(); $found = $resChk ? $resChk->fetch_assoc() : null; $stmtChk->close();
+          // check existing sessions on target date and detect time conflicts (1 hour session length)
+          $stmtChk = $conn->prepare("SELECT * FROM orientation_sessions WHERE DATE(`$dateCol2`) = ?");
+          $stmtChk->bind_param('s', $targetDate); $stmtChk->execute(); $resChk = $stmtChk->get_result();
+          $existingSessions = [];
+          if ($resChk) {
+            while ($rchk = $resChk->fetch_assoc()) { $existingSessions[] = $rchk; }
+            $resChk->free();
+          }
+          $stmtChk->close();
           $targetSessionId = null;
-          if ($found) { $targetSessionId = (int)$found['session_id']; }
+          if (!empty($existingSessions)) {
+            if (!empty($useTime)) {
+              $conflict = false; $conflictMsg = '';
+              foreach ($existingSessions as $es) {
+                $existingTime = '';
+                if (!empty($timeCol2) && isset($es[$timeCol2]) && trim($es[$timeCol2]) !== '') { $existingTime = $es[$timeCol2]; }
+                else if (!empty($es[$dateCol2])) { $tsTmp = strtotime($es[$dateCol2]); if ($tsTmp !== false) $existingTime = date('H:i:s', $tsTmp); }
+                if (empty($existingTime)) continue;
+                $tUse = strtotime($targetDate . ' ' . $useTime);
+                $tExist = strtotime($targetDate . ' ' . $existingTime);
+                if ($tUse === false || $tExist === false) continue;
+                if (abs($tExist - $tUse) < 3600) {
+                  // compare locations: if same location, allow (not a conflict)
+                  $existingLoc = '';
+                  if (!empty($locCol2) && isset($es[$locCol2])) { $existingLoc = trim((string)$es[$locCol2]); }
+                  $useLocTrim = trim((string)$useLoc);
+                  if (strcasecmp($existingLoc, $useLocTrim) !== 0) {
+                    $conflict = true;
+                    $conflictMsg = 'Time conflict with existing session at ' . date('g:i A', $tExist) . ' on ' . date('F j, Y', strtotime($targetDate)) . ' (different location)';
+                    break;
+                  }
+                }
+              }
+              if ($conflict) { ob_end_clean(); header('Content-Type: application/json; charset=utf-8'); echo json_encode(['success'=>false,'message'=>$conflictMsg]); exit; }
+            }
+            if (!empty($useTime)) {
+              $matched = null;
+              $tUse = strtotime($targetDate . ' ' . $useTime);
+              foreach ($existingSessions as $es2) {
+                $existingTime2 = '';
+                if (!empty($timeCol2) && isset($es2[$timeCol2]) && trim($es2[$timeCol2]) !== '') { $existingTime2 = $es2[$timeCol2]; }
+                else if (!empty($es2[$dateCol2])) { $tsTmp2 = strtotime($es2[$dateCol2]); if ($tsTmp2 !== false) $existingTime2 = date('H:i:s', $tsTmp2); }
+                if ($tUse === false || empty($existingTime2)) continue;
+                $tExist2 = strtotime($targetDate . ' ' . $existingTime2);
+                if ($tExist2 === false) continue;
+                if ($tUse === $tExist2) {
+                  $existingLoc2 = '';
+                  if (!empty($locCol2) && isset($es2[$locCol2])) { $existingLoc2 = trim((string)$es2[$locCol2]); }
+                  $useLocTrim2 = trim((string)$useLoc);
+                  if ($useLocTrim2 === '' || strcasecmp($existingLoc2, $useLocTrim2) === 0) { $matched = (int)$es2['session_id']; break; }
+                }
+              }
+              if ($matched !== null) {
+                $targetSessionId = $matched;
+              } else {
+                if ($timeCol2 && $dateCol2 && $timeCol2 !== $dateCol2) {
+                  $ins = $conn->prepare("INSERT INTO orientation_sessions (`$dateCol2`, `$timeCol2`" . ($locCol2?",`$locCol2`":"") . ") VALUES (? , ?" . ($locCol2?",?":"") . ")");
+                  if ($locCol2) $ins->bind_param('sss', $targetDate, $useTime, $useLoc); else $ins->bind_param('ss', $targetDate, $useTime);
+                } else {
+                  $dtval = $targetDate . (!empty($useTime) ? ' ' . $useTime : '');
+                  $ins = $conn->prepare("INSERT INTO orientation_sessions (`$dateCol2`" . ($locCol2?",`$locCol2`":"") . ") VALUES (?" . ($locCol2?",?":"") . ")");
+                  if ($locCol2) $ins->bind_param('ss', $dtval, $useLoc); else $ins->bind_param('s', $dtval);
+                }
+                $ok = $ins->execute(); if (!$ok) { ob_end_clean(); header('Content-Type: application/json; charset=utf-8'); echo json_encode(['success'=>false,'message'=>'Create session failed','error'=>$ins->error]); exit; }
+                $targetSessionId = (int)$ins->insert_id; $ins->close();
+              }
+            } else {
+              $targetSessionId = (int)$existingSessions[0]['session_id'];
+            }
+          }
           else {
             // create new session row
             if ($timeCol2 && $dateCol2 && $timeCol2 !== $dateCol2) {
@@ -513,6 +700,53 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && strpos($_SERVER['CONTENT_TYPE'] ?? 
             }
             $ok = $ins->execute(); if (!$ok) { ob_end_clean(); header('Content-Type: application/json; charset=utf-8'); echo json_encode(['success'=>false,'message'=>'Create session failed','error'=>$ins->error]); exit; }
             $targetSessionId = (int)$ins->insert_id; $ins->close();
+          }
+
+          // final server-side overlap check: build the day's session start times, include requested time if creating a new session,
+          // then ensure every adjacent session is at least 1 hour apart (allow exact same time only when location matches).
+          if (!empty($useTime)) {
+            $slots = [];
+            // collect existing sessions' start times for that date
+            if (!empty($existingSessions)) {
+              foreach ($existingSessions as $esCheck) {
+                $existingTime = '';
+                if (!empty($timeCol2) && isset($esCheck[$timeCol2]) && trim($esCheck[$timeCol2]) !== '') { $existingTime = $esCheck[$timeCol2]; }
+                else if (!empty($esCheck[$dateCol2]) && !empty($esCheck[$dateCol2])) {
+                  $tsTmp = strtotime($esCheck[$dateCol2]); if ($tsTmp !== false) $existingTime = date('H:i:s', $tsTmp);
+                }
+                if (empty($existingTime)) continue;
+                $tExist = strtotime($targetDate . ' ' . $existingTime);
+                if ($tExist === false) continue;
+                $existingLoc = '';
+                if (!empty($locCol2) && isset($esCheck[$locCol2])) $existingLoc = trim((string)$esCheck[$locCol2]);
+                $slots[] = ['time'=>$tExist, 'loc'=>$existingLoc, 'sid'=> (int)($esCheck['session_id'] ?? 0)];
+              }
+            }
+            // determine if requested time matches an existing session exactly (and same location when provided)
+            $tReq = strtotime($targetDate . ' ' . $useTime);
+            if ($tReq !== false) {
+              $matchedExact = false;
+              foreach ($slots as $st) {
+                if ($st['time'] === $tReq) {
+                  // if locations match (or request location empty), consider matched
+                  $useLocTrimFinal = trim((string)$useLoc);
+                  if ($useLocTrimFinal === '' || strcasecmp($st['loc'], $useLocTrimFinal) === 0) { $matchedExact = true; break; }
+                }
+              }
+              if (!$matchedExact) {
+                // add requested slot as a new session time to evaluate adjacency
+                $slots[] = ['time'=>$tReq, 'loc'=>trim((string)$useLoc), 'sid'=>0];
+              }
+            }
+            // sort slots by time
+            usort($slots, function($a,$b){ return $a['time'] <=> $b['time']; });
+            // check adjacent differences
+            for ($i=1;$i<count($slots);$i++) {
+              $diff = $slots[$i]['time'] - $slots[$i-1]['time'];
+              if ($diff < 3600) {
+                ob_end_clean(); header('Content-Type: application/json; charset=utf-8'); echo json_encode(['success'=>false,'message'=>'Time conflict with existing session at ' . date('g:i A', $slots[$i-1]['time']) . ' on ' . date('F j, Y', strtotime($targetDate))]); exit;
+              }
+            }
           }
 
           // move assignments (optionally only selected students)
@@ -1028,6 +1262,57 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && strpos($_SERVER['CONTENT_TYPE'] ?? 
     // expose events data from PHP
     var eventsData = <?php echo json_encode($eventsData ?? []); ?>;
 
+    var orientationCycleIndex = {};
+
+    function buildSessionDOM(s){
+      var sess = document.createElement('div'); sess.className = 'session';
+      sess.dataset.sessionId = s.session_id || '';
+      var row1 = document.createElement('div'); row1.className = 'row';
+      var icon1 = document.createElement('div'); icon1.className = 'icon';
+      icon1.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 1a11 11 0 1 0 11 11A11.012 11.012 0 0 0 12 1zm1 12.59V7h-2v6.59l5 3 1-1.66z"></path></svg>';
+      var txt1 = document.createElement('div'); txt1.className='text'; txt1.textContent = s.time || '';
+      row1.appendChild(icon1); row1.appendChild(txt1); sess.appendChild(row1);
+      var row2 = document.createElement('div'); row2.className = 'row';
+      var icon2 = document.createElement('div'); icon2.className = 'icon';
+      icon2.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 4h-1V2h-2v2H8V2H6v2H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zM5 20V9h14l.002 11H5z"></path></svg>';
+      var txt2 = document.createElement('div'); txt2.className='text small'; txt2.textContent = (new Date(s.date)).toLocaleString(undefined, {weekday:'short', year:'numeric', month:'long', day:'numeric'});
+      row2.appendChild(icon2); row2.appendChild(txt2); sess.appendChild(row2);
+      // location row (restore inside session to match previous layout)
+      var row3 = document.createElement('div'); row3.className = 'row';
+      var icon3 = document.createElement('div'); icon3.className = 'icon';
+      icon3.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a7 7 0 0 0-7 7c0 5.25 7 13 7 13s7-7.75 7-13a7 7 0 0 0-7-7zm0 9.5A2.5 2.5 0 1 1 14.5 9 2.5 2.5 0 0 1 12 11.5z"></path></svg>';
+      var txt3 = document.createElement('div'); txt3.className='text'; txt3.textContent = s.location || '';
+      row3.appendChild(icon3); row3.appendChild(txt3); sess.appendChild(row3);
+      var studentsWrap = document.createElement('div'); studentsWrap.className = 'students';
+      if (s.students && s.students.length > 0) {
+        var header = document.createElement('div'); header.style.display = 'flex'; header.style.justifyContent = 'space-between'; header.style.alignItems = 'center';
+        var label = document.createElement('div'); label.className = 'students-label'; label.textContent = 'Students'; header.appendChild(label);
+        var saWrap = document.createElement('div'); saWrap.style.display='flex'; saWrap.style.alignItems='center';
+        var sa = document.createElement('input'); sa.type = 'checkbox'; sa.className = 'select-all'; sa.id = 'select_all_' + (s.session_id || Math.random().toString(36).slice(2,7));
+        var saLabel = document.createElement('label'); saLabel.setAttribute('for', sa.id); saLabel.style.marginLeft='6px'; saLabel.style.fontSize='12px'; saLabel.style.color='#444'; saLabel.textContent = 'Select all'; saLabel.style.cursor = 'pointer';
+        saWrap.appendChild(sa); saWrap.appendChild(saLabel); header.appendChild(saWrap); studentsWrap.appendChild(header);
+        s.students.forEach(function(st){
+          var r = document.createElement('div'); r.className = 'student-row';
+          var cb = document.createElement('input'); cb.type = 'checkbox'; cb.className = 'resched-checkbox'; cb.style.marginRight = '8px';
+          if (st.application_id) cb.dataset.applicationId = st.application_id; if (st.student_id) cb.dataset.studentId = st.student_id;
+          var name = document.createElement('div'); name.className = 'student-name'; name.textContent = st.name || '';
+          r.appendChild(name); r.insertBefore(cb, r.firstChild);
+          try { if (st.rescheduled_from) { var sd = new Date(st.rescheduled_from); if (!isNaN(sd)) { var sfl = sd.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }); var sb = document.createElement('span'); sb.className = 'resched-badge'; sb.textContent = 'Rescheduled from ' + sfl; sb.style.marginLeft = '8px'; r.appendChild(sb); } } } catch(e){}
+          studentsWrap.appendChild(r);
+        });
+        sa.addEventListener('change', function(){ var sessParent = this.closest('.students'); if (!sessParent) return; var checks = sessParent.querySelectorAll('.resched-checkbox'); checks.forEach(function(ch){ ch.checked = sa.checked; }); if (checks.length > 0) checks[0].dispatchEvent(new Event('change', { bubbles: true })); });
+        var printAll = document.createElement('a'); printAll.className = 'print-all'; printAll.href = '#'; printAll.textContent = 'Print Endorsement Letter'; printAll.classList.add('disabled'); printAll.setAttribute('aria-disabled','true'); printAll.dataset.sessionId = s.session_id || ''; studentsWrap.appendChild(printAll);
+        function updatePrintButtonState() { try { var anyChecked = Array.from(studentsWrap.querySelectorAll('.resched-checkbox')).some(function(ch){ return ch.checked; }); if (anyChecked) { printAll.classList.remove('disabled'); printAll.removeAttribute('aria-disabled'); } else { printAll.classList.add('disabled'); printAll.setAttribute('aria-disabled','true'); } } catch(e){} }
+        var allChecks = studentsWrap.querySelectorAll('.resched-checkbox'); allChecks.forEach(function(ch){ ch.addEventListener('change', updatePrintButtonState); });
+      } else { var none = document.createElement('div'); none.className = 'meta'; none.textContent = 'No students assigned.'; studentsWrap.appendChild(none); }
+      sess.appendChild(studentsWrap);
+      try { if (s.rescheduled_from) { var fd = new Date(s.rescheduled_from); if (!isNaN(fd)) { var fl = fd.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }); var badge = document.createElement('span'); badge.className = 'resched-badge'; badge.textContent = 'Rescheduled from ' + fl; sess.appendChild(badge); } } } catch(e) { }
+      var sessionBtn = document.createElement('a'); sessionBtn.className = 'resched'; sessionBtn.href = '#'; sessionBtn.textContent = 'Reschedule'; sessionBtn.classList.add('disabled'); sessionBtn.setAttribute('aria-disabled','true'); sessionBtn.style.marginTop = '10px'; sessionBtn.dataset.sessionId = s.session_id || '';
+      sessionBtn.addEventListener('click', function(ev){ if (this.classList && this.classList.contains('disabled')) return; ev.preventDefault(); var sessEl = this.closest('.session'); var checks = sessEl ? sessEl.querySelectorAll('.resched-checkbox:checked') : []; if (!checks || checks.length === 0) { alert('Please select one or more students to reschedule.'); return; } var sel = []; checks.forEach(function(c){ sel.push({ application_id: c.dataset.applicationId || null, student_id: c.dataset.studentId || null }); }); currentReschedSelected = sel; openRescheduleModalForSession(this.dataset.sessionId); });
+      sess.appendChild(sessionBtn);
+      return sess;
+    }
+
     function renderOrientation(day){
       var container = document.getElementById('orientationContent');
       container.innerHTML = '';
@@ -1036,148 +1321,41 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && strpos($_SERVER['CONTENT_TYPE'] ?? 
         return;
       }
       var sessions = eventsData[day];
-      // render sessions with left icons and rows
-      sessions.forEach(function(s){
-        var sess = document.createElement('div'); sess.className = 'session';
-        sess.dataset.sessionId = s.session_id || '';
+      if (!sessions || sessions.length === 0) { container.innerHTML = '<div class="meta">No orientation scheduled.</div>'; return; }
+      // show one session at a time in the right panel; add arrow to cycle when multiple
+      orientationCycleIndex[day] = orientationCycleIndex[day] || 0;
+      var idx = orientationCycleIndex[day];
+      // header: (no 'Orientation' title here; location is shown inside session)
+      var header = document.createElement('div'); header.className = 'orientation-header';
+      header.style.display = 'flex'; header.style.alignItems = 'center'; header.style.justifyContent = 'space-between'; header.style.padding = '8px 12px'; header.style.position = 'relative';
+      var leftGroup = document.createElement('div'); leftGroup.style.display = 'flex'; leftGroup.style.alignItems = 'center';
+      // intentionally leave leftGroup empty to avoid duplicating the modal title
 
-        // time row
-        var row1 = document.createElement('div'); row1.className = 'row';
-        var icon1 = document.createElement('div'); icon1.className = 'icon';
-        icon1.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 1a11 11 0 1 0 11 11A11.012 11.012 0 0 0 12 1zm1 12.59V7h-2v6.59l5 3 1-1.66z"></path></svg>';
-        var txt1 = document.createElement('div'); txt1.className='text'; txt1.textContent = s.time || '';
-        row1.appendChild(icon1); row1.appendChild(txt1);
-        sess.appendChild(row1);
+      var pager = document.createElement('div'); pager.style.display = 'flex'; pager.style.alignItems = 'center'; pager.style.gap = '8px';
+      var prev = document.createElement('button'); prev.className = 'orientation-prev'; prev.type='button'; prev.textContent = '<'; prev.dataset.day = day; prev.style.padding = '6px 8px'; prev.style.borderRadius='6px'; prev.style.border='1px solid #ccc'; prev.style.background='#fff'; prev.style.cursor='pointer';
+      var idxDisplay = document.createElement('div'); idxDisplay.className = 'orientation-index'; idxDisplay.style.minWidth='44px'; idxDisplay.style.textAlign='center'; idxDisplay.style.fontWeight='600'; idxDisplay.textContent = (idx+1) + '/' + sessions.length;
+      var next = document.createElement('button'); next.className = 'orientation-next'; next.type='button'; next.textContent = '>'; next.dataset.day = day; next.style.padding = '6px 8px'; next.style.borderRadius='6px'; next.style.border='1px solid #ccc'; next.style.background='#fff'; next.style.cursor='pointer';
+      // disable prev/next appropriately
+      if (idx === 0) { prev.disabled = true; prev.style.opacity = '0.5'; prev.style.cursor='default'; }
+      if (idx === sessions.length - 1) { next.disabled = true; next.style.opacity = '0.5'; next.style.cursor='default'; }
+      pager.appendChild(prev); pager.appendChild(idxDisplay); pager.appendChild(next);
+      header.appendChild(leftGroup); header.appendChild(pager);
+      container.appendChild(header);
 
-        // date row
-        var row2 = document.createElement('div'); row2.className = 'row';
-        var icon2 = document.createElement('div'); icon2.className = 'icon';
-        icon2.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 4h-1V2h-2v2H8V2H6v2H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zM5 20V9h14l.002 11H5z"></path></svg>';
-        var txt2 = document.createElement('div'); txt2.className='text small'; txt2.textContent = (new Date(s.date)).toLocaleString(undefined, {weekday:'short', year:'numeric', month:'long', day:'numeric'});
-        row2.appendChild(icon2); row2.appendChild(txt2);
-        sess.appendChild(row2);
+      var body = document.createElement('div'); body.id = 'orientationBody'; body.appendChild(buildSessionDOM(sessions[idx])); container.appendChild(body);
 
-        // location row
-        var row3 = document.createElement('div'); row3.className = 'row';
-        var icon3 = document.createElement('div'); icon3.className = 'icon';
-        icon3.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a7 7 0 0 0-7 7c0 5.25 7 13 7 13s7-7.75 7-13a7 7 0 0 0-7-7zm0 9.5A2.5 2.5 0 1 1 14.5 9 2.5 2.5 0 0 1 12 11.5z"></path></svg>';
-        var txt3 = document.createElement('div'); txt3.className='text'; txt3.textContent = s.location || '';
-        row3.appendChild(icon3); row3.appendChild(txt3);
-        sess.appendChild(row3);
+      // pager handlers
+      prev.addEventListener('click', function(e){ e.stopPropagation(); e.preventDefault(); var d = this.dataset.day; var arr = eventsData[d] || []; if (!arr.length) return; orientationCycleIndex[d] = Math.max(0, (orientationCycleIndex[d] || 0) - 1); var newIdx = orientationCycleIndex[d]; var b = document.getElementById('orientationBody'); if (!b) return; b.innerHTML = ''; b.appendChild(buildSessionDOM(arr[newIdx])); // update header
+        idxDisplay.textContent = (newIdx+1) + '/' + arr.length; // toggle disable
+        if (newIdx === 0) { prev.disabled = true; prev.style.opacity = '0.5'; prev.style.cursor='default'; } else { prev.disabled = false; prev.style.opacity='1'; prev.style.cursor='pointer'; }
+        if (newIdx === arr.length - 1) { next.disabled = true; next.style.opacity = '0.5'; next.style.cursor='default'; } else { next.disabled = false; next.style.opacity='1'; next.style.cursor='pointer'; }
+      }, true);
 
-        // students list with label and print actions
-        var studentsWrap = document.createElement('div'); studentsWrap.className = 'students';
-        if (s.students && s.students.length > 0) {
-          // header: Students label + Select All checkbox
-          var header = document.createElement('div'); header.style.display = 'flex'; header.style.justifyContent = 'space-between'; header.style.alignItems = 'center';
-          var label = document.createElement('div'); label.className = 'students-label'; label.textContent = 'Students';
-          header.appendChild(label);
-          var saWrap = document.createElement('div'); saWrap.style.display='flex'; saWrap.style.alignItems='center';
-          var sa = document.createElement('input'); sa.type = 'checkbox'; sa.className = 'select-all'; sa.id = 'select_all_' + (s.session_id || Math.random().toString(36).slice(2,7));
-          var saLabel = document.createElement('label'); saLabel.setAttribute('for', sa.id); saLabel.style.marginLeft='6px'; saLabel.style.fontSize='12px'; saLabel.style.color='#444'; saLabel.textContent = 'Select all';
-          saLabel.style.cursor = 'pointer';
-          saWrap.appendChild(sa); saWrap.appendChild(saLabel);
-          header.appendChild(saWrap);
-          studentsWrap.appendChild(header);
-
-          s.students.forEach(function(st){
-            var r = document.createElement('div'); r.className = 'student-row';
-            // checkbox for selecting which students to reschedule
-            var cb = document.createElement('input'); cb.type = 'checkbox'; cb.className = 'resched-checkbox';
-            cb.style.marginRight = '8px';
-            if (st.application_id) cb.dataset.applicationId = st.application_id;
-            if (st.student_id) cb.dataset.studentId = st.student_id;
-            // name
-            var name = document.createElement('div'); name.className = 'student-name'; name.textContent = st.name || '';
-            // assemble row: checkbox + name
-            r.appendChild(name);
-            // prepend checkbox before name for easy selection
-            r.insertBefore(cb, r.firstChild);
-            // per-student persistent rescheduled badge (if this assignment was rescheduled)
-            try {
-              if (st.rescheduled_from) {
-                var sd = new Date(st.rescheduled_from);
-                if (!isNaN(sd)) {
-                  var sfl = sd.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
-                  var sb = document.createElement('span'); sb.className = 'resched-badge'; sb.textContent = 'Rescheduled from ' + sfl; sb.style.marginLeft = '8px';
-                  r.appendChild(sb);
-                }
-              }
-            } catch(e){}
-            studentsWrap.appendChild(r);
-          });
-          // select-all behavior
-          sa.addEventListener('change', function(){
-            var sessParent = this.closest('.students');
-            if (!sessParent) return;
-            var checks = sessParent.querySelectorAll('.resched-checkbox');
-            // set checked state for all checkboxes
-            checks.forEach(function(ch){ ch.checked = sa.checked; });
-            // trigger a single change event to let delegated handlers update UI once
-            if (checks.length > 0) checks[0].dispatchEvent(new Event('change', { bubbles: true }));
-          });
-          // Print button (prints selected students) — use anchor to preserve original layout
-          var printAll = document.createElement('a'); printAll.className = 'print-all'; printAll.href = '#'; printAll.textContent = 'Print Endorsement Letter';
-          // start disabled until at least one student is selected (use disabled class)
-          printAll.classList.add('disabled'); printAll.setAttribute('aria-disabled','true');
-          // attach session id for Print All
-          printAll.dataset.sessionId = s.session_id || '';
-          studentsWrap.appendChild(printAll);
-
-          // enable/disable print button based on checkbox selections (toggle class)
-          function updatePrintButtonState() {
-            try {
-              var anyChecked = Array.from(studentsWrap.querySelectorAll('.resched-checkbox')).some(function(ch){ return ch.checked; });
-              if (anyChecked) { printAll.classList.remove('disabled'); printAll.removeAttribute('aria-disabled'); }
-              else { printAll.classList.add('disabled'); printAll.setAttribute('aria-disabled','true'); }
-            } catch(e){}
-          }
-          // wire checkbox change events to update button state
-          var allChecks = studentsWrap.querySelectorAll('.resched-checkbox');
-          allChecks.forEach(function(ch){ ch.addEventListener('change', updatePrintButtonState); });
-        } else {
-          var none = document.createElement('div'); none.className = 'meta'; none.textContent = 'No students assigned.';
-          studentsWrap.appendChild(none);
-        }
-        sess.appendChild(studentsWrap);
-
-        // show persistent rescheduled badge when present on the session
-        try {
-          if (s.rescheduled_from) {
-            var fd = new Date(s.rescheduled_from);
-            if (!isNaN(fd)) {
-              var fl = fd.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
-              var badge = document.createElement('span'); badge.className = 'resched-badge'; badge.textContent = 'Rescheduled from ' + fl;
-              sess.appendChild(badge);
-            }
-          }
-        } catch(e) { /* ignore */ }
-
-        // session-level reschedule button (Reschedule selected students)
-        var sessionBtn = document.createElement('a'); sessionBtn.className = 'resched'; sessionBtn.href = '#'; sessionBtn.textContent = 'Reschedule';
-        // start disabled until at least one student is selected (match print-all behavior)
-        sessionBtn.classList.add('disabled'); sessionBtn.setAttribute('aria-disabled','true');
-        sessionBtn.style.marginTop = '10px';
-        sessionBtn.dataset.sessionId = s.session_id || '';
-        sessionBtn.addEventListener('click', function(ev){
-          // don't act when button is disabled
-          if (this.classList && this.classList.contains('disabled')) return;
-          ev.preventDefault();
-          // collect checked students inside this session element
-          var sessEl = this.closest('.session');
-          var checks = sessEl ? sessEl.querySelectorAll('.resched-checkbox:checked') : [];
-          if (!checks || checks.length === 0) { alert('Please select one or more students to reschedule.'); return; }
-          // build selected list and store globally for modal
-          var sel = [];
-          checks.forEach(function(c){ sel.push({ application_id: c.dataset.applicationId || null, student_id: c.dataset.studentId || null }); });
-          // attach to currentReschedSelected
-          currentReschedSelected = sel;
-          openRescheduleModalForSession(this.dataset.sessionId);
-        });
-        sess.appendChild(sessionBtn);
-
-        container.appendChild(sess);
-      });
+      next.addEventListener('click', function(e){ e.stopPropagation(); e.preventDefault(); var d = this.dataset.day; var arr = eventsData[d] || []; if (!arr.length) return; orientationCycleIndex[d] = ((orientationCycleIndex[d] || 0) + 1) % arr.length; var newIdx = orientationCycleIndex[d]; var b = document.getElementById('orientationBody'); if (!b) return; b.innerHTML = ''; b.appendChild(buildSessionDOM(arr[newIdx])); // update header
+        idxDisplay.textContent = (newIdx+1) + '/' + arr.length; // toggle disable
+        if (newIdx === 0) { prev.disabled = true; prev.style.opacity = '0.5'; prev.style.cursor='default'; } else { prev.disabled = false; prev.style.opacity='1'; prev.style.cursor='pointer'; }
+        if (newIdx === arr.length - 1) { next.disabled = true; next.style.opacity = '0.5'; next.style.cursor='default'; } else { next.disabled = false; next.style.opacity = '1'; next.style.cursor='pointer'; }
+      }, true);
     }
 
     // small keyboard-friendly focus for cells and click handling to populate Orientation panel
@@ -1420,7 +1598,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && strpos($_SERVER['CONTENT_TYPE'] ?? 
       </div>
       <div style="margin-bottom:8px">
         <label style="font-weight:600;display:block;margin-bottom:4px">Time</label>
-        <input id="resched_time" type="time" style="width:100%;padding:8px;border-radius:6px;border:1px solid #ccc" />
+        <input id="resched_time" type="time" step="900" min="08:00" max="16:00" style="width:100%;padding:8px;border-radius:6px;border:1px solid #ccc" />
       </div>
       <div style="margin-bottom:8px">
         <label style="font-weight:600;display:block;margin-bottom:4px">Location</label>
@@ -1470,16 +1648,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && strpos($_SERVER['CONTENT_TYPE'] ?? 
         dateIn.value = yyyy + '-' + mm + '-' + dd;
         // default time if available
         if (found.session.time) {
-          // parse time like "8:30 AM" -> 08:30
-          var t = found.session.time;
-          var dtmp = new Date('1970-01-01 ' + t);
-          if (!isNaN(dtmp)) {
-            var th = String(dtmp.getHours()).padStart(2,'0');
-            var tm = String(dtmp.getMinutes()).padStart(2,'0');
-            timeIn.value = th + ':' + tm;
-          } else {
-            timeIn.value = '';
-          }
+          // populate time input as HH:MM (try parsing several formats)
+          try {
+            var t = found.session.time || '';
+            var dtmp = new Date('1970-01-01 ' + t);
+            if (!isNaN(dtmp)) {
+              var th = String(dtmp.getHours()).padStart(2,'0');
+              var tm = String(dtmp.getMinutes()).padStart(2,'0');
+              timeIn.value = th + ':' + tm;
+            } else {
+              // fallback: try to extract HH:MM using regex from strings like '08:30' or '8:30 AM'
+              var m = String(t).match(/(\d{1,2}):(\d{2})/);
+              if (m) {
+                var hh = String(m[1]).padStart(2,'0'); var mm = String(m[2]).padStart(2,'0'); timeIn.value = hh + ':' + mm;
+              } else {
+                timeIn.value = '';
+              }
+            }
+          } catch(e){ timeIn.value = ''; }
         } else {
           timeIn.value = '';
         }
@@ -1808,6 +1994,54 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && strpos($_SERVER['CONTENT_TYPE'] ?? 
       var selected = currentReschedSelected || null;
       var msg = document.getElementById('resched_msg');
       var btn = document.getElementById('resched_confirm');
+      // client-side validation: ensure requested time doesn't overlap existing sessions (<1 hour)
+      try {
+        var valid = true; var vmsg = '';
+        if (timeVal) {
+          var iso = dateVal;
+          // collect sessions on the chosen ISO date (eventsData keys may be day numbers)
+          var arr = [];
+          try {
+            for (var k in eventsData) {
+              if (!eventsData.hasOwnProperty(k)) continue;
+              var group = eventsData[k] || [];
+              for (var j=0;j<group.length;j++) {
+                var s0 = group[j];
+                try {
+                  var ds = new Date(s0.date);
+                  if (!isNaN(ds)) {
+                    var y = ds.getFullYear(); var m = String(ds.getMonth()+1).padStart(2,'0'); var d = String(ds.getDate()).padStart(2,'0');
+                    var iso2 = y + '-' + m + '-' + d;
+                    if (iso2 === iso) arr.push(s0);
+                  }
+                } catch(e){}
+              }
+            }
+          } catch(e) { arr = []; }
+          var tUse = (new Date(iso + ' ' + timeVal)).getTime();
+          if (isNaN(tUse)) tUse = null;
+          for (var i=0;i<arr.length;i++){
+            try {
+              var s = arr[i]; if (!s || !s.time) continue;
+              var existT = (new Date(s.date)).getTime();
+              // try parse s.time if date parse didn't give time portion
+              var tExist = null;
+              var dt1 = new Date(iso + ' ' + s.time);
+              if (!isNaN(dt1)) tExist = dt1.getTime();
+              else if (!isNaN(existT)) tExist = existT;
+              if (tUse && tExist && Math.abs(tExist - tUse) < 3600000) {
+                // allow if same location
+                var existingLoc = (s.location || '').toString().trim();
+                var useLocTrim = (locVal || '').toString().trim();
+                if (useLocTrim === '' || existingLoc.toLowerCase() !== useLocTrim.toLowerCase()) {
+                  valid = false; vmsg = 'Time conflict with existing session at ' + (new Date(tExist)).toLocaleTimeString([], {hour:'numeric',minute:'2-digit'}) + ' on ' + (new Date(iso)).toLocaleDateString(); break;
+                }
+              }
+            } catch(e){}
+          }
+        }
+        if (!valid) { msg.style.display='block'; msg.style.background='#fff4f4'; msg.style.color='#a00'; msg.textContent = vmsg; btn.disabled=false; btn.textContent='Confirm'; return; }
+      } catch(e) { /* ignore client check errors and let server handle */ }
       btn.disabled = true; btn.textContent = 'Working...';
       fetch('calendar.php', {
         method: 'POST',
@@ -1868,8 +2102,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && strpos($_SERVER['CONTENT_TYPE'] ?? 
         } else {
           // show error in modal and make it selectable so user can copy manually
           msg.style.display = 'block'; msg.style.background = '#fff4f4'; msg.style.color = '#a00'; msg.style.whiteSpace = 'pre-wrap'; msg.style.userSelect = 'text';
-          var displayText = (res && res.message) ? res.message : 'Error';
+          var displayText = 'Error';
+          try {
+            if (res && res.error) displayText = res.error;
+            else if (res && res.message) displayText = res.message;
+            else displayText = JSON.stringify(res, null, 2);
+          } catch(e) { displayText = (res && res.message) ? res.message : 'Error'; }
           msg.textContent = displayText;
+          try {
+            var rawAreaEl = document.getElementById('resched_raw');
+            var copyBtnEl = document.getElementById('resched_copy');
+            if (rawAreaEl) { rawAreaEl.style.display = 'block'; rawAreaEl.textContent = JSON.stringify(res, null, 2); }
+            if (copyBtnEl) copyBtnEl.style.display = 'inline-block';
+          } catch(e) {}
         }
       }).catch(function(err){
         btn.disabled = false; btn.textContent = 'Confirm';
