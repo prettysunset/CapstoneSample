@@ -274,7 +274,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && strpos($_SERVER['CONTENT_TYPE'] ?? 
         'moved_student_ids'=>$movedStudentIds
       ]);
       exit;
-    } catch (	hrowable $e) {
+    } catch (\Throwable $e) {
       $buf = ob_get_clean(); error_log('calendar.php reschedule exception: ' . $e->getMessage() . '\nBuffer:\n' . $buf . '\nTrace:\n' . $e->getTraceAsString()); header('Content-Type: application/json; charset=utf-8'); http_response_code(500); echo json_encode(['success'=>false,'message'=>'Internal server error','error'=>$e->getMessage(),'output'=>substr($buf,0,2000)]); exit;
     }
   }
@@ -779,6 +779,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && strpos($_SERVER['CONTENT_TYPE'] ?? 
     $prevParams = '?m=' . (int)$prevMonth->format('n') . '&y=' . (int)$prevMonth->format('Y');
     $nextParams = '?m=' . (int)$nextMonth->format('n') . '&y=' . (int)$nextMonth->format('Y');
   ?>
+  <?php
+  // Build compact per-day HTML for calendar cells so days with multiple
+  // sessions show the first session and a small nav to view the next ones.
+  $eventsHtml = [];
+  if (!empty($eventsData) && is_array($eventsData)) {
+    foreach ($eventsData as $dayIndex => $arr) {
+      if (empty($arr) || !is_array($arr)) continue;
+      if (count($arr) === 1) {
+        $eventsHtml[$dayIndex] = isset($events[$dayIndex]) ? $events[$dayIndex] : '';
+        continue;
+      }
+      $parts = '<div class="event-list">';
+      foreach ($arr as $idx => $s) {
+        $timeLabel = !empty($s['time']) ? htmlspecialchars($s['time']) : '';
+        $timeHtml = $timeLabel ? '<div class="ev-time">' . $timeLabel . '</div>' : '';
+        $locHtml = '<div class="ev-loc">' . htmlspecialchars($s['location'] ?? '') . '</div>';
+        $countHtml = (!empty($s['count'])) ? ('<div class="ev-count">' . (($s['count']===1) ? '1 OJT' : ($s['count'] . ' OJTs')) . '</div>') : '';
+        $label = $timeHtml . $locHtml . $countHtml;
+        $parts .= '<div class="event-item">' . $label . '</div>';
+      }
+      $parts .= '</div>';
+      $eventsHtml[$dayIndex] = $parts;
+    }
+  }
+  ?>
   <style>
     *{box-sizing:border-box;font-family:Poppins,system-ui,Segoe UI,Arial,sans-serif}
     html,body{height:100%;margin:0;background:transparent;color:#111;overflow:hidden}
@@ -820,10 +845,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && strpos($_SERVER['CONTENT_TYPE'] ?? 
     .cell.past-event .event{background:#f5f5f7;color:#777}
     .cell.past-event:hover{box-shadow:none;transform:none}
     .cell.past-event:hover .date{color:#9aa}
-    /* light purple container, strong purple text */
+    /* light purple container, strong purple text (single session) */
     .event{display:flex;flex-direction:column;align-items:flex-end;margin-left:auto;margin-top:6px;background:#efe6ff;color:#6a3db5;padding:6px 8px;border-radius:6px;font-size:11px;text-align:right}
+    /* multi-session container should not show a full-width purple background behind the scrollbar */
+    .event.multi{background:transparent;padding:0;margin-top:6px;margin-left:auto;align-items:stretch}
     .event .ev-time, .event .ev-loc, .event .ev-count{font-size:10px;color:#6a3db5;text-align:right}
     .event .ev-count{font-weight:600}
+    /* stacked event list for days with multiple sessions */
+    .event-list{width:100%;max-height:calc(var(--cell-size) - 30px);overflow-y:auto;padding-right:0;display:flex;flex-direction:column;align-items:stretch}
+    .event-item{background:#efe6ff;color:#6a3db5;padding:6px 8px;border-radius:6px;margin:6px 0;font-size:11px;text-align:right;display:block}
+    .event-item:first-child{margin-top:0}
+    .event-item:last-child{margin-bottom:0}
+    /* scrollbar padding/appearance tightened so text isn't too far from scrollbar */
+    .event-list{width:100%;max-height:calc(var(--cell-size) - 30px);overflow-y:auto;padding-right:0;display:flex;flex-direction:column;align-items:stretch}
+    /* slightly smaller gaps for compactness */
+    .event-item{background:#efe6ff;color:#6a3db5;padding:6px 6px;border-radius:6px;margin:4px 0;font-size:11px;text-align:right;display:block}
+    /* nicer thin scrollbar for WebKit */
+    .event-list::-webkit-scrollbar{width:6px}
+    .event-list::-webkit-scrollbar-thumb{background:rgba(106,61,181,0.22);border-radius:6px}
     .controls{text-align:center;width:100%}
     .upcoming{background:#fff;border-radius:12px;padding:16px;border:1px solid #f3f0fb;height:100%;overflow:hidden}
     .upcoming h4{margin:0 0 10px 0;color:#3a2b6a}
@@ -949,7 +988,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && strpos($_SERVER['CONTENT_TYPE'] ?? 
                       $classes[] = 'today';
                     }
                     $class = implode(' ', $classes);
-                    $eventHtml = $hasEvent ? '<div class="event">' . $events[$d] . '</div>' : '';
+                    $eventHtml = '';
+                    if ($hasEvent) {
+                      $inner = isset($eventsHtml[$d]) ? $eventsHtml[$d] : (isset($events[$d]) ? $events[$d] : '');
+                      $isMulti = isset($eventsData[$d]) && count($eventsData[$d]) > 1;
+                      $cls = $isMulti ? 'event multi' : 'event';
+                      $eventHtml = '<div class="' . $cls . '">' . $inner . '</div>';
+                    }
                     // include robust inline handlers so clicks always work even if delegation fails
                     $dataAttr = ' data-day="' . $d . '" onclick="(function(el){try{var d=el.getAttribute(\'data-day\');var prev=document.querySelector(\'.cell.selected\');if(prev)prev.classList.remove(\'selected\');if(d){el.classList.add(\'selected\');if(window.renderOrientation)window.renderOrientation(d);} }catch(e){} })(this)" onkeydown="if(event.key==\'Enter\' || event.key==\' \'){ (function(el){try{var d=el.getAttribute(\'data-day\');var prev=document.querySelector(\'.cell.selected\');if(prev)prev.classList.remove(\'selected\');if(d){el.classList.add(\'selected\');if(window.renderOrientation)window.renderOrientation(d);} }catch(e){} })(this); event.preventDefault(); }"';
                   } else {
