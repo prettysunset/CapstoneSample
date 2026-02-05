@@ -576,6 +576,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && strpos($_SERVER['CONTENT_TYPE'] ?? 
               }
             }
             if ($countStmt) $countStmt->close();
+            // sort sessions for each day by start time (earliest first)
+            if (!empty($eventsData) && is_array($eventsData)) {
+              foreach ($eventsData as $dayKey => $arrSess) {
+                usort($arrSess, function($x, $y) use ($dateCol) {
+                  $xa = 0; $xb = 0;
+                  try {
+                    if (!empty($x['time'])) $xa = strtotime($x['date'] . ' ' . $x['time']); else $xa = strtotime($x['date']);
+                  } catch(Exception $e) { $xa = 0; }
+                  try {
+                    if (!empty($y['time'])) $xb = strtotime($y['date'] . ' ' . $y['time']); else $xb = strtotime($y['date']);
+                  } catch(Exception $e) { $xb = 0; }
+                  if ($xa === $xb) return 0; return ($xa < $xb) ? -1 : 1;
+                });
+                $eventsData[$dayKey] = $arrSess;
+              }
+            }
           }
         }
       }
