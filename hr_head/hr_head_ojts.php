@@ -399,7 +399,7 @@ if ($moa_q) {
           <rect x="10" y="6" width="4" height="14"></rect>
           <rect x="17" y="2" width="4" height="18"></rect>
         </svg>
-        Reports
+        Records
       </a>
         </div>
     <div style="margin-top:auto;padding:18px 0;width:100%;text-align:center;">
@@ -445,9 +445,7 @@ if ($moa_q) {
         <button class="tab active" data-tab="ojts" role="tab" aria-selected="true" aria-controls="tab-ojts" style="background:transparent;border:none;padding:10px 14px;border-radius:6px;cursor:pointer;color:#2f3850;font-weight:600;outline:none;font-size:18px;">
           On-the-Job Trainees (<?= count($students) ?>)
         </button>
-        <button class="tab" data-tab="requested" role="tab" aria-selected="false" aria-controls="tab-requested" style="background:transparent;border:none;padding:10px 14px;border-radius:6px;cursor:pointer;color:#2f3850;font-weight:600;outline:none;font-size:18px;">
-          Requested OJTs
-        </button>
+        <!-- Requested OJTs tab removed -->
       </div>
 
       <!-- underline bar (moved under the buttons row) -->
@@ -482,31 +480,7 @@ if ($moa_q) {
             </select>
           </div>
         </div>
-        <!-- Requested controls (hidden by default; will be shown when Requested tab active) -->
-        <div id="controlsRequested" style="display:none;align-items:center;gap:12px;width:100%;">
-          <div style="display:flex;gap:8px;align-items:center;width:100%;">
-            <div style="display:flex;align-items:center;gap:8px;">
-              <div style="position:relative;min-width:220px;">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:#666;">
-                  <path d="M21 21l-4.35-4.35" stroke="#666" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                  <circle cx="11" cy="11" r="6" stroke="#666" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                </svg>
-                <input id="requestedSearch" type="text" placeholder="Search office..." aria-label="Search offices" style="padding:8px 10px 8px 36px;border:1px solid #ccc;border-radius:8px;background:#f7f8fc;font-size:14px;min-width:220px;box-sizing:border-box;">
-              </div>
-            </div>
-            <div style="display:flex;align-items:center;gap:8px;margin-left:auto;">
-              <label for="requestedSort" style="font-weight:700;font-size:13px;color:#445;">Sort by</label>
-              <select id="requestedSort" style="padding:8px;border-radius:8px;border:1px solid #ccc;background:#f7f8fc;font-size:14px;">
-                <option value="">None</option>
-                <option value="current_limit">Current Limit</option>
-                <option value="active_ojts">Active OJTs</option>
-                <option value="available_slots">Available Slots</option>
-                <option value="requested_limit">Requested Limit</option>
-              </select>
-              <button id="requestedSortDir" type="button" style="padding:8px 10px;border-radius:8px;border:1px solid #ccc;background:#f7f8fc;cursor:pointer">Desc</button>
-            </div>
-          </div>
-        </div>
+        <!-- Requested controls removed -->
       </div>
      <!-- underline bar (moved under the buttons row) -->
      <div id="tabsUnderline" aria-hidden="true" style="height:3px;background:#2f3850;border-radius:3px;width:180px;transition:all .25s;margin-bottom:12px;"></div>
@@ -583,52 +557,7 @@ if ($moa_q) {
         </div>
     </div>
 
-    <div id="tab-requested" class="tab-panel" role="tabpanel" aria-labelledby="tab-requested" style="display:none;">
-        <!-- Requested OJTs panel content -->
-        <div style="overflow-x:auto;padding:12px">
-          <?php if (count($offices_for_requests) === 0): ?>
-            <div class="empty">No office requests found.</div>
-          <?php else: ?>
-            <!-- Controls moved to top controls row (#controlsRow) so they appear in the same position as OJTs controls -->
- 
-            <table class="request-table" role="table" aria-label="Requested OJTs" style="width:100%;">
-              <thead>
-                <tr>
-                  <th>Office</th>
-                  <th style="text-align:center">Current Limit</th>
-                  <th style="text-align:center">Available Slots</th>
-                  <th style="text-align:center">Requested Limit</th>
-                  <th>Reason</th>
-                  <th style="text-align:center">Action</th>
-                </tr>
-              </thead>
-              <tbody id="requested_tbody">
-                <?php foreach ($offices_for_requests as $of): ?>
-                  <tr data-office="<?php echo htmlspecialchars(strtolower($of['office_name'] ?? '')); ?>">
-                    <td><?= htmlspecialchars($of['office_name']) ?></td>
-                    <td style="text-align:center"><?= $of['current_limit'] === null ? '—' : (int)$of['current_limit'] ?></td>
-                    <td style="text-align:center"><?= htmlspecialchars((string)$of['available_slots']) ?></td>
-                    <td style="text-align:center"><?= $of['requested_limit'] === '' ? '—' : (int)$of['requested_limit'] ?></td>
-                    <td><?= htmlspecialchars($of['reason'] ?: '—') ?></td>
-                    <td style="text-align:center">
-                      <?php if (strtolower($of['status']) === 'approved'): ?>
-                        <span class="action-ok">Approved</span>
-                      <?php elseif (strtolower($of['status']) === 'declined'): ?>
-                        <span style="color:#a00;font-weight:700">Declined</span>
-                      <?php else: ?>
-                        <span class="action-pending">
-                          <button type="button" class="ok" onclick="handleOfficeRequest(<?= (int)$of['office_id'] ?>, 'approve')" title="Approve" aria-label="Approve">✔</button>
-                          <button type="button" class="no" onclick="handleOfficeRequest(<?= (int)$of['office_id'] ?>, 'decline')" title="Decline" aria-label="Decline">✖</button>
-                        </span>
-                      <?php endif; ?>
-                    </td>
-                  </tr>
-                <?php endforeach; ?>
-              </tbody>
-            </table>
-          <?php endif; ?>
-        </div>
-    </div>
+    <!-- Requested OJTs tab removed -->
 </div>
 
 <!-- View Application Modal (insert near end of body) -->

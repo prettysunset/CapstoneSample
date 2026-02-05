@@ -462,7 +462,7 @@ foreach ($ojts as $zz) {
           <rect x="10" y="6" width="4" height="14"></rect>
           <rect x="17" y="2" width="4" height="18"></rect>
         </svg>
-        Reports
+        Records
       </a>
     </div>
     <div style="margin-top:auto;font-weight:700">OJT-MS</div>

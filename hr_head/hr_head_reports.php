@@ -106,41 +106,7 @@ function fetch_moa($conn){
     return $rows;
 }
 
-// new: load office_requests
-function fetch_office_requests($conn){
-  // return only non-pending office requests (approved/rejected)
-  $rows = [];
-
-  // If the database schema is older, `date_of_action` may not exist.
-  // Check for the column and build the SELECT list accordingly so queries don't fail.
-  $hasDateOfAction = false;
-  $check = $conn->query("SHOW COLUMNS FROM office_requests LIKE 'date_of_action'");
-  if ($check) {
-    $hasDateOfAction = $check->num_rows > 0;
-    $check->free();
-  }
-
-  $cols = "r.request_id, r.office_id, r.old_limit, r.new_limit, r.reason, r.status, r.date_requested";
-  if ($hasDateOfAction) $cols .= ", r.date_of_action";
-
-  $sql = "
-    SELECT " . $cols . ", o.office_name
-    FROM office_requests r
-    LEFT JOIN offices o ON o.office_id = r.office_id
-    WHERE r.status <> 'pending'
-    ORDER BY r.date_requested DESC, r.request_id DESC
-  ";
-
-  $res = $conn->query($sql);
-  if ($res) {
-    while ($r = $res->fetch_assoc()) {
-      if (!isset($r['date_of_action'])) $r['date_of_action'] = null;
-      $rows[] = $r;
-    }
-    $res->free();
-  }
-  return $rows;
-}
+// Office requests removed from UI. Server-side helper retained if needed in future.
 
 function fetch_evaluations($conn){
   $rows = [];
@@ -222,14 +188,13 @@ if (!empty($students)) {
 
 $offices = fetch_offices($conn);
 $moa = fetch_moa($conn);
-$office_requests = fetch_office_requests($conn);
 $evaluations = fetch_evaluations($conn);
 ?>
 <!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>HR - Reports</title>
+<title>HR - Records</title>
 <style>
   *{box-sizing:border-box;font-family:'Poppins',sans-serif}
     body{background:#f7f8fc;display:flex;min-height:100vh;margin:0}
@@ -319,7 +284,7 @@ $evaluations = fetch_evaluations($conn);
           <rect x="10" y="6" width="4" height="14"></rect>
           <rect x="17" y="2" width="4" height="18"></rect>
         </svg>
-        Reports
+        Records
       </a>
       </div>
     <p style="margin-top:auto;font-weight:600">OJT-MS</p>
@@ -355,10 +320,10 @@ $evaluations = fetch_evaluations($conn);
         </div>
     </div>
 
-    <div class="card" role="region" aria-label="Reports">
+    <div class="card" role="region" aria-label="Records">
         <!-- header: Reports left, export top-right -->
         <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px;">
-          <h2 style="margin:0;color:#2f3850">Reports</h2>
+          <h2 style="margin:0;color:#2f3850">Records</h2>
 
           <div style="display:flex;align-items:center;gap:12px;flex:0 0 auto;">
             <button id="exportBtn" style="padding:8px 12px;border-radius:8px;border:1px solid #ddd;background:#3a4163;color:#fff;cursor:pointer">Export</button>
@@ -384,9 +349,7 @@ $evaluations = fetch_evaluations($conn);
             <button class="tab" data-tab="moa" role="tab" aria-selected="false" aria-controls="panel-moa">
               <span>MOA (<?= count($moa) ?>)</span>
             </button>
-            <button class="tab" data-tab="requests" role="tab" aria-selected="false" aria-controls="panel-requests">
-              <span>Office Requests (<?= count($office_requests) ?>)</span>
-            </button>
+            <!-- Office Requests tab removed -->
             <button class="tab" data-tab="evaluations" role="tab" aria-selected="false" aria-controls="panel-evaluations">
               <span>Evaluations (<?= count($evaluations) ?>)</span>
             </button>
@@ -555,35 +518,7 @@ $evaluations = fetch_evaluations($conn);
          </div>
        </div>
 
-      <!-- NEW: Office Requests panel -->
-      <div id="panel-requests" class="panel" style="display:none">
-        <div style="overflow-x:auto">
-          <table class="tbl" id="tblRequests">
-            <thead>
-              <tr>
-                <th style="text-align:center">Date Requested</th>
-                <th>Office</th>
-                <th style="text-align:center">New Limit</th>
-                <th>Reason</th>
-                <th style="text-align:center">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              <?php if (empty($office_requests)): ?>
-                <tr><td colspan="5" class="empty">No office requests.</td></tr>
-              <?php else: foreach ($office_requests as $req): ?>
-                <tr data-search="<?= htmlspecialchars(strtolower(($req['office_name'] ?? '') . ' ' . ($req['reason'] ?? '') . ' ' . ($req['status'] ?? '')) ) ?>">
-                  <td style="text-align:center"><?= htmlspecialchars(fmtDate($req['date_requested'] ?? '')) ?></td>
-                  <td><?= htmlspecialchars($req['office_name'] ?? '-') ?></td>
-                  <td style="text-align:center"><?= is_null($req['new_limit']) ? '—' : (int)$req['new_limit'] ?></td>
-                  <td><?= htmlspecialchars($req['reason'] ?? '-') ?></td>
-                  <td style="text-align:center"><?= htmlspecialchars(ucfirst($req['status'] ?? '')) ?></td>
-                </tr>
-              <?php endforeach; endif; ?>
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <!-- Office Requests panel removed -->
 
       <!-- NEW: Evaluations panel -->
       <div id="panel-evaluations" class="panel" style="display:none">
@@ -661,7 +596,7 @@ $evaluations = fetch_evaluations($conn);
       const isStudents = visible.id === 'panel-students';
       const isOffices  = visible.id === 'panel-offices';
       const isMoa      = visible.id === 'panel-moa';
-      const isRequests = visible.id === 'panel-requests';
+      const isRequests = false; // Office Requests removed
       const isEvaluations = visible.id === 'panel-evaluations';
 
       visible.querySelectorAll('tbody tr').forEach(tr=>{
@@ -688,10 +623,6 @@ $evaluations = fetch_evaluations($conn);
           // status cell is the last td (index 5)
           const statusText = norm(tds[5]?.textContent || '');
           if (moaStatusVal) visibleByStatus = statusText.indexOf(moaStatusVal) !== -1;
-        } else if (isRequests) {
-          // office requests: rely on data-search (office, reason, status)
-          visibleByOffice = true;
-          visibleByStatus = true;
         } else if (isEvaluations) {
           // evaluations: rely on data-search (student name, evaluator name, feedback)
           visibleByOffice = true;
@@ -710,11 +641,10 @@ $evaluations = fetch_evaluations($conn);
        this.classList.add('active');
 
        const tab = this.getAttribute('data-tab');
-       document.getElementById('panel-students').style.display = tab==='students' ? 'block' : 'none';
-       document.getElementById('panel-offices').style.display = tab==='offices' ? 'block' : 'none';
-       document.getElementById('panel-moa').style.display = tab==='moa' ? 'block' : 'none';
-       document.getElementById('panel-requests').style.display = tab==='requests' ? 'block' : 'none';
-       document.getElementById('panel-evaluations').style.display = tab==='evaluations' ? 'block' : 'none';
+        document.getElementById('panel-students').style.display = tab==='students' ? 'block' : 'none';
+        document.getElementById('panel-offices').style.display = tab==='offices' ? 'block' : 'none';
+        document.getElementById('panel-moa').style.display = tab==='moa' ? 'block' : 'none';
+        document.getElementById('panel-evaluations').style.display = tab==='evaluations' ? 'block' : 'none';
 
        // show/hide students-only filters
        const sf = document.getElementById('studentsFilters');

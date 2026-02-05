@@ -340,7 +340,7 @@ $current_date = date("l, F j, Y");
           <rect x="10" y="6" width="4" height="14"></rect>
           <rect x="17" y="2" width="4" height="18"></rect>
         </svg>
-        Reports
+        Records
       </a>
       </div>
     <div style="margin-top:auto;padding:18px 0;width:100%;text-align:center;">
