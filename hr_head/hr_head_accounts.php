@@ -347,6 +347,74 @@ foreach ($ojts as $zz) {
     $on = trim($zz['office_name'] ?? '');
     if ($on !== '' && !in_array($on, $ojt_offices)) $ojt_offices[] = $on;
 }
+
+// prepare office head details for client-side edit-prefill (lookup office metadata if available)
+$officeHeadDetails = [];
+foreach ($officeHeads as $oh) {
+  $uid = (int)($oh['user_id'] ?? 0);
+  $officeName = $oh['office_name'] ?? '';
+  $initial_limit = null;
+  $accept_courses = '';
+  if ($officeName !== '') {
+    // resolve office_id first
+    $office_id = null;
+    try {
+      $ps = $conn->prepare("SELECT office_id FROM offices WHERE office_name = ? LIMIT 1");
+      if ($ps) {
+        $ps->bind_param('s', $officeName);
+        $ps->execute();
+        $rr = $ps->get_result()->fetch_assoc();
+        if ($rr && isset($rr['office_id'])) $office_id = (int)$rr['office_id'];
+        $ps->close();
+      }
+    } catch (mysqli_sql_exception $e) {
+      $office_id = null;
+    }
+
+    // try to fetch initial_limit if column exists (non-fatal)
+    if ($office_id !== null) {
+      try {
+        $ps2 = $conn->prepare("SELECT initial_limit FROM offices WHERE office_id = ? LIMIT 1");
+        if ($ps2) {
+          $ps2->bind_param('i', $office_id);
+          $ps2->execute();
+          $rr2 = $ps2->get_result()->fetch_assoc();
+          if ($rr2 && array_key_exists('initial_limit', $rr2)) $initial_limit = $rr2['initial_limit'];
+          $ps2->close();
+        }
+      } catch (mysqli_sql_exception $e) {
+        // ignore missing column
+      }
+
+      // fetch mapped courses from office_courses -> courses
+      try {
+        $map = $conn->prepare("SELECT c.course_name FROM office_courses oc JOIN courses c ON oc.course_id = c.course_id WHERE oc.office_id = ? ORDER BY c.course_name");
+        if ($map) {
+          $map->bind_param('i', $office_id);
+          $map->execute();
+          $resmap = $map->get_result();
+          $courseArr = [];
+          while ($rr3 = $resmap->fetch_assoc()) {
+            if (!empty($rr3['course_name'])) $courseArr[] = $rr3['course_name'];
+          }
+          if (!empty($courseArr)) $accept_courses = implode(',', $courseArr);
+          $map->close();
+        }
+      } catch (mysqli_sql_exception $e) {
+        // ignore if mapping table/columns missing
+      }
+    }
+  }
+  $officeHeadDetails[$uid] = [
+    'user_id' => $uid,
+    'first_name' => $oh['first_name'] ?? '',
+    'last_name' => $oh['last_name'] ?? '',
+    'email' => $oh['oh_email'] ?? '',
+    'office_name' => $officeName,
+    'initial_limit' => $initial_limit,
+    'accept_courses' => $accept_courses
+  ];
+}
 ?>
 <!doctype html>
 <html lang="en">
@@ -604,7 +672,7 @@ foreach ($ojts as $zz) {
                         <polyline points="21 12 21 7 16 7"></polyline>
                       </svg>
                     </button>
-                    <button class="icon-btn" title="Disable/Restrict" data-action="toggle" data-user="<?= (int)$o['user_id'] ?>">
+                    <button class="icon-btn" title="Disable account" data-action="toggle" data-user="<?= (int)$o['user_id'] ?>">
                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
                          <circle cx="12" cy="12" r="10"></circle>
                          <line x1="4.93" y1="4.93" x2="19.07" y2="19.07"></line>
@@ -655,7 +723,7 @@ foreach ($ojts as $zz) {
                         <polyline points="21 12 21 7 16 7"></polyline>
                       </svg>
                     </button>
-                    <button class="icon-btn" title="Disable/Restrict" data-action="toggle" data-user="<?= (int)$h['user_id'] ?>">
+                    <button class="icon-btn" title="Disable account" data-action="toggle" data-user="<?= (int)$h['user_id'] ?>">
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
                         <circle cx="12" cy="12" r="10"></circle>
                         <line x1="4.93" y1="4.93" x2="19.07" y2="19.07"></line>
@@ -718,7 +786,7 @@ foreach ($ojts as $zz) {
                         <path d="M20 10l-2-2-2 2"></path>
                       </svg>
                     </button>
-                    <button class="icon-btn" title="Disable/Restrict" data-user="<?= (int)$o['user_id'] ?>">
+                    <button class="icon-btn" title="Disable account" data-action="toggle" data-user="<?= (int)$o['user_id'] ?>">
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
                         <circle cx="12" cy="12" r="10"></circle>
                         <line x1="4.93" y1="4.93" x2="19.07" y2="19.07"></line>
@@ -820,13 +888,17 @@ function changePassword(userId) {
 }
 
 async function toggleStatus(userId, btn) {
-  if (!confirm('Change account status?')) return;
+  // confirm disable
+  // derive name from row
+  let name = 'this user';
+  try { const tr = btn.closest('tr'); if (tr) { const td = tr.querySelector('td'); if (td) name = td.textContent.trim(); } } catch(e){}
+  if (!confirm('Disable account for ' + name + '?')) return;
   try {
     btn.disabled = true;
     const res = await fetch('../hr_actions.php', {
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ action: 'toggle_user_status', user_id: parseInt(userId,10) })
+      body: JSON.stringify({ action: 'deactivate_user', user_id: parseInt(userId,10) })
     });
     const j = await res.json();
     if (!j || !j.success) {
@@ -834,8 +906,9 @@ async function toggleStatus(userId, btn) {
       btn.disabled = false;
       return;
     }
-    // reflect change in UI: swap icon
-    if (j.new_status === 'active') btn.textContent = '🔓'; else btn.textContent = '🔒';
+    alert('Account disabled for ' + name + '.');
+    // optionally update row UI to indicate deactivated
+    const tr = btn.closest('tr'); if (tr) { tr.style.opacity = '0.5'; }
     btn.disabled = false;
   } catch (e) {
     console.error(e);
@@ -848,6 +921,11 @@ async function toggleStatus(userId, btn) {
 function openAdd(){
   const m = document.getElementById('addModal');
   if(!m) return;
+  // ensure create mode
+  try { delete m.dataset.editing; } catch(e) { m.removeAttribute('data-editing'); }
+  const title = document.getElementById('m_modal_title'); if (title) title.textContent = 'Create Office Head Account';
+  const createBtn = document.getElementById('btnCreate'); if (createBtn) createBtn.textContent = 'Create';
+  const uidEl = document.getElementById('m_user_id'); if (uidEl) uidEl.value = '';
   m.style.display = 'flex';
 }
 function closeAdd(){
@@ -858,6 +936,11 @@ function closeAdd(){
   const inputs = m.querySelectorAll('input');
   inputs.forEach(i => { if (i.type !== 'hidden') i.value = ''; });
   if (window.__hr_modal && window.__hr_modal.reset) window.__hr_modal.reset();
+  // exit edit mode if active
+  try { delete m.dataset.editing; } catch(e) { m.removeAttribute('data-editing'); }
+  const title = document.getElementById('m_modal_title'); if (title) title.textContent = 'Create Office Head Account';
+  const createBtn = document.getElementById('btnCreate'); if (createBtn) createBtn.textContent = 'Create';
+  const uidEl = document.getElementById('m_user_id'); if (uidEl) uidEl.value = '';
 }
 
 // HR Staff modal: open/close/submit (first name, last name, email only)
@@ -1061,7 +1144,7 @@ document.getElementById('btnAddHr').addEventListener('click', function(e){
 <!-- Add Account Modal -->
 <div id="addModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.35);align-items:center;justify-content:center;z-index:9999">
   <div style="background:#fff;padding:18px;border-radius:10px;width:560px;max-width:94%;box-shadow:0 12px 30px rgba(0,0,0,0.15)">
-    <h3 style="margin:0 0 12px">Create Office Head Account</h3>
+    <h3 id="m_modal_title" style="margin:0 0 12px">Create Office Head Account</h3>
 
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
       <input id="m_first" placeholder="First name" style="padding:10px;border:1px solid #ddd;border-radius:8px" />
@@ -1081,6 +1164,7 @@ document.getElementById('btnAddHr').addEventListener('click', function(e){
  
        <!-- hidden field to store CSV courses -->
        <input type="hidden" id="m_accept_courses" />
+       <input type="hidden" id="m_user_id" />
     </div>
 
     <div style="display:flex;gap:8px;justify-content:flex-end">
@@ -1258,12 +1342,22 @@ document.getElementById('btnAddHr').addEventListener('click', function(e){
   // hide suggestions on blur (allow click selection via mousedown above)
   input.addEventListener('blur', function(){ setTimeout(hideSuggestions, 120); });
 
-  // expose for submitAdd to read
-  window.__hr_modal = { getCourses: ()=>tags, reset: ()=>{ tags = []; renderTags(); } };
+  // expose for submitAdd to read (allow setting courses programmatically)
+  window.__hr_modal = {
+    getCourses: ()=>tags,
+    reset: ()=>{ tags = []; renderTags(); },
+    setCourses: (arr)=>{ tags = Array.isArray(arr) ? arr.map(String) : []; renderTags(); }
+  };
   // initial render (if any)
   renderTags();
 })();
 </script>
+
+<?php if (!empty($officeHeadDetails)): ?>
+<script>window._officeHeadData = <?= json_encode($officeHeadDetails, JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT) ?>;</script>
+<?php else: ?>
+<script>window._officeHeadData = {};</script>
+<?php endif; ?>
 
 <script>
 async function submitAdd(){
@@ -1458,7 +1552,11 @@ async function submitAdd(){
         // safe-guard: disable while processing
         if (b.disabled) return;
         b.disabled = true;
-        Promise.resolve().then(() => submitAdd()).finally(()=> b.disabled = false);
+        Promise.resolve().then(() => {
+          const modal = document.getElementById('addModal');
+          const isEdit = modal && modal.dataset && modal.dataset.editing;
+          return isEdit ? submitEdit() : submitAdd();
+        }).finally(()=> b.disabled = false);
       });
     }
   } catch (err){
@@ -1487,6 +1585,37 @@ document.addEventListener('DOMContentLoaded', function(){
     document.addEventListener('keydown', function(e){ if (e.key === 'Escape') closeAddHr(); });
     document.addEventListener('click', function(e){ const m = document.getElementById('addHrModal'); if (!m || m.style.display !== 'flex') return; if (e.target === m) closeAddHr(); });
   } catch (err) { console.error('binding btnAddHr:', err); }
+});
+</script>
+
+<script>
+// Bind reset password buttons across tables
+document.addEventListener('DOMContentLoaded', function(){
+  function doReset(btn){
+    const uid = btn.getAttribute('data-user');
+    if (!uid) return;
+    // derive name from row
+    let name = '';
+    try { const tr = btn.closest('tr'); if (tr) { const td = tr.querySelector('td'); if (td) name = td.textContent.trim(); } } catch(e){}
+    if (!name) name = 'this user';
+    if (!confirm('Reset password for ' + name + '?')) return;
+    btn.disabled = true;
+    fetch('../hr_actions.php', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ action: 'reset_password', user_id: parseInt(uid,10) })
+    }).then(r => r.json()).then(j => {
+      if (!j || !j.success) {
+        alert('Failed to reset: ' + (j?.message || j?.error || 'Unknown error'));
+      } else {
+        // show a simple confirmation that password was reset for the user
+        alert('Password has been reset for ' + name + '.');
+      }
+    }).catch(err => { console.error(err); alert('Request failed'); }).finally(()=> btn.disabled = false);
+  }
+
+  document.querySelectorAll('.icon-btn[data-action="reset"]').forEach(btn => {
+    btn.addEventListener('click', function(e){ e.preventDefault(); doReset(this); });
+  });
 });
 </script>
 
@@ -1559,6 +1688,114 @@ function randomPassword(len){
 
   // shuffle characters
   return pwd.split('').sort(()=>0.5 - Math.random()).join('');
+}
+</script>
+
+<script>
+/* Edit-mode modal support: open prefilled modal and submit updates */
+document.addEventListener('DOMContentLoaded', function(){
+  // bind Edit buttons in Office Heads panel
+  try {
+    document.querySelectorAll('#panel-office .icon-btn[title="Edit"]').forEach(btn => {
+      btn.addEventListener('click', function(e){
+        e.preventDefault();
+        const uid = this.getAttribute('data-user');
+        if (!uid) return;
+        openEditModal(uid);
+      });
+    });
+  } catch (err) { console.error('bind edit buttons:', err); }
+});
+
+function openEditModal(userId){
+  const m = document.getElementById('addModal');
+  if(!m) return;
+  let data = (window._officeHeadData && window._officeHeadData[userId]) ? window._officeHeadData[userId] : null;
+  // try reading basic values from the table row if server data not available
+  if (!data) {
+    const btn = document.querySelector('#panel-office button[data-user="' + userId + '"]');
+    const tr = btn ? btn.closest('tr') : null;
+    const cells = tr ? tr.querySelectorAll('td') : [];
+    const nameCell = cells[0] ? cells[0].textContent.trim() : '';
+    const emailCell = cells[1] ? cells[1].textContent.trim() : '';
+    const officeCell = cells[2] ? cells[2].textContent.trim() : '';
+    data = { first_name: '', last_name: '', email: emailCell === '—' ? '' : emailCell, office_name: officeCell === '—' ? '' : officeCell };
+    if (nameCell) {
+      const parts = nameCell.split(' ');
+      data.first_name = parts.shift() || '';
+      data.last_name = parts.join(' ') || '';
+    }
+  }
+
+  document.getElementById('m_first').value = data.first_name || '';
+  document.getElementById('m_last').value = data.last_name || '';
+  document.getElementById('m_email').value = data.email || '';
+  document.getElementById('m_office').value = data.office_name || '';
+  document.getElementById('m_user_id').value = userId;
+  const initEl = document.getElementById('m_initial_limit');
+  if (initEl) initEl.value = (data.initial_limit !== null && data.initial_limit !== undefined) ? data.initial_limit : '';
+
+  const coursesCsv = data.accept_courses || '';
+  if (window.__hr_modal && typeof window.__hr_modal.setCourses === 'function') {
+    const arr = coursesCsv ? coursesCsv.split(',').map(s=>s.trim()).filter(Boolean) : [];
+    window.__hr_modal.setCourses(arr);
+  } else {
+    document.getElementById('m_accept_courses').value = coursesCsv;
+  }
+
+  // show modal and set editing state
+  m.style.display = 'flex';
+  m.dataset.editing = String(userId);
+  const title = document.getElementById('m_modal_title'); if (title) title.textContent = 'Edit Office Head Account';
+  const createBtn = document.getElementById('btnCreate'); if (createBtn) createBtn.textContent = 'Save Changes';
+}
+
+async function submitEdit(){
+  const user_id = parseInt(document.getElementById('m_user_id').value || 0, 10);
+  if (!user_id) { alert('Missing user id for update.'); return; }
+  const first_name = (document.getElementById('m_first').value || '').trim();
+  const last_name = (document.getElementById('m_last').value || '').trim();
+  const email = (document.getElementById('m_email').value || '').trim();
+  const office = (document.getElementById('m_office').value || '').trim();
+  const initial_limit = parseInt(document.getElementById('m_initial_limit').value || '0', 10) || 0;
+  const courses = (window.__hr_modal && window.__hr_modal.getCourses()) ? window.__hr_modal.getCourses() : [];
+  const accept_courses = courses.join(',');
+
+  if (!first_name || !last_name || !email || !office) { alert('Please fill First name, Last name, Email and Office.'); return; }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { alert('Please enter a valid email address.'); return; }
+
+  const statusEl = document.getElementById('addModalStatus');
+  statusEl.style.display = 'block'; statusEl.style.background = '#fffbe6'; statusEl.style.color = '#333'; statusEl.textContent = 'Saving changes...';
+
+  try {
+    const payload = {
+      action: 'update_account',
+      user_id: user_id,
+      first_name: first_name,
+      last_name: last_name,
+      email: email,
+      office: office,
+      initial_limit: initial_limit,
+      accept_courses: accept_courses
+    };
+
+    const res = await fetch('../hr_actions.php', {
+      method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload)
+    });
+    const j = await res.json().catch(()=>null);
+    if (!j || !j.success) {
+      statusEl.style.background = '#fff4f4'; statusEl.style.color = '#a00';
+      statusEl.textContent = 'Failed to update: ' + (j && j.message ? j.message : 'Unknown error');
+      return;
+    }
+    statusEl.style.background = '#e6f9ee'; statusEl.style.color = '#0b7a3a';
+    statusEl.textContent = 'Account updated.';
+    setTimeout(()=>{ closeAdd(); location.reload(); }, 900);
+  } catch (err) {
+    console.error('submitEdit error', err);
+    statusEl.style.background = '#fff4f4'; statusEl.style.color = '#a00';
+    statusEl.textContent = 'Request failed: ' + (err.message || 'Unknown');
+  }
 }
 </script>
 

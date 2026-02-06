@@ -35,6 +35,10 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         }
 
         if ($ok) {
+            // prevent login if account deactivated
+            if (isset($row['status']) && $row['status'] === 'deactivated') {
+                $error = 'Account has been deactivated. Please contact HR.';
+            } else {
             $_SESSION['user_id'] = $row['user_id'];
             $_SESSION['username'] = $row['username'];
             $_SESSION['role'] = $row['role']; // hr_head, hr_staff, office_head, student
@@ -58,7 +62,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                     header("Location: login.php");
                     break;
             }
-            exit();
+            }
+            if (!isset($error)) exit();
         } else {
             $error = "Invalid username or password!";
         }

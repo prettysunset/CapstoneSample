@@ -1351,6 +1351,270 @@ if ($action === 'create_account') {
     respond(['success'=>true,'user_id'=>$newId,'username'=>$username,'password'=>$plain]);
 }
 
+    /* update_account: update user and office/course mappings
+       Request body: { action: 'update_account', user_id: <int>, first_name, last_name, email, office, initial_limit, accept_courses }
+    */
+    if ($action === 'update_account') {
+        $callerId = (int)($_SESSION['user_id'] ?? 0);
+        $st = $conn->prepare("SELECT role FROM users WHERE user_id = ? LIMIT 1");
+        $st->bind_param("i", $callerId);
+        $st->execute();
+        $rr = $st->get_result()->fetch_assoc();
+        $st->close();
+        if (!$rr || !in_array($rr['role'], ['hr_head','hr_staff'])) {
+            respond(['success'=>false,'message'=>'Permission denied.']);
+        }
+
+        $user_id = (int)($input['user_id'] ?? 0);
+        if ($user_id <= 0) respond(['success'=>false,'message'=>'Missing user_id']);
+
+        $first_name = trim($input['first_name'] ?? '');
+        $last_name = trim($input['last_name'] ?? '');
+        $email = trim($input['email'] ?? '') ?: null;
+        $office = trim($input['office'] ?? '') ?: null;
+        $initial_limit = isset($input['initial_limit']) ? (int)$input['initial_limit'] : null;
+        $accept_courses = trim($input['accept_courses'] ?? '');
+
+        // update users table (office_name and basic fields)
+        $upd = $conn->prepare("UPDATE users SET first_name = ?, last_name = ?, email = ?, office_name = ? WHERE user_id = ?");
+        if (!$upd) respond(['success'=>false,'message'=>'DB prepare failed: '.$conn->error]);
+        $upd->bind_param('ssssi', $first_name, $last_name, $email, $office, $user_id);
+        if (!$upd->execute()) {
+            $upd->close();
+            respond(['success'=>false,'message'=>'DB update failed: '.$conn->error]);
+        }
+        $upd->close();
+
+        // resolve or create office row and get office_id (similar logic to create_account)
+        $office_id = null;
+        if (!empty($office)) {
+            // try exact case-insensitive
+            $so = $conn->prepare("SELECT office_id FROM offices WHERE LOWER(office_name) = LOWER(?) LIMIT 1");
+            if ($so) {
+                $so->bind_param('s', $office);
+                $so->execute();
+                $or = $so->get_result()->fetch_assoc();
+                $so->close();
+                if ($or && !empty($or['office_id'])) $office_id = (int)$or['office_id'];
+            }
+            if ($office_id === null) {
+                // try LIKE
+                $like = '%' . strtolower($office) . '%';
+                $sl = $conn->prepare("SELECT office_id FROM offices WHERE LOWER(office_name) LIKE ? LIMIT 1");
+                if ($sl) {
+                    $sl->bind_param('s', $like);
+                    $sl->execute();
+                    $orl = $sl->get_result()->fetch_assoc();
+                    $sl->close();
+                    if ($orl && !empty($orl['office_id'])) $office_id = (int)$orl['office_id'];
+                }
+            }
+            if ($office_id === null) {
+                // create new office
+                $insOff = $conn->prepare("INSERT INTO offices (office_name, current_limit, status) VALUES (?, ?, 'Approved')");
+                $curLimit = $initial_limit === null ? 0 : $initial_limit;
+                if ($insOff) {
+                    $insOff->bind_param('si', $office, $curLimit);
+                    $insOff->execute();
+                    $office_id = $insOff->insert_id ?: null;
+                    $insOff->close();
+                }
+            } else {
+                // update capacity if provided and column exists
+                if ($initial_limit !== null) {
+                    // try updating current_limit (non-fatal)
+                    try {
+                        $ps = $conn->prepare("UPDATE offices SET current_limit = ? WHERE office_id = ?");
+                        if ($ps) { $ps->bind_param('ii', $initial_limit, $office_id); $ps->execute(); $ps->close(); }
+                    } catch (mysqli_sql_exception $e) { /* ignore */ }
+                }
+            }
+        }
+
+        // update office_heads table if exists
+        $tblCheck = $conn->query("SHOW TABLES LIKE 'office_heads'");
+        if ($tblCheck && $tblCheck->num_rows > 0) {
+            $fullname = trim($first_name . ' ' . $last_name);
+            $oh = $conn->prepare("REPLACE INTO office_heads (user_id, full_name, email, office_id) VALUES (?, ?, ?, ?)");
+            if ($oh) {
+                $officeParam = $office_id === null ? null : $office_id;
+                $oh->bind_param('issi', $user_id, $fullname, $email, $officeParam);
+                $oh->execute();
+                $oh->close();
+            }
+        }
+
+        // update office_courses mapping when accept_courses provided
+        if ($office_id !== null && $accept_courses !== '') {
+            // clear existing mappings for this office
+            try {
+                $del = $conn->prepare("DELETE FROM office_courses WHERE office_id = ?");
+                if ($del) { $del->bind_param('i', $office_id); $del->execute(); $del->close(); }
+            } catch (mysqli_sql_exception $e) { /* ignore */ }
+
+            $courseNames = array_filter(array_map('trim', explode(',', $accept_courses)));
+            foreach ($courseNames as $cname) {
+                if ($cname === '') continue;
+                $stmt = $conn->prepare("SELECT course_id FROM courses WHERE LOWER(course_name) = LOWER(?) OR (course_code IS NOT NULL AND LOWER(course_code) = LOWER(?)) LIMIT 1");
+                if ($stmt) {
+                    $stmt->bind_param('ss', $cname, $cname);
+                    $stmt->execute();
+                    $row = $stmt->get_result()->fetch_assoc();
+                    $stmt->close();
+                } else {
+                    $row = null;
+                }
+
+                if ($row && !empty($row['course_id'])) {
+                    $course_id = (int)$row['course_id'];
+                } else {
+                    $insC = $conn->prepare("INSERT INTO courses (course_name) VALUES (?)");
+                    if ($insC) {
+                        $insC->bind_param('s', $cname);
+                        $insC->execute();
+                        $course_id = (int)$insC->insert_id;
+                        $insC->close();
+                    } else {
+                        continue;
+                    }
+                }
+
+                if (!empty($office_id) && !empty($course_id)) {
+                    $map = $conn->prepare("INSERT IGNORE INTO office_courses (office_id, course_id) VALUES (?, ?) ");
+                    if ($map) { $map->bind_param('ii', $office_id, $course_id); $map->execute(); $map->close(); }
+                }
+            }
+        }
+
+        respond(['success' => true, 'message' => 'Updated']);
+    }
+
+    /* reset_password: generate a new password, hash it, store in users, and email the user */
+    if ($action === 'reset_password') {
+        $callerId = (int)($_SESSION['user_id'] ?? 0);
+        $st = $conn->prepare("SELECT role FROM users WHERE user_id = ? LIMIT 1");
+        $st->bind_param("i", $callerId);
+        $st->execute();
+        $rr = $st->get_result()->fetch_assoc();
+        $st->close();
+        if (!$rr || !in_array($rr['role'], ['hr_head','hr_staff'])) {
+            respond(['success'=>false,'message'=>'Permission denied.']);
+        }
+
+        $user_id = (int)($input['user_id'] ?? 0);
+        if ($user_id <= 0) respond(['success'=>false,'message'=>'Missing user_id']);
+
+        // fetch user info
+        $suser = $conn->prepare("SELECT first_name, last_name, email, username FROM users WHERE user_id = ? LIMIT 1");
+        if (!$suser) respond(['success'=>false,'message'=>'User lookup failed: '.$conn->error]);
+        $suser->bind_param('i', $user_id);
+        $suser->execute();
+        $urow = $suser->get_result()->fetch_assoc();
+        $suser->close();
+        if (!$urow) respond(['success'=>false,'message'=>'User not found']);
+
+        $to = trim($urow['email'] ?? '');
+        $fullname = trim(($urow['first_name'] ?? '') . ' ' . ($urow['last_name'] ?? '')) ?: ($urow['username'] ?? '');
+        if ($to === '') respond(['success'=>false,'message'=>'User has no email address.']);
+
+        // generate a readable random password
+        function gen_pass($len=10){
+            $upper = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+            $lower = 'abcdefghijkmnpqrstuvwxyz';
+            $digits = '23456789';
+            $special = '!@#$%&*?';
+            $all = $upper.$lower.$digits.$special;
+            $pwd = $upper[random_int(0, strlen($upper)-1)] . $lower[random_int(0, strlen($lower)-1)] . $digits[random_int(0, strlen($digits)-1)] . $special[random_int(0, strlen($special)-1)];
+            for ($i = strlen($pwd); $i < $len; $i++) $pwd .= $all[random_int(0, strlen($all)-1)];
+            // shuffle
+            $arr = str_split($pwd);
+            shuffle($arr);
+            return implode('', $arr);
+        }
+
+        $newPlain = gen_pass(10);
+        $hash = password_hash($newPlain, PASSWORD_DEFAULT);
+        if ($hash === false) respond(['success'=>false,'message'=>'Failed to hash password']);
+
+        // update DB
+        $upd = $conn->prepare("UPDATE users SET password = ? WHERE user_id = ?");
+        if (!$upd) respond(['success'=>false,'message'=>'DB prepare failed: '.$conn->error]);
+        $upd->bind_param('si', $hash, $user_id);
+        if (!$upd->execute()) {
+            $upd->close();
+            respond(['success'=>false,'message'=>'DB update failed: '.$conn->error]);
+        }
+        $upd->close();
+
+        // send email with PHPMailer
+        $sent = false; $errorInfo = '';
+        try {
+            $mail = new PHPMailer(true);
+            $mail->isSMTP();
+            $mail->Host = SMTP_HOST;
+            $mail->SMTPAuth = true;
+            $mail->Username = SMTP_USER;
+            $mail->Password = SMTP_PASS;
+            $mail->SMTPSecure = 'tls';
+            $mail->Port = SMTP_PORT;
+            $mail->setFrom(SMTP_FROM_EMAIL, SMTP_FROM_NAME);
+            $mail->addAddress($to, $fullname);
+            $mail->isHTML(true);
+            $mail->Subject = 'Your password has been reset';
+            $mail->Body = "<p>Hello " . htmlspecialchars($fullname) . ",</p>\n" .
+                          "<p>Your account password has been reset by HR. Your new temporary password is:</p>\n" .
+                          "<div style=\"padding:10px;background:#f7f7f7;border-radius:6px;display:inline-block;font-weight:700\">" . htmlspecialchars($newPlain) . "</div>\n" .
+                          "<p>Please login and change your password immediately.</p>\n" .
+                          "<p>Regards,<br>HR Department</p>";
+            $mail->AltBody = "Hello {$fullname},\nYour new password: {$newPlain}\nPlease change it after login.";
+            $mail->send();
+            $sent = true;
+        } catch (Exception $e) {
+            $errorInfo = $mail->ErrorInfo ?? $e->getMessage();
+            $sent = false;
+        }
+
+        if (!$sent) {
+            // fallback to PHP mail()
+            $headers  = "MIME-Version: 1.0\r\n";
+            $headers .= "Content-type: text/html; charset=utf-8\r\n";
+            $headers .= "From: " . SMTP_FROM_NAME . " <" . SMTP_FROM_EMAIL . ">\r\n";
+            $body = "<p>Hello " . htmlspecialchars($fullname) . ",</p>\n" .
+                    "<p>Your account password has been reset by HR. Your new temporary password is:</p>\n" .
+                    "<div style=\"padding:10px;background:#f7f7f7;border-radius:6px;display:inline-block;font-weight:700\">" . htmlspecialchars($newPlain) . "</div>\n" .
+                    "<p>Please login and change your password immediately.</p>\n" .
+                    "<p>Regards,<br>HR Department</p>";
+            $sent = mail($to, 'Your password has been reset', $body, $headers);
+            if (!$sent && !$errorInfo) $errorInfo = 'PHP mail() failed';
+        }
+
+        respond(['success' => (bool)$sent, 'email_sent' => (bool)$sent, 'error' => $errorInfo]);
+    }
+
+    /* deactivate_user: set users.status = 'deactivated' */
+    if ($action === 'deactivate_user') {
+        $callerId = (int)($_SESSION['user_id'] ?? 0);
+        $st = $conn->prepare("SELECT role FROM users WHERE user_id = ? LIMIT 1");
+        $st->bind_param("i", $callerId);
+        $st->execute();
+        $rr = $st->get_result()->fetch_assoc();
+        $st->close();
+        if (!$rr || !in_array($rr['role'], ['hr_head','hr_staff'])) {
+            respond(['success'=>false,'message'=>'Permission denied.']);
+        }
+
+        $user_id = (int)($input['user_id'] ?? 0);
+        if ($user_id <= 0) respond(['success'=>false,'message'=>'Missing user_id']);
+
+        $upd = $conn->prepare("UPDATE users SET status = 'deactivated' WHERE user_id = ?");
+        if (!$upd) respond(['success'=>false,'message'=>'DB prepare failed: '.$conn->error]);
+        $upd->bind_param('i', $user_id);
+        if (!$upd->execute()) { $upd->close(); respond(['success'=>false,'message'=>'DB update failed: '.$conn->error]); }
+        $upd->close();
+
+        respond(['success' => true, 'message' => 'User deactivated', 'user_id' => $user_id]);
+    }
+
 /* later where courses are processed (keeps behavior but uses resolved $office_id) */
 if (!empty($courses)) {
     foreach ($courses as $cname) {
