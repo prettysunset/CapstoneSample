@@ -332,7 +332,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $updUser = $conn->prepare("UPDATE users SET status = 'ongoing' WHERE user_id = ?");
                 $updUser->bind_param('i', $matched_user_id); $updUser->execute(); $updUser->close();
                 $conn->commit();
-                json_resp(['success'=>true,'message'=>'Time in/out recorded. Have a good day, ' . $matched_display,'user_id'=>$matched_user_id,'username'=>$matched_username,'display_name'=>$matched_display]);
+                json_resp(['success'=>true,'message'=>'Time in recorded. Have a good day, ' . $matched_display,'user_id'=>$matched_user_id,'username'=>$matched_username,'display_name'=>$matched_display]);
             }
 
             // existing row -> decide next field (sequence-based)
@@ -342,39 +342,56 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 if ($hour < 12) {
                     $upd = $conn->prepare("UPDATE dtr SET am_in = ? WHERE dtr_id = ?");
                     $upd->bind_param('si', $now, $dtr['dtr_id']); $upd->execute(); $upd->close();
-                    $conn->commit(); json_resp(['success'=>true,'message'=>'Time in/out recorded. Have a good day, ' . $matched_display,'user_id'=>$matched_user_id,'username'=>$matched_username,'display_name'=>$matched_display]);
+                    $conn->commit(); json_resp(['success'=>true,'message'=>'Time in recorded. Have a good day, ' . $matched_display,'user_id'=>$matched_user_id,'username'=>$matched_username,'display_name'=>$matched_display]);
                 } else {
                     $upd = $conn->prepare("UPDATE dtr SET pm_in = ? WHERE dtr_id = ?");
                     $upd->bind_param('si', $now, $dtr['dtr_id']); $upd->execute(); $upd->close();
-                    $conn->commit(); json_resp(['success'=>true,'message'=>'Time in/out recorded. Have a good day, ' . $matched_display,'user_id'=>$matched_user_id,'username'=>$matched_username,'display_name'=>$matched_display]);
+                    $conn->commit(); json_resp(['success'=>true,'message'=>'Time in recorded. Have a good day, ' . $matched_display,'user_id'=>$matched_user_id,'username'=>$matched_username,'display_name'=>$matched_display]);
                 }
             }
             // if PM IN exists and PM OUT missing, prefer completing PM sequence
             if (!empty($dtr['pm_in']) && empty($dtr['pm_out'])) {
-                // enforce minimum session length before allowing AM time out
-                $inTime = $dtr['am_in'];
+                // enforce minimum session length before allowing PM time out
+                $inTime = $dtr['pm_in'];
                 $fmtIn = DateTime::createFromFormat('Y-m-d H:i:s', $today . ' ' . $inTime) ?: DateTime::createFromFormat('Y-m-d H:i', $today . ' ' . $inTime);
                 $fmtNow = DateTime::createFromFormat('Y-m-d H:i:s', $today . ' ' . $now) ?: DateTime::createFromFormat('Y-m-d H:i', $today . ' ' . $now);
                 if ($fmtIn && $fmtNow) {
                     $diffSec = $fmtNow->getTimestamp() - $fmtIn->getTimestamp();
                     // minimum session enforcement disabled temporarily
-                    // if ($diffSec < 30 * 60) { $conn->rollback(); json_resp(['success'=>false,'message'=>'Minimum AM session is 30 minutes before Time Out']); }
+                    // if ($diffSec < 30 * 60) { $conn->rollback(); json_resp(['success'=>false,'message'=>'Minimum PM session is 30 minutes before Time Out']); }
                 }
 
                 // require explicit confirmation to record a time-out (prevents accidental double-punches)
                 if (empty($_POST['confirm']) || $_POST['confirm'] !== '1') {
                     $conn->rollback();
-                    json_resp(['success'=>false,'confirm'=>'time_out','message'=>'ARE YOU SURE YOU WILL TIME OUT?','field'=>'am_out']);
+                    json_resp(['success'=>false,'confirm'=>'time_out','message'=>'ARE YOU SURE YOU WILL TIME OUT?','field'=>'pm_out']);
                 }
 
-                $upd = $conn->prepare("UPDATE dtr SET am_out = ? WHERE dtr_id = ?");
+                $upd = $conn->prepare("UPDATE dtr SET pm_out = ? WHERE dtr_id = ?");
                 $upd->bind_param('si', $now, $dtr['dtr_id']); $upd->execute(); $upd->close();
-                $conn->commit(); json_resp(['success'=>true,'message'=>'Time out recorded (AM)','user_id'=>$matched_user_id,'username'=>$matched_username,'display_name'=>$matched_display,'distance'=>$best['dist'],'templates_scanned'=>$templatesScanned]);
+                // recompute hours/minutes for any completed pairs and update dtr
+                $sel = $conn->prepare("SELECT am_in,am_out,pm_in,pm_out FROM dtr WHERE dtr_id = ? LIMIT 1");
+                $sel->bind_param('i', $dtr['dtr_id']); $sel->execute(); $row = $sel->get_result()->fetch_assoc(); $sel->close();
+                $totalMin = 0;
+                foreach ([['am_in','am_out'], ['pm_in','pm_out']] as $p) {
+                    if (!empty($row[$p[0]]) && !empty($row[$p[1]])) {
+                        $fmt1 = DateTime::createFromFormat('Y-m-d H:i:s', $today . ' ' . $row[$p[0]]);
+                        if (!$fmt1) $fmt1 = DateTime::createFromFormat('Y-m-d H:i', $today . ' ' . $row[$p[0]]);
+                        $fmt2 = DateTime::createFromFormat('Y-m-d H:i:s', $today . ' ' . $row[$p[1]]);
+                        if (!$fmt2) $fmt2 = DateTime::createFromFormat('Y-m-d H:i', $today . ' ' . $row[$p[1]]);
+                        if ($fmt1 && $fmt2) { $diff = $fmt2->getTimestamp() - $fmt1->getTimestamp(); if ($diff > 0) $totalMin += intval($diff/60); }
+                    }
+                }
+                if ($totalMin > 480) $totalMin = 480;
+                $hours = intdiv($totalMin, 60); $minutes = $totalMin % 60;
+                $up2 = $conn->prepare("UPDATE dtr SET hours = ?, minutes = ? WHERE dtr_id = ?");
+                $up2->bind_param('iii', $hours, $minutes, $dtr['dtr_id']); $up2->execute(); $up2->close();
+                $conn->commit(); json_resp(['success'=>true,'message'=>'Time out recorded. Thank you for today, ' . $matched_display,'user_id'=>$matched_user_id,'username'=>$matched_username,'display_name'=>$matched_display,'hours'=>$hours,'minutes'=>$minutes,'distance'=>$best['dist'],'templates_scanned'=>$templatesScanned]);
             }
             if (!empty($dtr['am_out']) && empty($dtr['pm_in'])) {
                 $upd = $conn->prepare("UPDATE dtr SET pm_in = ? WHERE dtr_id = ?");
                 $upd->bind_param('si', $now, $dtr['dtr_id']); $upd->execute(); $upd->close();
-                $conn->commit(); json_resp(['success'=>true,'message'=>'Time in/out recorded. Have a good day, ' . $matched_display,'user_id'=>$matched_user_id,'username'=>$matched_username,'display_name'=>$matched_display]);
+                $conn->commit(); json_resp(['success'=>true,'message'=>'Time in recorded. Have a good day, ' . $matched_display,'user_id'=>$matched_user_id,'username'=>$matched_username,'display_name'=>$matched_display]);
             }
             if (!empty($dtr['pm_in']) && empty($dtr['pm_out'])) {
                 // enforce minimum session length before allowing PM time out
@@ -413,7 +430,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $up2 = $conn->prepare("UPDATE dtr SET hours = ?, minutes = ? WHERE dtr_id = ?");
                 $up2->bind_param('iii', $hours, $minutes, $dtr['dtr_id']); $up2->execute(); $up2->close();
 
-                $conn->commit(); json_resp(['success'=>true,'message'=>'Time out recorded (PM)','user_id'=>$matched_user_id,'username'=>$matched_username,'display_name'=>$matched_display,'hours'=>$hours,'minutes'=>$minutes,'distance'=>$best['dist'],'templates_scanned'=>$templatesScanned]);
+                $conn->commit(); json_resp(['success'=>true,'message'=>'Time out recorded. Thank you for today, ' . $matched_display,'user_id'=>$matched_user_id,'username'=>$matched_username,'display_name'=>$matched_display,'hours'=>$hours,'minutes'=>$minutes,'distance'=>$best['dist'],'templates_scanned'=>$templatesScanned]);
             }
 
             $conn->rollback(); json_resp(['success'=>false,'message'=>'Already completed for today']);
@@ -531,7 +548,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     }
                     // prefer finishing PM sequence if PM IN exists
                     if (!empty($dtr['pm_in']) && empty($dtr['pm_out'])) {
-                        $inTime = $dtr['am_in'];
+                        $inTime = $dtr['pm_in'];
                         $fmtIn = DateTime::createFromFormat('Y-m-d H:i:s', $today . ' ' . $inTime) ?: DateTime::createFromFormat('Y-m-d H:i', $today . ' ' . $inTime);
                         $fmtNow = DateTime::createFromFormat('Y-m-d H:i:s', $today . ' ' . $now) ?: DateTime::createFromFormat('Y-m-d H:i', $today . ' ' . $now);
                         if ($fmtIn && $fmtNow) {
@@ -540,12 +557,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
                         if (empty($_POST['confirm']) || $_POST['confirm'] !== '1') {
                             $conn->rollback();
-                            json_resp(['success'=>false,'confirm'=>'time_out','message'=>'ARE YOU SURE YOU WILL TIME OUT?','field'=>'am_out']);
+                            json_resp(['success'=>false,'confirm'=>'time_out','message'=>'ARE YOU SURE YOU WILL TIME OUT?','field'=>'pm_out']);
                         }
 
-                        $upd = $conn->prepare("UPDATE dtr SET am_out = ? WHERE dtr_id = ?");
+                        $upd = $conn->prepare("UPDATE dtr SET pm_out = ? WHERE dtr_id = ?");
                         $upd->bind_param('si', $now, $dtr['dtr_id']); $upd->execute(); $upd->close();
-                        $conn->commit(); json_resp(['success'=>true,'message'=>'Time out recorded (AM)','user_id'=>$matched_user_id,'username'=>$matched_username,'display_name'=>$matched_display]);
+                        // recompute hours/minutes for any completed pairs and update dtr
+                        $sel = $conn->prepare("SELECT am_in,am_out,pm_in,pm_out FROM dtr WHERE dtr_id = ? LIMIT 1");
+                        $sel->bind_param('i', $dtr['dtr_id']); $sel->execute(); $row = $sel->get_result()->fetch_assoc(); $sel->close();
+                        $totalMin = 0;
+                        foreach ([['am_in','am_out'], ['pm_in','pm_out']] as $p) {
+                            if (!empty($row[$p[0]]) && !empty($row[$p[1]])) {
+                                $fmt1 = DateTime::createFromFormat('Y-m-d H:i:s', $today . ' ' . $row[$p[0]]);
+                                if (!$fmt1) $fmt1 = DateTime::createFromFormat('Y-m-d H:i', $today . ' ' . $row[$p[0]]);
+                                $fmt2 = DateTime::createFromFormat('Y-m-d H:i:s', $today . ' ' . $row[$p[1]]);
+                                if (!$fmt2) $fmt2 = DateTime::createFromFormat('Y-m-d H:i', $today . ' ' . $row[$p[1]]);
+                                if ($fmt1 && $fmt2) { $diff = $fmt2->getTimestamp() - $fmt1->getTimestamp(); if ($diff > 0) $totalMin += intval($diff/60); }
+                            }
+                        }
+                        if ($totalMin > 480) $totalMin = 480;
+                        $hours = intdiv($totalMin, 60); $minutes = $totalMin % 60;
+                        $up2 = $conn->prepare("UPDATE dtr SET hours = ?, minutes = ? WHERE dtr_id = ?");
+                        $up2->bind_param('iii', $hours, $minutes, $dtr['dtr_id']); $up2->execute(); $up2->close();
+
+                        $conn->commit(); json_resp(['success'=>true,'message'=>'Time out recorded. Thank you for today, ' . $matched_display,'user_id'=>$matched_user_id,'username'=>$matched_username,'display_name'=>$matched_display,'hours'=>$hours,'minutes'=>$minutes]);
                     }
                     if (!empty($dtr['am_out']) && empty($dtr['pm_in'])) {
                         $upd = $conn->prepare("UPDATE dtr SET pm_in = ? WHERE dtr_id = ?");
@@ -584,7 +619,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                         $up2 = $conn->prepare("UPDATE dtr SET hours = ?, minutes = ? WHERE dtr_id = ?");
                         $up2->bind_param('iii', $hours, $minutes, $dtr['dtr_id']); $up2->execute(); $up2->close();
 
-                        $conn->commit(); json_resp(['success'=>true,'message'=>'Time out recorded (PM)','user_id'=>$matched_user_id,'username'=>$matched_username,'display_name'=>$matched_display,'hours'=>$hours,'minutes'=>$minutes]);
+                        $conn->commit(); json_resp(['success'=>true,'message'=>'Time out recorded. Thank you for today, ' . $matched_display,'user_id'=>$matched_user_id,'username'=>$matched_username,'display_name'=>$matched_display,'hours'=>$hours,'minutes'=>$minutes]);
                     }
 
                     $conn->rollback(); json_resp(['success'=>false,'message'=>'Already completed for today']);
@@ -603,6 +638,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     // DEBUG: log username lookup result (remove in production)
     error_log("pc_per_office: lookup username='{$username}' => " . ($user ? "FOUND user_id={$user['user_id']} role={$user['role']} stored_preview=" . substr($user['password'],0,12) : "NOT FOUND"));
     if (!$user) json_resp(['success'=>false,'message'=>'Invalid username or password','debug'=>'user_not_found','username'=>$username]);
+
+    // fetch display name (first + last) for friendly messages
+    try {
+        $uinfo2 = $conn->prepare("SELECT CONCAT(IFNULL(first_name,''),' ',IFNULL(last_name,'')) AS display_name FROM users WHERE user_id = ? LIMIT 1");
+        $uinfo2->bind_param('i', $user['user_id']);
+        $uinfo2->execute();
+        $urow2 = $uinfo2->get_result()->fetch_assoc();
+        $uinfo2->close();
+        $display_name = trim($urow2['display_name'] ?? '') ?: ($user['username'] ?? '');
+    } catch (Exception $e) { $display_name = ($user['username'] ?? ''); }
 
     // --- enforce account age: disallow time-in/out if account is less than 1 week old ---
     try {
@@ -894,7 +939,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             }
 
             $conn->commit();
-            json_resp(['success'=>true,'message'=>'Time in recorded','time'=>$now]);
+            json_resp(['success'=>true,'message'=>'Time in recorded. Have a good day, ' . $display_name,'time'=>$now,'display_name'=>$display_name]);
         }
 
         if ($action === 'time_out') {
@@ -947,7 +992,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $up2->close();
 
             $conn->commit();
-            json_resp(['success'=>true,'message'=>'Time out recorded','time'=>$now,'hours'=>$hours,'minutes'=>$minutes]);
+            json_resp(['success'=>true,'message'=>'Time out recorded. Thank you for today, ' . $display_name,'time'=>$now,'hours'=>$hours,'minutes'=>$minutes,'display_name'=>$display_name]);
         }
 
         $conn->rollback();
@@ -1202,8 +1247,9 @@ if ($office_id) {
         const j = await res.json();
         console.log('pc_per_office response:', j); // DEBUG: open browser console
                 if (j.success) {
-                    const follow = (action === 'time_in' ? 'Time in recorded. Have a good day, ' : 'Time out recorded. Have a good day, ') + (u || '');
-                    showMsgThenGreet(j.message || (action==='time_in'?'Time in recorded':'Time out recorded'), follow, 3000, true);
+                    const nameToShow = (j && j.display_name) ? j.display_name : (u || '');
+                    const follow = (action === 'time_in' ? 'Time in recorded. Have a good day, ' : 'Time out recorded. Thank you for today, ') + nameToShow;
+                    showMsgThenGreet(j && j.message ? j.message : ((action==='time_in'?'Time in recorded. Have a good day, ':'Time out recorded. Thank you for today, ') + nameToShow), follow, 3000, true);
                 } else {
           const extra = j.debug ? (' — ' + j.debug + (j.stored_preview ? ' ('+j.stored_preview+')' : '')) : '';
           showMsg((j.message || 'Action failed') + extra, false);
@@ -1351,7 +1397,7 @@ if ($office_id) {
                 const who = j.display_name || j.username || (j.user_id ? ('user id ' + j.user_id) : '');
                 const dist = (j.distance !== undefined) ? j.distance : j.best_distance;
                 const distText = (dist !== undefined) ? (' dist=' + Number(dist).toFixed(3)) : '';
-                const follow = 'Time in/out recorded. Have a good day' + (who ? (', ' + who) : '');
+                const follow = (j && j.message) ? j.message : ('Time in/out recorded. Have a good day' + (who ? (', ' + who) : ''));
                 // suppress initial debug; immediately show friendly follow-up for 5s
                 showMsgThenGreet('', follow, 3000, true);
             } else {
@@ -1556,7 +1602,7 @@ if ($office_id) {
                         const who = j.display_name || j.username || (j.user_id ? ('user id ' + j.user_id) : '');
                         const dist = (j.distance !== undefined) ? j.distance : j.best_distance;
                         const distText = (dist !== undefined) ? (' dist=' + Number(dist).toFixed(3)) : '';
-                        const follow = 'Time in/out recorded. Have a good day' + (who ? (', ' + who) : '');
+                        const follow = (j && j.message) ? j.message : ('Time in/out recorded. Have a good day' + (who ? (', ' + who) : ''));
                         // suppress initial debug; immediately show friendly follow-up for 5s
                         showMsgThenGreet('', follow, 3000, true);
                     } else {
