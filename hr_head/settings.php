@@ -138,8 +138,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $message = 'All fields are required.'; $messageType = 'error';
         } elseif ($new_password !== $confirm_password) {
             $message = 'New passwords do not match.'; $messageType = 'error';
-        } elseif (!preg_match('/[A-Z]/', $new_password) || !preg_match('/[0-9]/', $new_password) || strlen($new_password) < 8) {
-            $message = 'Password must be at least 8 chars, include an uppercase letter and a number.'; $messageType = 'error';
+        } elseif (
+            !preg_match('/[A-Z]/', $new_password) ||
+            !preg_match('/[a-z]/', $new_password) ||
+            !preg_match('/[0-9]/', $new_password) ||
+            !preg_match('/[^A-Za-z0-9]/', $new_password) ||
+            strlen($new_password) < 12
+        ) {
+            $message = 'Password must be at least 12 characters and include uppercase, lowercase, number, and special character.'; $messageType = 'error';
         } else {
             $stmt = $conn->prepare('SELECT password FROM users WHERE user_id = ?');
             if (!$stmt) {
@@ -226,10 +232,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         .alert.success{background:#dcfce7;color:#14532d}
         .alert.error{background:#fee2e2;color:#991b1b}
         input.prefilled{color:#6b7280}
-        /* password toggle */
-        .pw-input-wrap{position:relative}
-        .pw-field{padding-right:40px}
-        .pw-toggle{position:absolute;right:8px;top:50%;transform:translateY(-50%);background:transparent;border:0;cursor:pointer;padding:6px;font-size:14px}
+        /* shared card styling for profile/password tabs */
+        .pw-card,.profile-card{width:100%;max-width:560px;background:#fff;border-radius:16px;box-shadow:0 12px 28px rgba(16,24,40,0.12);padding:24px}
+        .pw-title,.profile-title{font-size:24px;font-weight:600;margin-bottom:18px;color:#111}
+        .pw-card .field,.profile-card .field{margin-bottom:18px}
+        .pw-card .label-row,.profile-card .label-row{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600;color:#111;margin-bottom:8px}
+        .pw-card .status-dot{width:14px;height:14px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;background:#dcfce7;color:#16a34a;font-size:10px}
+        .pw-card .input-wrap,.profile-card .input-wrap{position:relative}
+        .pw-card .input,.profile-card .input{width:100%;padding:12px 44px 12px 14px;border-radius:10px;border:1px solid #e5e7eb;outline:none;font-size:14px;transition:border 0.2s, box-shadow 0.2s;background:#fff}
+        .pw-card .input:focus,.profile-card .input:focus{border-color:#3b82f6;box-shadow:0 0 0 3px rgba(59,130,246,0.15)}
+        .pw-card .input.invalid,.profile-card .input.invalid{border-color:#ef4444;box-shadow:0 0 0 3px rgba(239,68,68,0.12)}
+        .profile-card .input.readonly{background:#fafafa;color:#6b7280}
+        .pw-card .toggle-btn{position:absolute;top:50%;right:12px;transform:translateY(-50%);border:none;background:transparent;cursor:pointer;padding:4px;color:#6b7280}
+        .pw-card .toggle-btn svg{width:18px;height:18px}
+        .pw-card .helper-text{margin-top:6px;font-size:12px;color:#ef4444;min-height:14px}
+        .pw-card .rules{margin-top:10px;display:grid;gap:6px;font-size:12px;color:#6b7280}
+        .pw-card .rule{display:flex;align-items:center;gap:8px}
+        .pw-card .rule .bullet{width:8px;height:8px;border-radius:50%;background:#d1d5db;flex-shrink:0}
+        .pw-card .rule.valid{color:#16a34a}
+        .pw-card .rule.valid .bullet{background:#16a34a}
+        .pw-actions{margin-top:18px;display:flex;gap:10px}
+        .profile-actions{margin-top:18px;display:flex;justify-content:flex-end}
+        .submit-btn{flex:1;padding:12px;border-radius:12px;border:none;background:#3b82f6;color:#fff;font-size:15px;font-weight:600;cursor:pointer;transition:background 0.2s ease}
+        .profile-actions .submit-btn{flex:0 0 auto}
+        .submit-btn:hover{background:#2563eb}
+        .ghost-btn{padding:12px 16px;border-radius:12px;border:1px solid #e5e7eb;background:#fff;color:#374151;font-size:14px;font-weight:600;cursor:pointer}
         @media (max-width:980px){.card{grid-template-columns:1fr;max-width:calc(100% - 32px)}}
     </style>
 </head>
@@ -245,10 +272,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <div class="outer" style="width:100%;max-width:1180px;margin:18px auto;padding:0 18px;">
         <div class="card-profile" role="region" aria-label="Profile Settings" style="background:transparent;">
             <div class="white-card" style="background:#fff;border-radius:18px;padding:20px;max-width:1000px;width:1000px;height:640px;margin:0 auto;display:grid;grid-template-rows:auto 1fr;gap:12px;align-items:stretch;box-shadow:0 18px 40px rgba(16,24,40,0.12);position:relative;overflow:auto;">
-                <button id="settings_close_btn" class="view-close" type="button" aria-label="Close">✕</button>
+                <button id="settings_close_btn" class="view-close" type="button" aria-label="Close" style="position:absolute;top:12px;right:12px;width:40px;height:40px;border-radius:10px;background:#fff;border:0;box-shadow:0 6px 18px rgba(0,0,0,0.06);cursor:pointer;font-size:20px;display:flex;align-items:center;justify-content:center">✕</button>
 
                 <div style="display:flex;align-items:flex-start;gap:28px">
-                    <div style="width:220px;flex-shrink:0">
+                    <div style="width:220px;flex-shrink:0;margin-left:50px">
                                 <div style="position:relative;display:flex;align-items:center;gap:14px">
                             <div style="width:96px;height:96px;border-radius:50%;background:#f1f5f9;display:flex;align-items:center;justify-content:center;box-shadow:0 6px 18px rgba(0,0,0,0.04);position:relative;overflow:hidden">
                                 <?php $displayAvatar = $avatarPath ? $avatarPath : '';?>
@@ -279,26 +306,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             <form method="POST" enctype="multipart/form-data">
                                 <input type="hidden" name="form_type" value="profile">
                                 <input id="avatarInput" name="avatar" type="file" accept="image/*" style="display:none">
-                                <div style="display:flex;gap:18px;align-items:flex-start;margin-bottom:12px">
-                                    <div style="flex:1">
-                                        <label style="display:block;font-weight:600;margin-bottom:6px;color:#333">First Name</label>
-                                            <input id="firstName" class="prefill-target" type="text" name="first_name" value="<?php echo htmlspecialchars($first_name); ?>" style="width:100%;padding:10px;border-radius:8px;border:1px solid #e6e6e9">
+                                <div class="profile-card">
+                                    <div class="profile-title">Edit Profile</div>
+
+                                    <div style="display:flex;gap:18px;align-items:flex-start;margin-bottom:0">
+                                        <div class="field" style="flex:1">
+                                            <div class="label-row"><span>First Name</span></div>
+                                            <div class="input-wrap">
+                                                <input id="firstName" class="input prefill-target" type="text" name="first_name" value="<?php echo htmlspecialchars($first_name); ?>">
+                                            </div>
+                                        </div>
+                                        <div class="field" style="flex:1">
+                                            <div class="label-row"><span>Last Name</span></div>
+                                            <div class="input-wrap">
+                                                <input id="lastName" class="input prefill-target" type="text" name="last_name" value="<?php echo htmlspecialchars($last_name); ?>">
+                                            </div>
+                                        </div>
                                     </div>
-                                    <div style="flex:1">
-                                        <label style="display:block;font-weight:600;margin-bottom:6px;color:#333">Last Name</label>
-                                            <input id="lastName" class="prefill-target" type="text" name="last_name" value="<?php echo htmlspecialchars($last_name); ?>" style="width:100%;padding:10px;border-radius:8px;border:1px solid #e6e6e9">
+
+                                    <div class="field" style="max-width:520px">
+                                        <div class="label-row"><span>Email Address</span></div>
+                                        <div class="input-wrap">
+                                            <input id="emailAddr" class="input prefill-target readonly" type="email" name="email" value="<?php echo htmlspecialchars($email); ?>" readonly>
+                                        </div>
                                     </div>
-                                </div>
 
-                                <div style="max-width:520px;margin-bottom:12px">
-                                    <label style="display:block;font-weight:600;margin-bottom:6px;color:#333">Email Address</label>
-                                    <input id="emailAddr" class="prefill-target" type="email" name="email" value="<?php echo htmlspecialchars($email); ?>" readonly style="width:100%;padding:10px;border-radius:8px;border:1px solid #e6e6e9;background:#fafafa;color:#6b7280">
-                                </div>
+                                    <!-- Contact number and Personal Address removed per request -->
 
-                                <!-- Contact number and Personal Address removed per request -->
-
-                                <div style="display:flex;justify-content:flex-end;margin-top:14px">
-                                    <button type="submit" class="btn-save" style="background:#2f3850;color:#fff;padding:10px 18px;border-radius:28px;border:0;font-weight:700">SAVE CHANGES</button>
+                                    <div class="profile-actions">
+                                        <button type="submit" class="submit-btn">SAVE CHANGES</button>
+                                    </div>
                                 </div>
                             </form>
                         </div>
@@ -306,38 +343,68 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         <div id="panelPassword" style="display:none">
                             <form method="POST" id="pwForm">
                                 <input type="hidden" name="form_type" value="password">
-                                <div style="max-width:520px">
-                                    <label style="display:block;font-weight:600;margin-bottom:6px;color:#333">Current Password</label>
-                                    <div class="pw-input-wrap" style="width:100%;margin-bottom:6px">
-                                        <input id="currentPassword" class="pw-field" type="password" name="current_password" style="width:100%;padding:10px;border-radius:8px;border:1px solid #e6e6e9">
-                                        <button type="button" class="pw-toggle" data-target="currentPassword" aria-label="Show current password"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg></button>
-                                    </div>
-                                    <div id="currentPwMsg" style="font-size:13px;margin-bottom:8px;color:#ef4444"></div>
-                                    <label style="display:block;font-weight:600;margin-bottom:6px;color:#333">New Password</label>
-                                    <div class="pw-input-wrap" style="width:100%;margin-bottom:12px">
-                                        <input id="newPassword" class="pw-field" type="password" name="new_password" style="width:100%;padding:10px;border-radius:8px;border:1px solid #e6e6e9">
-                                        <button type="button" class="pw-toggle" data-target="newPassword" aria-label="Show new password"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg></button>
-                                    </div>
-                                    <label style="display:block;font-weight:600;margin-bottom:6px;color:#333">Confirm New Password</label>
-                                    <div class="pw-input-wrap" style="width:100%;margin-bottom:12px">
-                                        <input id="confirmPassword" class="pw-field" type="password" name="confirm_password" style="width:100%;padding:10px;border-radius:8px;border:1px solid #e6e6e9">
-                                        <button type="button" class="pw-toggle" data-target="confirmPassword" aria-label="Show confirm password"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg></button>
-                                    </div>
-                                    <div id="confirmPwMsg" style="font-size:13px;margin-bottom:8px;color:#ef4444"></div>
+                                <div class="pw-card">
+                                    <div class="pw-title">Change Password</div>
 
-                                    <div id="pwStrength" style="margin-bottom:12px;font-size:14px;color:#111">
-                                        <div style="margin-bottom:6px">Password must contain:</div>
-                                        <ul style="list-style:none;padding-left:0;margin:0">
-                                            <li id="reqUpper" style="color:#9ca3af;margin-bottom:6px">◻ At least 1 uppercase</li>
-                                            <li id="reqNumber" style="color:#9ca3af;margin-bottom:6px">◻ At least 1 number</li>
-                                            <li id="reqLength" style="color:#9ca3af;margin-bottom:6px">◻ At least 8 characters</li>
-                                        </ul>
-                                        <div id="pwReqMsg" style="font-size:13px;margin-top:6px;color:#ef4444"></div>
+                                    <div class="field">
+                                        <div class="label-row">
+                                            <span>Old Password</span>
+                                            <span class="status-dot">✓</span>
+                                        </div>
+                                        <div class="input-wrap">
+                                            <input class="input" type="password" name="current_password" id="current_password" required>
+                                            <button class="toggle-btn" type="button" data-target="current_password" aria-label="Show password">
+                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                    <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"></path>
+                                                    <circle cx="12" cy="12" r="3"></circle>
+                                                </svg>
+                                            </button>
+                                        </div>
+                                        <div class="helper-text" id="currentPwMsg"></div>
                                     </div>
 
-                                    <div style="display:flex;gap:8px;justify-content:flex-end">
-                                        <button id="pwDiscard" type="button" style="background:transparent;border:1px solid #9ca3af;color:#374151;padding:8px 14px;border-radius:20px">DISCARD</button>
-                                        <button id="pwSubmit" type="submit" disabled style="background:#2f3850;color:#fff;padding:10px 18px;border-radius:28px;border:0;font-weight:700">APPLY CHANGES</button>
+                                    <div class="field">
+                                        <div class="label-row">
+                                            <span>New Password</span>
+                                        </div>
+                                        <div class="input-wrap">
+                                            <input class="input" type="password" name="new_password" id="new_password" required>
+                                            <button class="toggle-btn" type="button" data-target="new_password" aria-label="Show password">
+                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                    <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"></path>
+                                                    <circle cx="12" cy="12" r="3"></circle>
+                                                </svg>
+                                            </button>
+                                        </div>
+                                        <div class="helper-text" id="password_hint">Please add all necessary characters to create safe password.</div>
+                                        <div class="rules">
+                                            <div class="rule" id="rule-length"><span class="bullet"></span>Minimum characters 12</div>
+                                            <div class="rule" id="rule-upper"><span class="bullet"></span>One uppercase character</div>
+                                            <div class="rule" id="rule-lower"><span class="bullet"></span>One lowercase character</div>
+                                            <div class="rule" id="rule-special"><span class="bullet"></span>One special character</div>
+                                            <div class="rule" id="rule-number"><span class="bullet"></span>One number</div>
+                                        </div>
+                                    </div>
+
+                                    <div class="field">
+                                        <div class="label-row">
+                                            <span>Confirm New Password</span>
+                                        </div>
+                                        <div class="input-wrap">
+                                            <input class="input" type="password" name="confirm_password" id="confirm_password" required>
+                                            <button class="toggle-btn" type="button" data-target="confirm_password" aria-label="Show password">
+                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                    <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"></path>
+                                                    <circle cx="12" cy="12" r="3"></circle>
+                                                </svg>
+                                            </button>
+                                        </div>
+                                        <div class="helper-text" id="confirmPwMsg"></div>
+                                    </div>
+
+                                    <div class="pw-actions">
+                                        <button id="pwDiscard" type="button" class="ghost-btn">Discard</button>
+                                        <button id="pwSubmit" type="submit" class="submit-btn" disabled>Change Password</button>
                                     </div>
                                 </div>
                             </form>
@@ -411,7 +478,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 const aimg = document.getElementById('avatarImg');
                 if (aimg && aimg.dataset && typeof aimg.dataset.original !== 'undefined' && aimg.src !== aimg.dataset.original) return true;
                 // check password fields
-                const pwIds = ['currentPassword', 'newPassword', 'confirmPassword'];
+                const pwIds = ['current_password', 'new_password', 'confirm_password'];
                 for (let id of pwIds) {
                     const el = document.getElementById(id);
                     if (el && el.value.trim()) return true;
@@ -422,19 +489,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         // password strength client-side validation
         (function(){
-            const newPw = document.getElementById('newPassword');
-            const confPw = document.getElementById('confirmPassword');
-            const curPw = document.getElementById('currentPassword');
+            const newPw = document.getElementById('new_password');
+            const confPw = document.getElementById('confirm_password');
+            const curPw = document.getElementById('current_password');
             const submitBtn = document.getElementById('pwSubmit');
             const discardBtn = document.getElementById('pwDiscard');
-            const reqUpper = document.getElementById('reqUpper');
-            const reqNumber = document.getElementById('reqNumber');
-            const reqLength = document.getElementById('reqLength');
             const currentMsg = document.getElementById('currentPwMsg');
             const confirmPwMsg = document.getElementById('confirmPwMsg');
-            const pwReqMsg = document.getElementById('pwReqMsg');
+            const pwHint = document.getElementById('password_hint');
+            const rules = {
+                length: document.getElementById('rule-length'),
+                upper: document.getElementById('rule-upper'),
+                lower: document.getElementById('rule-lower'),
+                special: document.getElementById('rule-special'),
+                number: document.getElementById('rule-number')
+            };
             let currentValid = false;
             let checkTimer = null;
+            const pwForm = document.getElementById('pwForm');
 
             function checkCurrentServer(){
                 if (!curPw || !curPw.value) { currentValid = false; if(currentMsg) currentMsg.textContent=''; check(); return; }
@@ -454,35 +526,52 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }, 350);
             }
 
+            function toggleRule(element, isValid){
+                if (!element) return;
+                element.classList.toggle('valid', isValid);
+            }
+
             function check(){
                 const v = newPw && newPw.value ? newPw.value : '';
+                const hasLength = v.length >= 12;
                 const hasUpper = /[A-Z]/.test(v);
+                const hasLower = /[a-z]/.test(v);
+                const hasSpecial = /[^A-Za-z0-9]/.test(v);
                 const hasNumber = /[0-9]/.test(v);
-                const hasLength = v.length >= 8;
-                reqUpper.style.color = hasUpper ? '#16a34a' : '#9ca3af';
-                reqNumber.style.color = hasNumber ? '#16a34a' : '#9ca3af';
-                reqLength.style.color = hasLength ? '#16a34a' : '#9ca3af';
 
-                const confirmMatch = confPw && confPw.value === v && v.length>0;
+                toggleRule(rules.length, hasLength);
+                toggleRule(rules.upper, hasUpper);
+                toggleRule(rules.lower, hasLower);
+                toggleRule(rules.special, hasSpecial);
+                toggleRule(rules.number, hasNumber);
+
+                const allValid = hasLength && hasUpper && hasLower && hasSpecial && hasNumber;
+                if (newPw) newPw.classList.toggle('invalid', !allValid && v.length > 0);
+                if (pwHint) pwHint.style.visibility = allValid || v.length === 0 ? 'hidden' : 'visible';
+
+                const confirmMatch = confPw && confPw.value === v && v.length > 0;
                 if (confirmPwMsg) confirmPwMsg.textContent = confirmMatch || !confPw.value ? '' : 'Passwords do not match.';
-                if (pwReqMsg && (hasUpper && hasNumber && hasLength)) pwReqMsg.textContent = '';
-                // enable submit only when confirm matches and current password validated by server
-                const enable = confirmMatch && currentValid === true;
+                if (confPw) confPw.classList.toggle('invalid', !confirmMatch && confPw.value.length > 0);
+
+                const enable = allValid && confirmMatch && currentValid === true;
                 if (submitBtn) submitBtn.disabled = !enable;
             }
             if (newPw) newPw.addEventListener('input', check);
             if (confPw) confPw.addEventListener('input', check);
             if (curPw) { curPw.addEventListener('input', function(){ currentValid = false; if(currentMsg) currentMsg.textContent=''; checkCurrentServer(); }); }
-            if (discardBtn) discardBtn.addEventListener('click', function(){ if (newPw) newPw.value=''; if (confPw) confPw.value=''; if (curPw) curPw.value=''; check(); });
+            if (discardBtn) discardBtn.addEventListener('click', function(){ if (newPw) newPw.value=''; if (confPw) confPw.value=''; if (curPw) curPw.value=''; if (confirmPwMsg) confirmPwMsg.textContent=''; if (currentMsg) currentMsg.textContent=''; check(); });
             // prevent submit if password requirements not met
             if (pwForm) pwForm.addEventListener('submit', function(e){
                 const v = newPw && newPw.value ? newPw.value : '';
+                const hasLength = v.length >= 12;
                 const hasUpper = /[A-Z]/.test(v);
+                const hasLower = /[a-z]/.test(v);
+                const hasSpecial = /[^A-Za-z0-9]/.test(v);
                 const hasNumber = /[0-9]/.test(v);
-                const hasLength = v.length >= 8;
-                if (!(hasUpper && hasNumber && hasLength)) {
+                const allValid = hasLength && hasUpper && hasLower && hasSpecial && hasNumber;
+                if (!allValid) {
                     e.preventDefault();
-                    if (pwReqMsg) pwReqMsg.textContent = 'Please meet all password requirements to proceed.';
+                    if (pwHint) pwHint.style.visibility = 'visible';
                     return false;
                 }
             });
@@ -504,7 +593,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             }
             try{
-                document.querySelectorAll('.pw-toggle').forEach(function(b){
+                document.querySelectorAll('.toggle-btn').forEach(function(b){
                     b.addEventListener('click', function(e){ togglePassword(b.dataset.target, b); });
                 });
             }catch(e){}
@@ -552,7 +641,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         if (asvg) asvg.style.display = (aimg && aimg.src) ? 'none' : 'flex';
                     }
                     // clear password fields
-                    const pwIds = ['currentPassword', 'newPassword', 'confirmPassword'];
+                    const pwIds = ['current_password', 'new_password', 'confirm_password'];
                     for (let id of pwIds) {
                         const el = document.getElementById(id);
                         if (el) el.value = '';
