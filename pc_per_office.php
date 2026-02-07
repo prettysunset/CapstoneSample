@@ -1,67 +1,37 @@
 <?php
 session_start();
 
-// Force Hostinger DB only for this script. No fallback to local conn.php.
-// Use same credentials as test_db_hostinger.php
-$h_host = 'auth-db2090.hstgr.io';
-$h_user = 'u389936701_user';
-$h_pass = 'CapstoneDefended1';
-$h_db   = 'u389936701_capstone';
-$h_port = 3306;
-mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
-
-// Try Hostinger first, but fall back to local `conn.php` if Hostinger is unreachable.
+// Local-first DB usage: always use local DB (from conn.php) so the kiosk writes
+// go to the local XAMPP database immediately. Remote push to Hostinger is
+// handled separately by the sync job and will not be attempted from this page.
 $conn = null;
-$db_error_msg = '';
 try {
-    $hconn = @new mysqli($h_host, $h_user, $h_pass, $h_db, $h_port);
-    if ($hconn && !$hconn->connect_errno) {
-        $hconn->set_charset('utf8mb4');
-        $conn = $hconn;
-        error_log('pc_per_office: connected to Hostinger DB ' . $h_host);
+    // conn.php should set up a local `$conn` (mysqli). Prefer that.
+    require_once __DIR__ . '/conn.php';
+    if (isset($conn) && $conn && !$conn->connect_errno) {
+        $conn->set_charset('utf8mb4');
+        error_log('pc_per_office: using local DB from conn.php');
     } else {
-        $db_error_msg = ($hconn ? $hconn->connect_error : 'unknown');
-        error_log('pc_per_office: Hostinger DB connect failed: ' . $db_error_msg);
-        // attempt local fallback
-        try {
-            require_once __DIR__ . '/conn.php';
-            if (isset($conn) && $conn && !$conn->connect_errno) {
-                error_log('pc_per_office: falling back to DB from conn.php');
-            } else {
-                // conn.php may have already emitted a JSON error and exited; if we reach here, report JSON error
-                header('Content-Type: application/json; charset=utf-8', true, 500);
-                echo json_encode(['ok'=>false,'message'=>'Cannot connect to Hostinger DB; local fallback failed']);
-                exit;
-            }
-        } catch (Exception $e) {
-            error_log('pc_per_office: failed to include conn.php fallback: ' . $e->getMessage());
-            header('Content-Type: application/json; charset=utf-8', true, 500);
-            echo json_encode(['ok'=>false,'message'=>'DB connection exception']);
-            exit;
-        }
-    }
-} catch (Exception $ex) {
-    $db_error_msg = $ex->getMessage();
-    error_log('pc_per_office: exception connecting Hostinger DB: ' . $db_error_msg);
-    // try local fallback
-    try {
-        require_once __DIR__ . '/conn.php';
-        if (isset($conn) && $conn && !$conn->connect_errno) {
-            error_log('pc_per_office: falling back to DB from conn.php after exception');
+        // fallback: attempt a local XAMPP connection directly
+        $conn = @new mysqli('127.0.0.1', 'root', '', 'u389936701_capstone');
+        if ($conn && !$conn->connect_errno) {
+            $conn->set_charset('utf8mb4');
+            error_log('pc_per_office: using direct local mysqli fallback');
         } else {
             header('Content-Type: application/json; charset=utf-8', true, 500);
-            echo json_encode(['ok'=>false,'message'=>'DB connection exception']);
+            echo json_encode(['ok' => false, 'message' => 'Local DB connection failed']);
             exit;
         }
-    } catch (Exception $e) {
-        error_log('pc_per_office: failed to include conn.php fallback after exception: ' . $e->getMessage());
-        header('Content-Type: application/json; charset=utf-8', true, 500);
-        echo json_encode(['ok'=>false,'message'=>'DB connection exception']);
-        exit;
     }
+} catch (Exception $e) {
+    error_log('pc_per_office: failed to establish local DB connection: ' . $e->getMessage());
+    header('Content-Type: application/json; charset=utf-8', true, 500);
+    echo json_encode(['ok' => false, 'message' => 'DB connection exception']);
+    exit;
 }
 
-// (Removed older local-override block — Hostinger connection enforced above.)
+// Use the same connection as localConn for any local-buffer helper functions
+$localConn = $conn;
 
 
 // Helper to send JSON
@@ -345,22 +315,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $dtr = $q2->get_result()->fetch_assoc();
             $q2->close();
 
-            // disallow Time In after 17:00 unless this is completing an existing IN (i.e., a Time Out)
-            $isAfterCutoff = false;
-            if (!is_null($hourForDecision)) {
-                $isAfterCutoff = ($hourForDecision >= 17);
-            } else {
-                try {
-                    $clickDt = DateTime::createFromFormat('Y-m-d H:i:s', $today . ' ' . $now) ?: DateTime::createFromFormat('Y-m-d H:i', $today . ' ' . $now);
-                } catch (Exception $e) { $clickDt = null; }
-                $cutoff = DateTime::createFromFormat('Y-m-d H:i:s', $today . ' 17:00:00');
-                if ($clickDt && $cutoff) $isAfterCutoff = ($clickDt >= $cutoff);
-            }
-            $hasPendingOut = ($dtr && ((!empty($dtr['am_in']) && empty($dtr['am_out'])) || (!empty($dtr['pm_in']) && empty($dtr['pm_out']))));
-            if ($isAfterCutoff && !$hasPendingOut) {
-                $conn->rollback();
-                json_resp(['success'=>false,'message'=>'Time In not allowed after 17:00']);
-            }
+            // NOTE: 17:00 Time In cutoff removed for testing — allow Time In at any time.
 
             if (!$dtr) {
                 // create new row -> decide am_in vs pm_in based on parsed 24-hour value
@@ -541,22 +496,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     $dtr = $q2->get_result()->fetch_assoc();
                     $q2->close();
 
-                    // disallow Time In after 17:00 unless this is completing an existing IN (i.e., a Time Out)
-                        $isAfterCutoff = false;
-                        if (!is_null($hourForDecision)) {
-                            $isAfterCutoff = ($hourForDecision >= 17);
-                        } else {
-                            try {
-                                $clickDt = DateTime::createFromFormat('Y-m-d H:i:s', $today . ' ' . $now) ?: DateTime::createFromFormat('Y-m-d H:i', $today . ' ' . $now);
-                            } catch (Exception $e) { $clickDt = null; }
-                            $cutoff = DateTime::createFromFormat('Y-m-d H:i:s', $today . ' 17:00:00');
-                            if ($clickDt && $cutoff) $isAfterCutoff = ($clickDt >= $cutoff);
-                        }
-                        $hasPendingOut = ($dtr && ((!empty($dtr['am_in']) && empty($dtr['am_out'])) || (!empty($dtr['pm_in']) && empty($dtr['pm_out']))));
-                        if ($isAfterCutoff && !$hasPendingOut) {
-                            $conn->rollback();
-                            json_resp(['success'=>false,'message'=>'Time In not allowed after 17:00']);
-                        }
+                        // NOTE: 17:00 Time In cutoff removed for testing — allow Time In at any time.
 
                     if (!$dtr) {
                         $hour = is_null($hourForDecision) ? (int)date('H') : $hourForDecision;
@@ -823,12 +763,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $field = ($hour < 12) ? 'am_in' : 'pm_in';
             }
 
-            // Simplified rule: allow Time In as long as it's before 17:00; keep duplicate checks only.
-            $cutoff = DateTime::createFromFormat('Y-m-d H:i:s', $today . ' 17:00:00');
-            if ($clickDt >= $cutoff) {
-                $conn->rollback();
-                json_resp(['success'=>false,'message'=>'Time In allowed before 17:00']);
-            }
+            // NOTE: 17:00 Time In cutoff removed for testing — allow Time In at any time.
 
             if ($field === 'am_in') {
                 if ($dtr && !empty($dtr['am_in'])) {
@@ -1437,7 +1372,8 @@ if ($office_id) {
         // Start camera and run smooth live continuous scanning (requestAnimationFrame-driven)
         let liveScanning = true;
         let antiReady = false;
-        const DETECT_INTERVAL_MS = 200; // target detection interval (~1 FPS)
+        // increase interval slightly to reduce CPU pressure; 300ms ~= 3 FPS
+        const DETECT_INTERVAL_MS = 300; // target detection interval (~3 FPS)
         const MIN_SEND_INTERVAL_MS = 900; // throttle server-side checks
         const MAX_INFLIGHT = 1; // max concurrent server requests
         let lastDetectTime = 0;
@@ -1445,7 +1381,9 @@ if ($office_id) {
         let inflight = 0;
         let lastDescriptor = null;
 
-        const TINY_OPTIONS = new faceapi.TinyFaceDetectorOptions({ inputSize: 160, scoreThreshold: 0.5 });
+        // Reduce inputSize to speed up detection (tradeoff: slightly lower accuracy).
+        // Try 128 for a good balance; set lower (96) if you need more speed.
+        const TINY_OPTIONS = new faceapi.TinyFaceDetectorOptions({ inputSize: 128, scoreThreshold: 0.5 });
 
         async function startLiveCamera() {
             if (startCamBtn) startCamBtn.disabled = true;
@@ -1494,21 +1432,22 @@ if ($office_id) {
                 const now = performance.now();
                 if (now - lastDetectTime >= DETECT_INTERVAL_MS) {
                     lastDetectTime = now;
-                    // run detection (non-blocking)
-                    faceapi.detectSingleFace(videoEl, TINY_OPTIONS).withFaceLandmarks().withFaceDescriptor().then(async (det) => {
-                        if (!det || !det.descriptor) {
-                            // clear overlay when no face
+                    // run a lightweight detection (no landmarks/descriptors) each frame.
+                    // compute expensive descriptor only when we actually need to send to server.
+                    faceapi.detectSingleFace(videoEl, TINY_OPTIONS).withFaceLandmarks().then(async (det) => {
+                        if (!det) {
                             const ctx = canvasEl.getContext('2d'); ctx.clearRect(0,0,canvasEl.width,canvasEl.height);
                             return;
                         }
 
-                        // draw overlay (only shapes) - avoid drawing video into canvas
+                        // draw lightweight overlay (no landmarks) to reduce work
                         try {
                             const ctx = canvasEl.getContext('2d');
                             ctx.clearRect(0,0,canvasEl.width,canvasEl.height);
-                            const box = det.detection.box;
+                            const box = det.detection ? det.detection.box : det.box;
                             ctx.strokeStyle = '#00FF00'; ctx.lineWidth = 3; ctx.globalAlpha = 0.95;
                             ctx.strokeRect(box.x, box.y, box.width, box.height);
+                            // draw small landmark dots (restores the small green points)
                             if (det.landmarks) {
                                 ctx.fillStyle = '#00FF00';
                                 const pts = det.landmarks.positions || [];
@@ -1516,13 +1455,13 @@ if ($office_id) {
                             }
                         } catch (e) { console.warn('overlay draw failed', e); }
 
-                        // decide whether to send to server: throttle and limit inflight
-                        const desc = Array.from(det.descriptor);
+                        // throttle sending descriptors: only send when MIN_SEND_INTERVAL_MS elapsed
                         const nowTs = Date.now();
-                        const descriptorChanged = !lastDescriptor || (Math.abs((lastDescriptor[0]||0) - (desc[0]||0)) > 1e-3);
-                        if (inflight < MAX_INFLIGHT && (nowTs - lastSentAt > MIN_SEND_INTERVAL_MS || descriptorChanged)) {
-                            lastSentAt = nowTs; lastDescriptor = desc.slice(0,8); // small fingerprint
-                            sendDescriptorNonBlocking(desc, det.detection.box).catch(e=>console.warn('sendDescriptor error',e));
+                        const box = det.detection ? det.detection.box : det.box;
+                        if (inflight < MAX_INFLIGHT && (nowTs - lastSentAt > MIN_SEND_INTERVAL_MS)) {
+                            lastSentAt = nowTs;
+                            // pass null descriptor so sendDescriptorNonBlocking will compute it on-demand
+                            sendDescriptorNonBlocking(null, box).catch(e=>console.warn('sendDescriptor error',e));
                         }
                     }).catch(err => { console.warn('detect error', err); });
                 }
@@ -1533,7 +1472,22 @@ if ($office_id) {
         async function sendDescriptorNonBlocking(descriptor, box) {
             inflight++;
             try {
-                
+                // if descriptor not provided, compute it from an offscreen crop (on-demand)
+                if (!descriptor) {
+                    try {
+                        const off = document.createElement('canvas');
+                        const w = Math.max(64, Math.round(box.width));
+                        const h = Math.max(64, Math.round(box.height));
+                        off.width = w; off.height = h;
+                        const octx = off.getContext('2d');
+                        octx.drawImage(videoEl, box.x, box.y, box.width, box.height, 0, 0, w, h);
+                        // compute full landmarks + descriptor only for this crop
+                        const full = await faceapi.detectSingleFace(off, TINY_OPTIONS).withFaceLandmarks().withFaceDescriptor();
+                        if (!full || !full.descriptor) { inflight--; return; }
+                        descriptor = Array.from(full.descriptor);
+                    } catch (e) { console.warn('descriptor compute failed', e); inflight--; return; }
+                }
+
                 // probe_match first
                 let skipAnti = false;
                 try {
@@ -1628,6 +1582,18 @@ if ($office_id) {
 })();   
 </script>
 <script src="assets/attendance_sync.js"></script>
+</script>
+<script>
+// Trigger server-side push every full minute while kiosk page is open.
+(function(){
+    const PUSH_URL = './sync_push_http.php';
+    function doPush(){
+        fetch(PUSH_URL, { method: 'GET', cache: 'no-store' }).catch(()=>{});
+    }
+    // align to next full minute so open at 07:14:00 triggers at 07:15:00
+    const msUntilNext = 60000 - (Date.now() % 60000);
+    setTimeout(function(){ doPush(); setInterval(doPush, 60000); }, msUntilNext);
+})();
 </script>
 <?php
 // If exactly one API key exists, embed it into the page for this kiosk to use automatically.
