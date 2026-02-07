@@ -1,0 +1,115 @@
+<?php
+// sync_push_http.php
+// Lightweight HTTP endpoint to push unsynced local `dtr` rows to remote Hostinger DB.
+// Designed to be called from the kiosk page periodically (every 60s).
+header('Content-Type: application/json; charset=utf-8');
+// minimal output — kiosk will ignore details
+
+// local DB
+$local = @new mysqli('127.0.0.1', 'root', '', 'u389936701_capstone');
+if (!$local || $local->connect_errno) {
+    echo json_encode(['ok' => false, 'reason' => 'local_connect_failed']);
+    exit;
+}
+$local->set_charset('utf8mb4');
+
+// remote Hostinger DB
+$remote = @new mysqli('auth-db2090.hstgr.io', 'u389936701_user', 'CapstoneDefended1', 'u389936701_capstone', 3306);
+if (!$remote || $remote->connect_errno) {
+    // silent skip
+    error_log('sync_push_http: remote connect failed: ' . ($remote ? $remote->connect_error : 'unknown'));
+    echo json_encode(['ok' => true, 'pushed' => 0, 'skipped_remote_unavailable' => true]);
+    $local->close();
+    exit;
+}
+$remote->set_charset('utf8mb4');
+
+// detect remote office_id
+$remoteHasOffice = false;
+try { $c = $remote->query("SHOW COLUMNS FROM `dtr` LIKE 'office_id'"); if ($c && $c->num_rows) $remoteHasOffice = true; } catch (Exception $e) {}
+
+// ensure local columns exist (best-effort)
+try {
+    $c = $local->query("SHOW COLUMNS FROM `dtr` LIKE 'synced'"); if (!$c || $c->num_rows === 0) $local->query("ALTER TABLE dtr ADD COLUMN synced TINYINT(1) DEFAULT 0");
+} catch (Exception $e) {}
+
+$res = $local->query("SELECT * FROM dtr WHERE COALESCE(synced,0)=0 ORDER BY COALESCE(buffered_at, log_date) LIMIT 100");
+if (!$res) { echo json_encode(['ok'=>true,'pushed'=>0,'reason'=>'no_rows_or_query_failed']); $local->close(); $remote->close(); exit; }
+
+$pushed = 0; $failed = 0;
+while ($row = $res->fetch_assoc()) {
+    $student_id = (int)$row['student_id'];
+    $log_date = $row['log_date'];
+    $am_in = isset($row['am_in']) && $row['am_in'] !== '' ? $row['am_in'] : null;
+    $am_out = isset($row['am_out']) && $row['am_out'] !== '' ? $row['am_out'] : null;
+    $pm_in = isset($row['pm_in']) && $row['pm_in'] !== '' ? $row['pm_in'] : null;
+    $pm_out = isset($row['pm_out']) && $row['pm_out'] !== '' ? $row['pm_out'] : null;
+    $office_id = isset($row['office_id']) ? $row['office_id'] : null;
+    try {
+        $remote->begin_transaction();
+        $cols = 'dtr_id, am_in,am_out,pm_in,pm_out' . ($remoteHasOffice ? ', office_id' : '');
+        $chkSql = "SELECT {$cols} FROM dtr WHERE student_id = ? AND log_date = ? LIMIT 1";
+        $chk = $remote->prepare($chkSql);
+        if (!$chk) throw new Exception('remote_prepare_select_failed: ' . $remote->error);
+        $chk->bind_param('is', $student_id, $log_date);
+        $chk->execute();
+        $resChk = $chk->get_result();
+        $rrow = $resChk ? $resChk->fetch_assoc() : null;
+        $chk->close();
+
+        if (!$rrow) {
+            if ($remoteHasOffice) {
+                $ins = $remote->prepare('INSERT INTO dtr (student_id, log_date, am_in, am_out, pm_in, pm_out, office_id) VALUES (?, ?, ?, ?, ?, ?, ?)');
+                $ins->bind_param('isssssi', $student_id, $log_date, $am_in, $am_out, $pm_in, $pm_out, $office_id);
+            } else {
+                $ins = $remote->prepare('INSERT INTO dtr (student_id, log_date, am_in, am_out, pm_in, pm_out) VALUES (?, ?, ?, ?, ?, ?)');
+                $ins->bind_param('isssss', $student_id, $log_date, $am_in, $am_out, $pm_in, $pm_out);
+            }
+            if (!$ins) throw new Exception('remote_prepare_insert_failed: ' . $remote->error);
+            $ok = $ins->execute(); $ins->close();
+            if (!$ok) throw new Exception('remote_insert_failed: ' . $remote->error);
+        } else {
+            $dtr_id = (int)$rrow['dtr_id'];
+            $sets = []; $params = [];
+            if ($am_in && empty($rrow['am_in'])) { $sets[] = 'am_in = ?'; $params[] = $am_in; }
+            if ($am_out && empty($rrow['am_out'])) { $sets[] = 'am_out = ?'; $params[] = $am_out; }
+            if ($pm_in && empty($rrow['pm_in'])) { $sets[] = 'pm_in = ?'; $params[] = $pm_in; }
+            if ($pm_out && empty($rrow['pm_out'])) { $sets[] = 'pm_out = ?'; $params[] = $pm_out; }
+            if ($remoteHasOffice && !empty($office_id) && empty($rrow['office_id'] ?? null)) { $sets[] = 'office_id = ?'; $params[] = $office_id; }
+            if (count($sets) > 0) {
+                $sql = 'UPDATE dtr SET ' . implode(', ', $sets) . ' WHERE dtr_id = ?';
+                $stmt = $remote->prepare($sql);
+                if (!$stmt) throw new Exception('remote_prepare_update_failed: ' . $remote->error);
+                $types = str_repeat('s', count($params)) . 'i';
+                $bind = [];
+                $bind[] = & $types;
+                foreach ($params as $k => $v) $bind[] = & $params[$k];
+                $bind[] = & $dtr_id;
+                call_user_func_array([$stmt, 'bind_param'], $bind);
+                $ok = $stmt->execute(); $stmt->close();
+                if (!$ok) throw new Exception('remote_update_failed: ' . $remote->error);
+            }
+        }
+        $remote->commit();
+        // mark local as synced
+        if (!empty($row['dtr_id'])) {
+            $localId = (int)$row['dtr_id'];
+            $u = $local->prepare('UPDATE dtr SET synced = 1, attempts = attempts + 1 WHERE dtr_id = ?');
+            if ($u) { $u->bind_param('i', $localId); $u->execute(); $u->close(); }
+        }
+        $pushed++;
+    } catch (Exception $e) {
+        $remote->rollback(); $failed++;
+        if (!empty($row['dtr_id'])) {
+            $localId = (int)$row['dtr_id'];
+            $u = $local->prepare('UPDATE dtr SET last_error = ?, attempts = attempts + 1 WHERE dtr_id = ?');
+            if ($u) { $err = $e->getMessage(); $u->bind_param('si', $err, $localId); $u->execute(); $u->close(); }
+        }
+    }
+}
+
+echo json_encode(['ok'=>true,'pushed'=>$pushed,'failed'=>$failed]);
+$local->close(); $remote->close();
+exit;
+
+?>
