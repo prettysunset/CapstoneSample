@@ -108,7 +108,74 @@ while ($row = $res->fetch_assoc()) {
     }
 }
 
-echo json_encode(['ok'=>true,'pushed'=>$pushed,'failed'=>$failed]);
+// --- remote -> local users sync (pull) -------------------------------
+// Purpose: copy new users and endorsement_printed flag from remote to local
+// Best-effort: add endorsement_printed column locally if missing, insert new users,
+// and update endorsement_printed when remote has it set.
+$usersPulled = 0; $usersCreated = 0; $usersUpdated = 0;
+try {
+    // ensure local users table exists before trying
+    $c = $local->query("SHOW TABLES LIKE 'users'");
+    if ($c && $c->num_rows > 0) {
+        // ensure endorsement_printed column exists locally (best-effort)
+        try { $local->query("ALTER TABLE users ADD COLUMN IF NOT EXISTS endorsement_printed TINYINT(1) NOT NULL DEFAULT 0"); } catch (Exception $e) {}
+
+        $ru = $remote->query("SELECT user_id, username, password, first_name, last_name, role, status, date_created, COALESCE(endorsement_printed,0) AS endorsement_printed FROM users");
+        if ($ru) {
+            while ($ruRow = $ru->fetch_assoc()) {
+                $usersPulled++;
+                $ruid = isset($ruRow['user_id']) ? (int)$ruRow['user_id'] : null;
+                // check local existence
+                $st = $local->prepare('SELECT endorsement_printed FROM users WHERE user_id = ? LIMIT 1');
+                if ($st) {
+                    $st->bind_param('i', $ruid);
+                    $st->execute();
+                    $lr = $st->get_result()->fetch_assoc();
+                    $st->close();
+                } else {
+                    $lr = null;
+                }
+
+                if ($lr) {
+                    // exists locally: update endorsement_printed if remote has it and local doesn't
+                    $remoteFlag = (int)($ruRow['endorsement_printed'] ?? 0);
+                    $localFlag = (int)($lr['endorsement_printed'] ?? 0);
+                    if ($remoteFlag && !$localFlag) {
+                        $u = $local->prepare('UPDATE users SET endorsement_printed = 1 WHERE user_id = ? LIMIT 1');
+                        if ($u) { $u->bind_param('i', $ruid); $u->execute(); $u->close(); $usersUpdated++; }
+                    }
+                } else {
+                    // not found locally: insert minimal user row (best-effort)
+                    try {
+                        $ins = $local->prepare('INSERT INTO users (user_id, username, password, first_name, last_name, role, status, date_created, endorsement_printed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
+                        if ($ins) {
+                            $uid = $ruid;
+                            $uname = $ruRow['username'] ?? '';
+                            $pwd = $ruRow['password'] ?? '';
+                            $fn = $ruRow['first_name'] ?? '';
+                            $ln = $ruRow['last_name'] ?? '';
+                            $role = $ruRow['role'] ?? '';
+                            $status = $ruRow['status'] ?? '';
+                            $dc = $ruRow['date_created'] ?? null;
+                            $ep = (int)($ruRow['endorsement_printed'] ?? 0);
+                            $ins->bind_param('isssssssi', $uid, $uname, $pwd, $fn, $ln, $role, $status, $dc, $ep);
+                            $ok = $ins->execute();
+                            $ins->close();
+                            if ($ok) $usersCreated++;
+                        }
+                    } catch (Exception $ex) {
+                        // ignore insert errors, continue
+                    }
+                }
+            }
+            $ru->close();
+        }
+    }
+} catch (Exception $e) {
+    // ignore pull errors
+}
+
+echo json_encode(['ok'=>true,'pushed'=>$pushed,'failed'=>$failed,'users_pulled'=>$usersPulled,'users_created'=>$usersCreated,'users_updated'=>$usersUpdated]);
 $local->close(); $remote->close();
 exit;
 

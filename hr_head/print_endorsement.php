@@ -181,6 +181,24 @@ if ($sessionId && $all) {
                 $data['office_head_name'] = $office_head;
             }
             echo render_letter($data);
+            // mark endorsement_printed flag for this student's user account (best-effort)
+            try {
+                if (!empty($a['student_id'])) {
+                    $st = $conn->prepare('SELECT user_id FROM students WHERE student_id = ? LIMIT 1');
+                    if ($st) {
+                        $st->bind_param('i', $a['student_id']);
+                        $st->execute();
+                        $r = $st->get_result()->fetch_assoc();
+                        $st->close();
+                        if ($r && !empty($r['user_id'])) {
+                            // add column if missing (best-effort, ignore errors)
+                            try { $conn->query("ALTER TABLE users ADD COLUMN IF NOT EXISTS endorsement_printed TINYINT(1) NOT NULL DEFAULT 0"); } catch(Exception $e) {}
+                            $u = $conn->prepare('UPDATE users SET endorsement_printed = 1 WHERE user_id = ? LIMIT 1');
+                            if ($u) { $u->bind_param('i', $r['user_id']); $u->execute(); $u->close(); }
+                        }
+                    }
+                }
+            } catch (Exception $e) { /* ignore marking errors */ }
         }
     }
 } else {
@@ -206,6 +224,23 @@ if ($sessionId && $all) {
                 'hr_head_name' => $hr_head_name
             ];
             echo render_letter($data);
+            // mark endorsement_printed for this student's user (best-effort)
+            try {
+                if (!empty($info['student_id'])) {
+                    $st = $conn->prepare('SELECT user_id FROM students WHERE student_id = ? LIMIT 1');
+                    if ($st) {
+                        $st->bind_param('i', $info['student_id']);
+                        $st->execute();
+                        $r = $st->get_result()->fetch_assoc();
+                        $st->close();
+                        if ($r && !empty($r['user_id'])) {
+                            try { $conn->query("ALTER TABLE users ADD COLUMN IF NOT EXISTS endorsement_printed TINYINT(1) NOT NULL DEFAULT 0"); } catch(Exception $e) {}
+                            $u = $conn->prepare('UPDATE users SET endorsement_printed = 1 WHERE user_id = ? LIMIT 1');
+                            if ($u) { $u->bind_param('i', $r['user_id']); $u->execute(); $u->close(); }
+                        }
+                    }
+                }
+            } catch (Exception $e) { }
         }
     } else {
         echo "<p>No application or student specified.</p>";

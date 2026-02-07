@@ -1158,7 +1158,7 @@ if ($office_id) {
             <form id="pcForm" onsubmit="return false;" style="margin-top:6px">
                 <input type="hidden" id="office_id" value="<?php echo (int)$office_id; ?>">
                 <div style="text-align:center;margin-bottom:10px">
-                    <a href="register_face.php" target="_blank" style="display:inline-block;padding:8px 12px;border-radius:8px;background:#4a6ff3;color:#fff;text-decoration:none;font-weight:600">Register Face</a>
+                    <a id="registerFaceLink" href="register_face.php?return=<?php echo urlencode($_SERVER['REQUEST_URI']); ?>" style="display:inline-block;padding:8px 12px;border-radius:8px;background:#4a6ff3;color:#fff;text-decoration:none;font-weight:600">Register Face</a>
                 </div>
 
                 <div class="actions" style="margin-top:10px;align-items:center">
