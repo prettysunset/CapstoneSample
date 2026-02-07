@@ -130,8 +130,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
     // username/password only required for manual time_in/time_out actions
     // allow 'face_scan' and 'attendance_event' to bypass username/password (client does recognition)
+    // Also allow descriptor-based time_in/time_out (server-side matching) without username/password.
     if (!in_array($action, ['face_scan','attendance_event']) && ($username === '' || $password === '')) {
-        json_resp(['success'=>false,'message'=>'Enter username and password']);
+        if (!(in_array($action, ['time_in','time_out']) && !empty($_POST['descriptor']))) {
+            json_resp(['success'=>false,'message'=>'Enter username and password']);
+        }
     }
 
     // --- Probe-match flow: quick descriptor matching (no DB writes) ---
@@ -654,12 +657,52 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 }
             }
 
-    // 1) Find user in users table
-    $u = $conn->prepare("SELECT user_id, password, role, status FROM users WHERE username = ? LIMIT 1");
-    $u->bind_param('s', $username);
-    $u->execute();
-    $user = $u->get_result()->fetch_assoc();
-    $u->close();
+    // If client submitted a face descriptor for time_in/time_out, perform server-side matching
+    if (in_array($action, ['time_in','time_out']) && !empty($_POST['descriptor'])) {
+        $descriptorRaw = $_POST['descriptor'];
+        $probe = json_decode($descriptorRaw, true);
+        if (!is_array($probe) || count($probe) === 0) json_resp(['success'=>false,'message'=>'Invalid descriptor']);
+
+        $q = $conn->query("SELECT ft.user_id, ft.descriptor, u.role, u.status FROM face_templates ft JOIN users u ON ft.user_id = u.user_id WHERE ft.descriptor IS NOT NULL");
+        if (!$q) json_resp(['success'=>false,'message'=>'No templates available']);
+        $best = ['dist' => INF, 'user_id' => null, 'role'=>null, 'status'=>null];
+        while ($r = $q->fetch_assoc()) {
+            $d = json_decode($r['descriptor'], true);
+            if (!is_array($d)) continue;
+            if (count($d) !== count($probe)) continue;
+            $sum = 0.0;
+            for ($i=0,$n=count($d); $i<$n; $i++) { $diff = ($d[$i] - $probe[$i]); $sum += $diff * $diff; }
+            $dist = sqrt($sum);
+            if ($dist < $best['dist']) {
+                $best = ['dist'=>$dist,'user_id'=>$r['user_id'],'role'=>$r['role'],'status'=>$r['status']];
+            }
+        }
+        $q->close();
+
+        $threshold = 0.60;
+        if ($best['user_id'] === null || $best['dist'] > $threshold) {
+            json_resp(['success'=>false,'message'=>'No face match','best_distance'=>$best['dist']]);
+        }
+
+        // map matched user_id to username so the downstream time_in/time_out logic uses the matched account
+        $matched_user_id = (int)$best['user_id'];
+        $uinfo = $conn->prepare("SELECT user_id, username, password, role, status FROM users WHERE user_id = ? LIMIT 1");
+        $uinfo->bind_param('i', $matched_user_id);
+        $uinfo->execute();
+        $user = $uinfo->get_result()->fetch_assoc();
+        $uinfo->close();
+        if (!$user) json_resp(['success'=>false,'message'=>'Matched user record missing']);
+
+        // override username variable so later logic treats this as the matched account
+        $username = $user['username'] ?? '';
+    } else {
+        // 1) Find user in users table (username/password flow)
+        $u = $conn->prepare("SELECT user_id, password, role, status FROM users WHERE username = ? LIMIT 1");
+        $u->bind_param('s', $username);
+        $u->execute();
+        $user = $u->get_result()->fetch_assoc();
+        $u->close();
+    }
 
     // DEBUG: log username lookup result (remove in production)
     error_log("pc_per_office: lookup username='{$username}' => " . ($user ? "FOUND user_id={$user['user_id']} role={$user['role']} stored_preview=" . substr($user['password'],0,12) : "NOT FOUND"));

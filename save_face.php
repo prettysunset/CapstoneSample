@@ -1,26 +1,18 @@
 <?php
 session_start();
-// Connect directly to Hostinger DB for face registration (do not include conn.php)
+// Use local DB connection (conn.php) so uploaded face templates are stored locally
 header('Content-Type: application/json; charset=utf-8');
-$h_host = 'auth-db2090.hstgr.io';
-$h_user = 'u389936701_user';
-$h_pass = 'CapstoneDefended1';
-$h_db   = 'u389936701_capstone';
-$h_port = 3306;
 mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
 try {
-    $conn = @new mysqli($h_host, $h_user, $h_pass, $h_db, $h_port);
-    if ($conn && !$conn->connect_errno) {
-        $conn->set_charset('utf8mb4');
-        error_log('save_face: connected to Hostinger DB ' . $h_host);
-    } else {
-        error_log('save_face: Hostinger DB connect failed: ' . ($conn ? $conn->connect_error : 'unknown'));
-        echo json_encode(['success'=>false,'message'=>'Cannot connect to Hostinger DB']);
-        exit;
+    require_once __DIR__ . '/conn.php';
+    if (!isset($conn) || !$conn || $conn->connect_errno) {
+        throw new Exception('Local DB connection not available');
     }
+    $conn->set_charset('utf8mb4');
+    error_log('save_face: using local DB via conn.php');
 } catch (Exception $ex) {
-    error_log('save_face: exception connecting Hostinger DB: ' . $ex->getMessage());
-    echo json_encode(['success'=>false,'message'=>'DB connection exception']);
+    error_log('save_face: local DB connect failed: ' . $ex->getMessage());
+    echo json_encode(['success'=>false,'message'=>'Cannot connect to local DB']);
     exit;
 }
 
