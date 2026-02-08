@@ -1526,9 +1526,8 @@ if ($office_id) {
                 // suppress initial debug; immediately show friendly follow-up for 5s
                 showMsgThenGreet('', follow, 3000, true);
             } else {
-                let msgText = (j && j.message) ? j.message : 'No match';
-                if (j && j.best_distance !== undefined) msgText += ' (best_distance: ' + Number(j.best_distance).toFixed(3) + ')';
-                if (j && j.templates_scanned !== undefined) msgText += ' scanned=' + j.templates_scanned;
+                // Simplified no-match message for clarity
+                let msgText = 'no face match';
                 showMsg(msgText, false);
                 console.debug('face_scan debug:', j);
             }

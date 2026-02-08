@@ -116,6 +116,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     .input{width:100%;padding:10px;margin:8px 0;border-radius:6px;border:1px solid #ddd}
     video{width:100%;border-radius:8px;background:#000}
     canvas{display:none}
+    .password-container{position:relative}
+      .input{display:block;padding:10px;margin:8px auto;border-radius:6px;border:1px solid #ddd;box-sizing:border-box;width:auto}
+      .password-container{position:relative;margin:8px auto;width:auto}
+    .password-container .eye-btn{position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:0;padding:4px;cursor:pointer;color:#6b7280}
+    .password-container .eye-btn svg{display:block}
     .row{display:flex;gap:8px}
     button{padding:10px 14px;border-radius:8px;border:0;background:#3d44a8;color:#fff;cursor:pointer}
     button.secondary{background:#6b7280}
@@ -127,7 +132,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     <h2>Register Face</h2>
     <p>Enter your username and password, then take a photo to register your face.</p>
     <input id="username" class="input" placeholder="Username" autocomplete="username">
-    <input id="password" type="password" class="input" placeholder="Password" autocomplete="current-password">
+    <div class="password-container">
+      <input id="password" type="password" class="input" placeholder="Password" autocomplete="current-password">
+      <button id="togglePassword" class="eye-btn" aria-label="Show password" title="Show password">
+        <svg id="eyeOpen" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg>
+        <svg id="eyeClosed" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="display:none"><path d="M17.94 17.94A10.94 10.94 0 0 1 12 19c-7 0-11-7-11-7a21.86 21.86 0 0 1 5.06-6.94"/><path d="M1 1l22 22"/></svg>
+      </button>
+    </div>
 
     <div>
       <video id="video" autoplay playsinline></video>
@@ -180,12 +191,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
       }
     }
 
+    // password visibility toggle
+    (function(){
+      const pwd = document.getElementById('password');
+      const btn = document.getElementById('togglePassword');
+      const eyeOpen = document.getElementById('eyeOpen');
+      const eyeClosed = document.getElementById('eyeClosed');
+      if (!pwd || !btn) return;
+      btn.addEventListener('click', function(e){
+        e.preventDefault();
+        if (pwd.type === 'password') {
+          pwd.type = 'text';
+          btn.setAttribute('aria-label','Hide password');
+          if (eyeOpen) eyeOpen.style.display = 'none';
+          if (eyeClosed) eyeClosed.style.display = 'block';
+        } else {
+          pwd.type = 'password';
+          btn.setAttribute('aria-label','Show password');
+          if (eyeOpen) eyeOpen.style.display = 'block';
+          if (eyeClosed) eyeClosed.style.display = 'none';
+        }
+      });
+    })();
+
     async function startCamera(){
       if (stream) return;
       try{
         stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'user'}, audio:false});
         video.srcObject = stream;
         await video.play();
+        // after camera starts, align input widths to match video element
+        try{ updateInputWidths(); }catch(e){}
       }catch(e){
         show('Cannot access camera: ' + (e.message || e), false);
         throw e;
@@ -228,6 +264,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
     username.addEventListener('input', maybeStart);
     password.addEventListener('input', maybeStart);
+
+    // align username/password width to video width
+    function updateInputWidths(){
+      try{
+        const card = document.querySelector('.card');
+        const pwContainer = document.querySelector('.password-container');
+        const pass = document.getElementById('password');
+        const user = document.getElementById('username');
+        // prefer video width; fallback to card width
+        const w = (video && video.offsetWidth) ? video.offsetWidth : (card ? card.clientWidth : 420);
+        if (user) user.style.width = w + 'px';
+        if (pwContainer) pwContainer.style.width = w + 'px';
+        if (pass) pass.style.width = w + 'px';
+      }catch(e){/* ignore */}
+    }
+    window.addEventListener('resize', function(){ setTimeout(updateInputWidths, 120); });
+    // initial attempt to size inputs on load
+    setTimeout(updateInputWidths, 200);
 
     async function startDetectionLoop(){
       if (detecting) return;
