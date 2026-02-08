@@ -1,5 +1,5 @@
 <?php
-// filepath: c:\xampp\htdocs\capstone_sample\CapstoneSample\hr_head\hr_head_ojts.php
+// filepath: c:\xampp\htdocs\capstone_sample\CapstoneSample\hr_staff\hr_staff_ojts.php
 session_start();
 date_default_timezone_set('Asia/Manila');
 require_once __DIR__ . '/../conn.php';
@@ -12,8 +12,7 @@ if (!isset($_SESSION['user_id'])) {
 
 $user_id = (int) $_SESSION['user_id'];
 
-// fetch user info
-$stmtUser = $conn->prepare("SELECT first_name, middle_name, last_name, role FROM users WHERE user_id = ?");
+$stmtUser = $conn->prepare("SELECT first_name, middle_name, last_name, role, office_name, avatar FROM users WHERE user_id = ?");
 $stmtUser->bind_param("i", $user_id);
 $stmtUser->execute();
 $user = $stmtUser->get_result()->fetch_assoc() ?: [];
@@ -85,7 +84,7 @@ if (!empty($students)) {
         unset($s);
         $qDtr->close();
     } else {
-        error_log('hr_head_ojts: prepare failed for dtr sum - ' . $conn->error);
+        error_log('hr_staff_ojts: prepare failed for dtr sum - ' . $conn->error);
     }
 }
 
@@ -349,12 +348,13 @@ if ($moa_q) {
 <body>
 <div class="sidebar">
     <div class="profile">
-        <img src="https://cdn-icons-png.flaticon.com/512/149/149071.png" alt="Profile">
-        <h3><?php echo htmlspecialchars($full_name ?: ($_SESSION['username'] ?? '')); ?></h3>
-        <p><?php echo htmlspecialchars($role_label); ?></p>
-        <?php if(!empty($user['office_name'])): ?>
-            <p style="font-size:12px;color:#bfc4d1"><?php echo htmlspecialchars($user['office_name']); ?></p>
-        <?php endif; ?>
+      <?php $profileImg = !empty($user['avatar']) ? $user['avatar'] : 'https://cdn-icons-png.flaticon.com/512/149/149071.png'; ?>
+      <img src="<?php echo htmlspecialchars($profileImg); ?>" alt="Profile">
+      <h3><?php echo htmlspecialchars($full_name ?: ($_SESSION['username'] ?? '')); ?></h3>
+      <p><?php echo htmlspecialchars($role_label); ?></p>
+      <?php if(!empty($user['office_name'])): ?>
+        <p style="font-size:12px;color:#bfc4d1"><?php echo htmlspecialchars($user['office_name']); ?></p>
+      <?php endif; ?>
     </div>
 
     <div class="nav">
@@ -381,8 +381,8 @@ if ($moa_q) {
       </a>
       <a href="hr_staff_moa.php">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px">
-          <circle cx="12" cy="12" r="8"></circle>
-          <path d="M12 8v5l3 2"></path>
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+          <polyline points="14 2 14 8 20 8"></polyline>
         </svg>
         MOA
       </a>
@@ -399,7 +399,7 @@ if ($moa_q) {
           <rect x="10" y="6" width="4" height="14"></rect>
           <rect x="17" y="2" width="4" height="18"></rect>
         </svg>
-        Reports
+        Records
       </a>
         </div>
     <div style="margin-top:auto;padding:18px 0;width:100%;text-align:center;">
@@ -416,15 +416,15 @@ if ($moa_q) {
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 17h5l-1.405-1.405A2.032 2.032 0 0 1 18 14.158V11a6 6 0 1 0-12 0v3.159c0 .538-.214 1.055-.595 1.436L4 17h5"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
       </a>
 
-      <!-- calendar icon (display only, non-clickable) -->
-      <div title="Calendar (display only)" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;background:transparent;pointer-events:none;">
+        <!-- calendar icon (clickable: opens calendar overlay) -->
+        <button id="openCalendarBtn" title="Calendar" aria-label="Open calendar" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;background:transparent;border:0;cursor:pointer;padding:0;">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-      </div>
+        </button>
 
-      <a href="settings.php" title="Settings" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06A2 2 0 1 1 2.28 16.8l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09c.7 0 1.3-.4 1.51-1A1.65 1.65 0 0 0 4.27 6.3L4.2 6.23A2 2 0 1 1 6 3.4l.06.06c.5.5 1.2.7 1.82.33.7-.4 1.51-.4 2.21 0 .62.37 1.32.17 1.82-.33L12.6 3.4a2 2 0 1 1 1.72 3.82l-.06.06c-.5.5-.7 1.2-.33 1.82.4.7.4 1.51 0 2.21-.37.62-.17 1.32.33 1.82l.06.06A2 2 0 1 1 19.4 15z"></path>
+      <button id="btnSettings" type="button" title="Settings" aria-label="Settings" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;background:transparent;border:0;box-shadow:none;cursor:pointer;">
+           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06A2 2 0 1 1 2.28 16.8l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09c.7 0 1.3-.4 1.51-1A1.65 1.65 0 0 0 4.27 6.3L4.2 6.23A2 2 0 1 1 6 3.4l.06.06c.5.5 1.2.7 1.82.33.7-.4 1.51-.4 2.21 0 .62.37 1.32.17 1.82-.33L12.6 3.4a2 2 0 1 1 1.72 3.82l-.06.06c-.5.5-.7 1.2-.33 1.82.4.7.4 1.51 0 2.21-.37.62-.17 1.32.33 1.82l.06.06A2 2 0 1 1 19.4 15z"></path>
         </svg>
-      </a>
+      </button>
       <a id="top-logout" href="../logout.php" title="Logout" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
       </a>
@@ -445,9 +445,7 @@ if ($moa_q) {
         <button class="tab active" data-tab="ojts" role="tab" aria-selected="true" aria-controls="tab-ojts" style="background:transparent;border:none;padding:10px 14px;border-radius:6px;cursor:pointer;color:#2f3850;font-weight:600;outline:none;font-size:18px;">
           On-the-Job Trainees (<?= count($students) ?>)
         </button>
-        <button class="tab" data-tab="requested" role="tab" aria-selected="false" aria-controls="tab-requested" style="background:transparent;border:none;padding:10px 14px;border-radius:6px;cursor:pointer;color:#2f3850;font-weight:600;outline:none;font-size:18px;">
-          Requested OJTs
-        </button>
+        <!-- Requested OJTs tab removed -->
       </div>
 
       <!-- underline bar (moved under the buttons row) -->
@@ -461,12 +459,12 @@ if ($moa_q) {
         <!-- OJTs controls (visible by default) -->
         <div id="controlsOJTs" style="display:flex;align-items:center;gap:12px;width:100%;">
           <div class="ojt-table-searchbar" style="flex:1;display:flex;align-items:center;gap:8px;">
-            <div style="display:flex;align-items:center;background:#f7f8fc;border:1px solid #ccc;border-radius:8px;padding:6px 8px;min-width:0;flex:1;">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false" style="flex:0 0 auto;margin-right:8px;">
+            <div style="flex:1;min-width:0;position:relative;">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false" style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#666;">
                 <path d="M21 21l-4.35-4.35" stroke="#666" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                 <circle cx="11" cy="11" r="6" stroke="#666" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
               </svg>
-              <input type="text" id="searchInput" placeholder="Search name /  school / course" aria-label="Search" style="border:0;background:transparent;outline:none;padding:6px 4px;font-size:15px;flex:1;min-width:0;">
+              <input type="text" id="searchInput" placeholder="Search name /  school / course" aria-label="Search" style="padding:8px 12px 8px 40px;border-radius:8px;border:1px solid #ccc;background:#f7f8fc;font-size:15px;width:100%;box-sizing:border-box;outline:none;">
             </div>
             <select id="officeFilter" aria-label="Filter by office" style="padding:8px 10px;border-radius:8px;border:1px solid #ccc;background:#f7f8fc;font-size:15px;flex:0 0 220px;">
               <option value="">Office</option>
@@ -482,31 +480,7 @@ if ($moa_q) {
             </select>
           </div>
         </div>
-        <!-- Requested controls (hidden by default; will be shown when Requested tab active) -->
-        <div id="controlsRequested" style="display:none;align-items:center;gap:12px;width:100%;">
-          <div style="display:flex;gap:8px;align-items:center;width:100%;">
-            <div style="display:flex;align-items:center;gap:8px;">
-              <div style="position:relative;min-width:220px;">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:#666;">
-                  <path d="M21 21l-4.35-4.35" stroke="#666" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                  <circle cx="11" cy="11" r="6" stroke="#666" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                </svg>
-                <input id="requestedSearch" type="text" placeholder="Search office..." aria-label="Search offices" style="padding:8px 10px 8px 36px;border:1px solid #ccc;border-radius:8px;background:#f7f8fc;font-size:14px;min-width:220px;box-sizing:border-box;">
-              </div>
-            </div>
-            <div style="display:flex;align-items:center;gap:8px;margin-left:auto;">
-              <label for="requestedSort" style="font-weight:700;font-size:13px;color:#445;">Sort by</label>
-              <select id="requestedSort" style="padding:8px;border-radius:8px;border:1px solid #ccc;background:#f7f8fc;font-size:14px;">
-                <option value="">None</option>
-                <option value="current_limit">Current Limit</option>
-                <option value="active_ojts">Active OJTs</option>
-                <option value="available_slots">Available Slots</option>
-                <option value="requested_limit">Requested Limit</option>
-              </select>
-              <button id="requestedSortDir" type="button" style="padding:8px 10px;border-radius:8px;border:1px solid #ccc;background:#f7f8fc;cursor:pointer">Desc</button>
-            </div>
-          </div>
-        </div>
+        <!-- Requested controls removed -->
       </div>
      <!-- underline bar (moved under the buttons row) -->
      <div id="tabsUnderline" aria-hidden="true" style="height:3px;background:#2f3850;border-radius:3px;width:180px;transition:all .25s;margin-bottom:12px;"></div>
@@ -550,7 +524,9 @@ if ($moa_q) {
                  $year = $row['year_level'] ?? '—';
                  // show accurate total (sum of dtr hours + minutes/60 if available), rounded to 2 decimals
                  $rendered = isset($row['hours_rendered']) ? (float)$row['hours_rendered'] : 0.0;
-                 $hours = rtrim(rtrim(number_format($rendered, 2, '.', ''), '0'), '.') . ' / ' . (int)($row['total_hours_required'] ?? 500) . ' hrs';
+                 $reqVal = isset($row['total_hours_required']) && $row['total_hours_required'] !== null ? (int)$row['total_hours_required'] : null;
+                 $reqText = is_null($reqVal) ? '—' : (string)$reqVal;
+                 $hours = rtrim(rtrim(number_format($rendered, 2, '.', ''), '0'), '.') . ' / ' . $reqText . ' hrs';
                  // status comes from users.status in the query (alias user_status)
                  $status = strtolower(trim((string)($row['user_status'] ?? '')));
                  $statusClass = $status === 'approved' ? 'status-approved' : ($status === 'rejected' ? 'status-rejected' : ($status === 'ongoing' ? 'status-ongoing' : ($status === 'completed' ? 'status-completed' : '')));
@@ -581,56 +557,7 @@ if ($moa_q) {
         </div>
     </div>
 
-    <div id="tab-requested" class="tab-panel" role="tabpanel" aria-labelledby="tab-requested" style="display:none;">
-        <!-- Requested OJTs panel content -->
-        <div style="overflow-x:auto;padding:12px">
-          <?php if (count($offices_for_requests) === 0): ?>
-            <div class="empty">No office requests found.</div>
-          <?php else: ?>
-            <!-- Controls moved to top controls row (#controlsRow) so they appear in the same position as OJTs controls -->
- 
-            <table class="request-table" role="table" aria-label="Requested OJTs" style="width:100%;">
-              <thead>
-                <tr>
-                  <th>Office</th>
-                  <th style="text-align:center">Current Limit</th>
-                  <th style="text-align:center">Active OJTs</th>
-                  <th style="text-align:center">Available Slots</th>
-                  <th style="text-align:center">Requested Limit</th>
-                  <th>Reason</th>
-                  <th style="text-align:center">Status</th>
-                </tr>
-              </thead>
-              <tbody id="requested_tbody">
-                <?php foreach ($offices_for_requests as $of): ?>
-                  <tr data-office="<?php echo htmlspecialchars(strtolower($of['office_name'] ?? '')); ?>">
-                    <td><?= htmlspecialchars($of['office_name']) ?></td>
-                    <td style="text-align:center"><?= $of['current_limit'] === null ? '—' : (int)$of['current_limit'] ?></td>
-                    <td style="text-align:center"><?= (int)($of['active_ojts'] ?? 0) ?></td>
-                    <td style="text-align:center"><?= htmlspecialchars((string)$of['available_slots']) ?></td>
-                    <td style="text-align:center"><?= $of['requested_limit'] === '' ? '—' : (int)$of['requested_limit'] ?></td>
-                    <td><?= htmlspecialchars($of['reason'] ?: '—') ?></td>
-                    <td style="text-align:center">
-                      <?php
-                        $st = strtolower(trim((string)($of['status'] ?? '')));
-                        if ($st === 'approved') {
-                          echo '<span class="action-ok">Approved</span>';
-                        } elseif ($st === 'declined' || $st === 'rejected') {
-                          echo '<span style="color:#a00;font-weight:700">Declined</span>';
-                        } elseif ($st === 'pending' || $st === '') {
-                          echo '<span style="color:#d97706;font-weight:700">Pending</span>';
-                        } else {
-                          echo '<span>' . htmlspecialchars(ucfirst($st)) . '</span>';
-                        }
-                      ?>
-                    </td>
-                  </tr>
-                <?php endforeach; ?>
-              </tbody>
-            </table>
-          <?php endif; ?>
-        </div>
-    </div>
+    <!-- Requested OJTs tab removed -->
 </div>
 
 <!-- View Application Modal (insert near end of body) -->
@@ -645,10 +572,7 @@ if ($moa_q) {
         <div class="view-meta">
           <h2 class="view-name" id="view_name">Name Surname</h2>
           <div class="view-submeta" id="view_statusline">
-            <span id="view_status_badge" style="display:flex;align-items:center;gap:8px;font-weight:700;color:#0b7a3a">
-              <span style="width:10px;height:10px;background:#10b981;border-radius:50%;display:inline-block"></span>
-              Active OJT
-            </span>
+            <span id="view_status_badge" style="display:inline-flex;align-items:center;gap:8px;font-weight:700;color:inherit">—</span>
             <span id="view_department" style="display:flex;align-items:center;gap=6px;color:#6b7280">IT Department</span>
           </div>
 
@@ -713,7 +637,7 @@ if ($moa_q) {
               </div>
 
               <div style="flex:1;min-width:0;max-width:320px;margin-left:12px;">
-              <div style="font-size:14px;font-weight:700" id="view_hours_text">0 out of 500 hours</div>
+              <div style="font-size:14px;font-weight:700" id="view_hours_text">0 out of — hours</div>
               <div style="font-size:12px;color:#6b7280;margin-top:6px;white-space:pre-line" id="view_dates">Date Started: — 
               Expected End Date: —</div>
               </div>
@@ -727,7 +651,7 @@ if ($moa_q) {
               <div style="margin-top:6px;font-weight:700">Office Head:</div>
               <div id="view_office_head">—</div>
 
-              <div style="margin-top:6px;font-weight:700">Contact #:</div>
+              <div style="margin-top:6px;font-weight:700">Email:</div>
               <div id="view_office_contact">—</div>
             </div>
 
@@ -746,7 +670,7 @@ if ($moa_q) {
                   <th colspan="2" style="padding:10px;border:1px solid #eee;text-align:center">A.M.</th>
                   <th colspan="2" style="padding:10px;border:1px solid #eee;text-align:center">P.M.</th>
                   <th rowspan="2" style="padding:10px;border:1px solid #eee;text-align:center">HOURS</th>
-                  <th rowspan="2" style="padding:10px;border:1px solid #eee;text-align:left">STATUS</th>
+                    <th rowspan="2" style="padding:10px;border:1px solid #eee;text-align:center">MINUTES</th>
                 </tr>
                 <tr style="background:#f3f4f6;color:#111">
                   <th style="padding:8px;border:1px solid #eee;text-align:center;font-weight:700">ARRIVAL</th>
@@ -848,9 +772,9 @@ if ($moa_q) {
       const search = document.getElementById('requestedSearch');
       const sortSel = document.getElementById('requestedSort');
       const sortDirBtn = document.getElementById('requestedSortDir');
-      // Updated column indexes:
-      // Office(0), Current Limit(1), Active OJTs(2), Available Slots(3), Requested Limit(4), Reason(5), Status(6)
-      const COL = { current_limit:1, active_ojts:2, available_slots:3, requested_limit:4 };
+      // Updated column indexes after removing "Active OJTs" column:
+      // Office(0), Current Limit(1), Available Slots(2), Requested Limit(3), Reason(4), Action(5)
+      const COL = { current_limit:1, available_slots:2, requested_limit:3 };
         function parseNum(txt){
           if (txt === null || txt === undefined) return null;
           txt = txt.toString().trim();
@@ -1019,7 +943,24 @@ if ($moa_q) {
 
         // top meta
         document.getElementById('view_name').textContent = ((s.first_name||'') + ' ' + (s.last_name||'')).trim() || 'N/A';
-        document.getElementById('view_status_badge').style.display = d.status && d.status.toLowerCase()==='approved' ? 'inline-flex' : 'none';
+        // show an accurate status badge based on server-provided status
+        (function(){
+          const statusBadgeEl = document.getElementById('view_status_badge');
+          const st = (d.status || '').toString().trim().toLowerCase();
+          if (!st) {
+            statusBadgeEl.style.display = 'none';
+          } else {
+            let label = st.charAt(0).toUpperCase() + st.slice(1);
+            if (st === 'ongoing') { label = 'Ongoing'; }
+            else if (st === 'completed') { label = 'Completed'; }
+            else if (st === 'rejected' || st === 'declined') { label = 'Rejected'; }
+            else if (st === 'pending') { label = 'Pending'; }
+            else if (st === 'approved') { label = 'Approved'; }
+            statusBadgeEl.style.display = 'inline-flex';
+            statusBadgeEl.style.color = '';
+            statusBadgeEl.textContent = label;
+          }
+        })();
         document.getElementById('view_department').textContent = d.office1 || d.office || '—';
 
         // avatar image if available
@@ -1045,8 +986,8 @@ if ($moa_q) {
         document.getElementById('view_school_address').textContent = s.school_address || '—';
         document.getElementById('view_adviser').textContent = (s.ojt_adviser || '') + (s.adviser_contact ? ' | ' + s.adviser_contact : '');
 
-        // emergency contact (if provided)
-        if (s.emg_name || s.emg_contact){
+        // emergency contact (if provided) — accept either emg_* or emergency_* naming from server
+        if (s.emg_name || s.emg_contact || s.emergency_name || s.emergency_contact) {
           document.getElementById('view_emg_name').textContent = s.emg_name || s.emergency_name || '—';
           document.getElementById('view_emg_rel').textContent = s.emg_relation || s.emergency_relation || '—';
           document.getElementById('view_emg_contact').textContent = s.emg_contact || s.emergency_contact || '—';
@@ -1054,18 +995,20 @@ if ($moa_q) {
 
         // hours + progress
         const rendered = Number(s.hours_rendered || d.hours_rendered || 0);
-        const required = Number(s.total_hours_required || d.total_hours_required || 500);
-        document.getElementById('view_hours_text').textContent = `${rendered} out of ${required} hours`;
-        const start = d.date_started || d.date_submitted || '—';
-        const expected = d.expected_end_date || d.expected_end || '—';
-        document.getElementById('view_dates').textContent = `Date Started: ${start}\nExpected End Date: ${expected}`;
-        const pct = required>0 ? (rendered / required * 100) : 0;
+        const requiredRaw = (s.total_hours_required !== undefined && s.total_hours_required !== null) ? s.total_hours_required : (d.total_hours_required !== undefined && d.total_hours_required !== null ? d.total_hours_required : null);
+        const required = Number(requiredRaw || 0);
+        const requiredDisplay = requiredRaw === null ? '—' : String(required);
+        document.getElementById('view_hours_text').textContent = `${rendered} out of ${requiredDisplay} hours`;
+        // Date Started / Expected End will be computed after fetching DTR rows below
+        document.getElementById('view_dates').textContent = `Date Started: —\nExpected End Date: —`;
+        const pct = (requiredRaw !== null && required > 0) ? (rendered / required * 100) : 0;
         setDonut(pct);
 
         // assigned office block
         document.getElementById('view_assigned_office').textContent = d.office1 || d.office || '—';
         document.getElementById('view_office_head').textContent = d.office_head || d.office_head_name || '—';
-        document.getElementById('view_office_contact').textContent = d.office_contact || '—';
+        // show office head email (fall back to legacy office_contact if server didn't provide email)
+        document.getElementById('view_office_contact').textContent = d.office_head_email || d.office_contact || '—';
 
         // attachments (existing attachments from application)
         const attRoot = document.getElementById('view_attachments_list');
@@ -1111,25 +1054,243 @@ if ($moa_q) {
           }
         })();
 
-        // render attachments list
+        // render attachments list (resolve hrefs robustly like hr_staff_home.php)
         attachments.forEach(a=>{
-          const filePath = a.file || '';
+          const filePath = (a.file || '').toString().trim();
+          if (!filePath) return;
+
+          // resolve href relative to this script (hr_staff/ -> project root is ../)
+          let href;
+          if (/^https?:\/\//i.test(filePath) || filePath.startsWith('/')) {
+            href = filePath;
+          } else if (/^uploads[\/\\]/i.test(filePath)) {
+            href = '../' + filePath.replace(/^\/+/, '');
+          } else {
+            href = '../uploads/' + filePath.replace(/^\/+/, '');
+          }
+
           const row = document.createElement('div');
           row.style.display='flex';
           row.style.justifyContent='space-between';
           row.style.alignItems='center';
           row.style.padding='6px 0';
-          const safe = filePath.replace(/'/g,"\\'");
-          row.innerHTML = `<div style="font-size:14px;font-weight:600">${a.label}</div>
-                           <div style="display:flex;gap:8px">
-                             <button class="tool-link" onclick="window.open('../${safe}','_blank')">View</button>
-                             <button class="tool-link" onclick="(function(f){const aL=document.createElement('a');aL.href='../'+f;aL.download='';document.body.appendChild(aL);aL.click();aL.remove();})('${safe}')">Download</button>
-                           </div>`;
+
+          const lbl = document.createElement('div');
+          lbl.style.fontSize = '14px';
+          lbl.style.fontWeight = '600';
+          lbl.textContent = a.label || (href.split('/').pop() || 'Attachment');
+
+          const actions = document.createElement('div');
+          actions.style.display = 'flex';
+          actions.style.gap = '8px';
+
+          const viewBtn = document.createElement('a');
+          viewBtn.href = href;
+          viewBtn.target = '_blank';
+          viewBtn.rel = 'noopener noreferrer';
+          viewBtn.className = 'tool-link';
+          viewBtn.textContent = 'View';
+
+          const dlBtn = document.createElement('a');
+          dlBtn.href = href;
+          dlBtn.download = '';
+          dlBtn.className = 'tool-link';
+          dlBtn.textContent = 'Download';
+
+          actions.appendChild(viewBtn);
+          actions.appendChild(dlBtn);
+
+          row.appendChild(lbl);
+          row.appendChild(actions);
           attRoot.appendChild(row);
         });
 
+        // Fetch and render DTR rows for the DTR tab (client-only; filter by name/office)
+        (async function(){
+          try{
+            const tbody = document.getElementById('late_dtr_tbody');
+            if (!tbody) return;
+            tbody.innerHTML = '<tr class="empty"><td colspan="7" style="padding:18px;text-align:center;color:#6b7280">Loading...</td></tr>';
+            const today = new Date().toISOString().slice(0,10);
+            const resp = await fetch('../hr_actions.php', {
+              method: 'POST',
+              headers: {'Content-Type':'application/json'},
+              body: JSON.stringify({ action: 'get_dtr_by_range', from: '1900-01-01', to: today })
+            });
+            const jr = await resp.json();
+            if (!jr || !jr.success) {
+              tbody.innerHTML = '<tr class="empty"><td colspan="7" style="padding:18px;text-align:center;color:#6b7280">Unable to load DTR.</td></tr>';
+              return;
+            }
+
+            const rows = Array.isArray(jr.rows) ? jr.rows : [];
+            const nameNorm = ((s.first_name||'') + ' ' + (s.last_name||'')).toLowerCase().trim();
+            const officeNorm = (d.office1 || d.office || '').toString().toLowerCase().trim();
+
+            const matched = rows.filter(r => {
+              const rName = ((r.first_name||'') + ' ' + (r.last_name||'')).toLowerCase().trim();
+              const rOffice = (r.office || '').toString().toLowerCase().trim();
+              if (nameNorm && rName) {
+                if (rName === nameNorm) return true;
+                if (rName.includes(nameNorm) || nameNorm.includes(rName)) return true;
+              }
+              if (officeNorm && rOffice) {
+                if (rOffice === officeNorm) return true;
+                if (rOffice.includes(officeNorm) || officeNorm.includes(rOffice)) return true;
+              }
+              return false;
+            });
+
+            if (!matched.length) {
+              tbody.innerHTML = '<tr class="empty"><td colspan="7" style="padding:18px;text-align:center;color:#6b7280">No DTR records found.</td></tr>';
+              // still try to compute dates from application remarks or server-provided fields
+              computeAndUpdateDates([]);
+              return;
+            }
+
+            tbody.innerHTML = '';
+            matched.forEach(r => {
+              const tr = document.createElement('tr');
+              tr.innerHTML = `
+                <td style="padding:8px">${r.log_date || ''}</td>
+                <td style="padding:8px;text-align:center">${r.am_in || ''}</td>
+                <td style="padding:8px;text-align:center">${r.am_out || ''}</td>
+                <td style="padding:8px;text-align:center">${r.pm_in || ''}</td>
+                <td style="padding:8px;text-align:center">${r.pm_out || ''}</td>
+                <td style="padding:8px;text-align:center">${r.hours != null ? r.hours : ''}</td>
+                <td style="padding:8px;text-align:center">${r.minutes != null ? r.minutes : ''}</td>
+              `;
+              tbody.appendChild(tr);
+            });
+
+            // after rendering matched rows, compute Date Started and Expected End Date similarly to ojt_profile.php
+            (function computeAndUpdateDates(rowsMatched){
+              // utility: format YYYY-MM-DD -> 'F j, Y' (e.g. September 1, 2025)
+              function fmt(dstr){
+                if (!dstr) return '—';
+                const dt = new Date(dstr + 'T00:00:00');
+                if (isNaN(dt.getTime())) return '—';
+                const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+                return months[dt.getMonth()] + ' ' + dt.getDate() + ', ' + dt.getFullYear();
+              }
+
+              // extract orientation date from remarks (prefer YYYY-MM-DD)
+              let orientation = '';
+              try{
+                const rem = (d.remarks || '').toString();
+                const m = rem.match(/Orientation\/Start:\s*([0-9]{4}-[0-9]{2}-[0-9]{2})/i);
+                if (m && m[1]) orientation = m[1];
+                else {
+                  const m2 = rem.match(/Orientation\/Start:\s*([^|]+)/i);
+                  if (m2 && m2[1]) orientation = m2[1].trim();
+                }
+              }catch(e){ orientation = ''; }
+
+              const userStatus = (d.status || '').toString().trim().toLowerCase();
+              const totalRequired = (s.total_hours_required !== undefined && s.total_hours_required !== null) ? Number(s.total_hours_required) : ((d.total_hours_required !== undefined && d.total_hours_required !== null) ? Number(d.total_hours_required) : null);
+
+              // compute hours_rendered from rows if available, else use provided
+              let hrsRendered = Number(s.hours_rendered || d.hours_rendered || 0);
+              if (rowsMatched && rowsMatched.length) {
+                let sum = 0;
+                rowsMatched.forEach(rr => { sum += (Number(rr.hours || 0) + (Number(rr.minutes || 0)/60)); });
+                hrsRendered = sum;
+              }
+
+              // helper to count weekdays (Mon-Fri) inclusive of start if weekday
+              function addBusinessDays(startDateStr, daysNeeded){
+                let dt = new Date(startDateStr + 'T00:00:00');
+                if (isNaN(dt.getTime())) return null;
+                let counted = 0;
+                while (counted < daysNeeded){
+                  const dow = dt.getDay(); // 0..6 Sun..Sat
+                  if (dow >=1 && dow <=5) counted++;
+                  if (counted >= daysNeeded) break;
+                  dt.setDate(dt.getDate() + 1);
+                }
+                return dt;
+              }
+
+              let orientation_display = '-';
+              let expected_display = '-';
+
+              if (userStatus === 'approved') {
+                orientation_display = '-';
+                expected_display = '-';
+              } else if (userStatus === 'ongoing') {
+                // earliest DTR
+                let earliest = null;
+                if (rowsMatched && rowsMatched.length){
+                  rowsMatched.forEach(rr => { if (rr.log_date){ if (earliest === null || rr.log_date < earliest) earliest = rr.log_date; } });
+                }
+                if (earliest) {
+                  orientation_display = fmt(earliest);
+                  const remaining = Math.max(0, (Number(totalRequired || 0) - hrsRendered));
+                  const hoursPerDay = 8;
+                  const daysNeeded = Math.ceil(remaining / hoursPerDay);
+                  if (daysNeeded <= 0) {
+                    expected_display = orientation_display;
+                  } else {
+                    const dt = addBusinessDays(earliest, daysNeeded);
+                    expected_display = dt ? fmt(dt.toISOString().slice(0,10)) : '—';
+                  }
+                } else {
+                  // fallback to orientation date from remarks if valid
+                  if (orientation && /^\d{4}-\d{2}-\d{2}$/.test(orientation)){
+                    orientation_display = fmt(orientation);
+                    const remaining = Math.max(0, (Number(totalRequired || 0) - hrsRendered));
+                    const hoursPerDay = 8;
+                    const daysNeeded = Math.ceil(remaining / hoursPerDay);
+                    if (daysNeeded <= 0) expected_display = orientation_display;
+                    else {
+                      const dt = addBusinessDays(orientation, daysNeeded);
+                      expected_display = dt ? fmt(dt.toISOString().slice(0,10)) : '—';
+                    }
+                  } else {
+                    orientation_display = '-';
+                    expected_display = '-';
+                  }
+                }
+              } else {
+                // completed or other statuses
+                if (totalRequired && hrsRendered >= totalRequired) {
+                  // use DTR first/last
+                  let first = null, last = null;
+                  if (rowsMatched && rowsMatched.length){
+                    rowsMatched.forEach(rr => { if (rr.log_date){ if (!first || rr.log_date < first) first = rr.log_date; if (!last || rr.log_date > last) last = rr.log_date; } });
+                  }
+                  if (first) orientation_display = fmt(first);
+                  if (last) expected_display = fmt(last);
+                } else {
+                  // fallback to orientation remarks date
+                  if (orientation && /^\d{4}-\d{2}-\d{2}$/.test(orientation)){
+                    orientation_display = fmt(orientation);
+                    const remaining = Math.max(0, (Number(totalRequired || 0) - hrsRendered));
+                    const hoursPerDay = 8;
+                    const daysNeeded = Math.ceil(remaining / hoursPerDay);
+                    if (daysNeeded <= 0) expected_display = orientation_display;
+                    else {
+                      const dt = addBusinessDays(orientation, daysNeeded);
+                      expected_display = dt ? fmt(dt.toISOString().slice(0,10)) : '—';
+                    }
+                  } else {
+                    orientation_display = (orientation ? orientation : '-');
+                    expected_display = '-';
+                  }
+                }
+              }
+
+              document.getElementById('view_dates').textContent = `Date Started: ${orientation_display}\nExpected End Date: ${expected_display}`;
+            })(matched);
+          } catch (ex) {
+            console.warn('View modal DTR fetch error', ex);
+            const tbody = document.getElementById('late_dtr_tbody');
+            if (tbody) tbody.innerHTML = '<tr class="empty"><td colspan="7" style="padding:18px;text-align:center;color:#6b7280">Failed to load DTR.</td></tr>';
+          }
+        })();
+
         // wire print buttons (simple open new window to printable endpoint)
-        document.getElementById('printEndorse').onclick = function(){ window.open('../hr_head/print_endorsement.php?id=' + encodeURIComponent(appId),'_blank'); };
+        document.getElementById('printEndorse').onclick = function(){ window.open('print_endorsement_staff.php?id=' + encodeURIComponent(appId),'_blank'); };
         document.getElementById('printDTR').onclick = function(){ window.open('print_dtr.php?id=' + encodeURIComponent(appId),'_blank'); };
 
       }catch(err){
@@ -1235,7 +1396,75 @@ if ($moa_q) {
 })(); 
 </script>
 <script>
-  // attach confirm to top logout like hr_head_home.php
+  // Calendar modal open/close handlers
+  (function(){
+    const openBtn = document.getElementById('openCalendarBtn');
+    if (!openBtn) return;
+    const calendarOverlay = document.createElement('div');
+    calendarOverlay.id = 'calendarOverlay';
+    // use existing view-overlay styles in this file
+    calendarOverlay.className = 'view-overlay';
+    calendarOverlay.setAttribute('role','dialog');
+    calendarOverlay.setAttribute('aria-hidden','true');
+    calendarOverlay.style.display = 'none';
+    calendarOverlay.style.alignItems = 'center';
+    calendarOverlay.style.justifyContent = 'center';
+    calendarOverlay.innerHTML = `
+      <div class="modal" style="width:100%;height:100vh;max-width:100%;max-height:100vh;padding:0;background:transparent;display:flex;align-items:center;justify-content:center;position:relative;">
+        <iframe src="calendar_staff.php" title="Calendar" style="width:100%;height:100%;border:0;display:block;"></iframe>
+      </div>`;
+
+    document.body.appendChild(calendarOverlay);
+
+    function showCalendar(){ calendarOverlay.style.display = 'flex'; calendarOverlay.setAttribute('aria-hidden','false'); }
+    function hideCalendar(){ calendarOverlay.style.display = 'none'; calendarOverlay.setAttribute('aria-hidden','true'); }
+    window.closeCalendarOverlay = hideCalendar;
+
+    openBtn.addEventListener('click', function(){ showCalendar(); });
+    calendarOverlay.addEventListener('click', function(e){ if (e.target === calendarOverlay) hideCalendar(); });
+    // close button is placed inside the iframe; iframe can call parent.closeCalendarOverlay()
+  })();
+</script>
+<script>
+  // Settings modal (iframe overlay) - reuse calendar/view-overlay pattern
+  (function(){
+    const openBtn = document.getElementById('btnSettings');
+    if (!openBtn) return;
+    const settingsOverlay = document.createElement('div');
+    settingsOverlay.id = 'settingsOverlay';
+    // use existing view-overlay styles in this file
+    settingsOverlay.className = 'view-overlay';
+    settingsOverlay.setAttribute('role','dialog');
+    settingsOverlay.setAttribute('aria-hidden','true');
+    settingsOverlay.style.display = 'none';
+    settingsOverlay.style.alignItems = 'center';
+    settingsOverlay.style.justifyContent = 'center';
+    settingsOverlay.innerHTML = `
+      <div class="modal" style="width:100%;height:100vh;max-width:100%;max-height:100vh;padding:0;background:transparent;display:flex;align-items:center;justify-content:center;position:relative;">
+        <iframe src="settings.php" title="Settings" style="width:100%;height:100%;border:0;display:block;"></iframe>
+      </div>`;
+
+    document.body.appendChild(settingsOverlay);
+
+    function showSettings(){
+      settingsOverlay.style.display = 'flex';
+      settingsOverlay.setAttribute('aria-hidden','false');
+      try { openBtn.style.background = '#fff'; openBtn.style.boxShadow = '0 6px 18px rgba(0,0,0,0.06)'; } catch(e){}
+    }
+    function hideSettings(){
+      settingsOverlay.style.display = 'none';
+      settingsOverlay.setAttribute('aria-hidden','true');
+      try { openBtn.style.background = 'transparent'; openBtn.style.boxShadow = 'none'; } catch(e){}
+    }
+    // expose a close function so iframe can call parent.closeSettingsOverlay()
+    window.closeSettingsOverlay = hideSettings;
+
+    openBtn.addEventListener('click', function(ev){ ev.preventDefault(); showSettings(); });
+    settingsOverlay.addEventListener('click', function(e){ if (e.target === settingsOverlay) hideSettings(); });
+  })();
+</script>
+<script>
+  // attach confirm to top logout like hr_staff_home.php
   (function(){
     const logoutBtn = document.getElementById('top-logout');
     if (!logoutBtn) return;

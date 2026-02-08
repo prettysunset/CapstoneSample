@@ -10,7 +10,7 @@ if (!isset($_SESSION['user_id'])) {
 }
 
 $uid = (int)($_SESSION['user_id'] ?? 0);
-$stmt = $conn->prepare("SELECT first_name, middle_name, last_name, role FROM users WHERE user_id = ? LIMIT 1");
+$stmt = $conn->prepare("SELECT first_name, middle_name, last_name, role, office_name, avatar FROM users WHERE user_id = ? LIMIT 1");
 $stmt->bind_param("i",$uid); $stmt->execute();
 $user = $stmt->get_result()->fetch_assoc() ?: []; $stmt->close();
 $full_name = trim(($user['first_name'] ?? '') . ' ' . ($user['middle_name'] ?? '') . ' ' . ($user['last_name'] ?? ''));
@@ -87,60 +87,9 @@ function fetch_offices($conn){
     return $rows;
 }
 
-function fetch_moa($conn){
-    $rows = [];
-    $sql = "
-      SELECT m.moa_id, m.school_name, m.moa_file, m.date_signed, m.valid_until,
-             (SELECT COUNT(*) FROM students s WHERE LOWER(TRIM(s.college)) = LOWER(TRIM(m.school_name))) AS student_count
-      FROM moa m
-      ORDER BY m.date_signed DESC
-    ";
-    $res = $conn->query($sql);
-    if ($res){
-        while ($r = $res->fetch_assoc()) {
-            $r['student_count'] = (int)($r['student_count'] ?? 0);
-            $rows[] = $r;
-        }
-        $res->free();
-    }
-    return $rows;
-}
+/* MOA server-side helper removed (MOA tab removed) */
 
-// new: load office_requests
-function fetch_office_requests($conn){
-  // return only non-pending office requests (approved/rejected)
-  $rows = [];
-
-  // If the database schema is older, `date_of_action` may not exist.
-  // Check for the column and build the SELECT list accordingly so queries don't fail.
-  $hasDateOfAction = false;
-  $check = $conn->query("SHOW COLUMNS FROM office_requests LIKE 'date_of_action'");
-  if ($check) {
-    $hasDateOfAction = $check->num_rows > 0;
-    $check->free();
-  }
-
-  $cols = "r.request_id, r.office_id, r.old_limit, r.new_limit, r.reason, r.status, r.date_requested";
-  if ($hasDateOfAction) $cols .= ", r.date_of_action";
-
-  $sql = "
-    SELECT " . $cols . ", o.office_name
-    FROM office_requests r
-    LEFT JOIN offices o ON o.office_id = r.office_id
-    WHERE r.status <> 'pending'
-    ORDER BY r.date_requested DESC, r.request_id DESC
-  ";
-
-  $res = $conn->query($sql);
-  if ($res) {
-    while ($r = $res->fetch_assoc()) {
-      if (!isset($r['date_of_action'])) $r['date_of_action'] = null;
-      $rows[] = $r;
-    }
-    $res->free();
-  }
-  return $rows;
-}
+// Office requests removed from UI. Server-side helper retained if needed in future.
 
 function fetch_evaluations($conn){
   $rows = [];
@@ -151,8 +100,14 @@ function fetch_evaluations($conn){
   $check = $conn->query("SHOW COLUMNS FROM evaluations LIKE 'rating_desc'");
   if ($check) { $hasRatingDesc = $check->num_rows > 0; $check->free(); }
 
+  // Check if school_eval column exists in evaluations table
+  $hasSchoolEval = false;
+  $check2 = $conn->query("SHOW COLUMNS FROM evaluations LIKE 'school_eval'");
+  if ($check2) { $hasSchoolEval = $check2->num_rows > 0; $check2->free(); }
+
   $cols = "e.eval_id, e.rating, e.feedback, e.date_evaluated";
   if ($hasRatingDesc) $cols .= ", e.rating_desc";
+  if ($hasSchoolEval) $cols .= ", e.school_eval";
   $cols .= ", s.first_name AS student_first, s.last_name AS student_last, u.first_name AS eval_first, u.last_name AS eval_last";
 
   $sql = "
@@ -167,6 +122,7 @@ function fetch_evaluations($conn){
   if ($res){
     while ($r = $res->fetch_assoc()) {
       if (!isset($r['rating_desc'])) $r['rating_desc'] = null;
+      if (!isset($r['school_eval'])) $r['school_eval'] = null;
       $rows[] = $r;
     }
     $res->free();
@@ -177,6 +133,13 @@ function fetch_evaluations($conn){
 function fmtDate($d){ if (!$d) return '-'; $dt = date_create($d); return $dt ? $dt->format('M j, Y') : '-'; }
 
 $students = fetch_students($conn);
+
+// Only show students with these statuses in the Students tab
+$allowed_statuses = ['evaluated','rejected','deactivated'];
+$students = array_values(array_filter($students, function($s) use ($allowed_statuses) {
+  $st = strtolower(trim((string)($s['student_status'] ?? '')));
+  return in_array($st, $allowed_statuses, true);
+}));
 
 // NEW: override students[].hours_rendered with sum from dtr (dtr.student_id = users.user_id).
 // Do not show any errors to users; log only on failure.
@@ -209,20 +172,18 @@ if (!empty($students)) {
         $stmtDtr->close();
     } else {
         // log only; do not show any UI message
-        error_log('hr_head_reports: failed prepare for DTR override - ' . $conn->error);
+        error_log('hr_staff_reports: failed prepare for DTR override - ' . $conn->error);
     }
 }
 
 $offices = fetch_offices($conn);
-$moa = fetch_moa($conn);
-$office_requests = fetch_office_requests($conn);
 $evaluations = fetch_evaluations($conn);
 ?>
 <!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>HR - Reports</title>
+<title>HR - Records</title>
 <style>
   *{box-sizing:border-box;font-family:'Poppins',sans-serif}
     body{background:#f7f8fc;display:flex;min-height:100vh;margin:0}
@@ -261,7 +222,8 @@ $evaluations = fetch_evaluations($conn);
 <body>
   <div class="sidebar">
     <div class="profile">
-        <img src="https://cdn-icons-png.flaticon.com/512/149/149071.png" alt="Profile">
+        <?php $profileImg = !empty($user['avatar']) ? $user['avatar'] : 'https://cdn-icons-png.flaticon.com/512/149/149071.png'; ?>
+        <img src="<?php echo htmlspecialchars($profileImg); ?>" alt="Profile">
         <h3><?php echo htmlspecialchars($full_name ?: ($_SESSION['username'] ?? '')); ?></h3>
         <p><?php echo htmlspecialchars($role_label); ?></p>
         <?php if(!empty($user['office_name'])): ?>
@@ -293,8 +255,8 @@ $evaluations = fetch_evaluations($conn);
       </a>
       <a href="hr_staff_moa.php">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px">
-          <circle cx="12" cy="12" r="8"></circle>
-          <path d="M12 8v5l3 2"></path>
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+          <polyline points="14 2 14 8 20 8"></polyline>
         </svg>
         MOA
       </a>
@@ -311,7 +273,7 @@ $evaluations = fetch_evaluations($conn);
           <rect x="10" y="6" width="4" height="14"></rect>
           <rect x="17" y="2" width="4" height="18"></rect>
         </svg>
-        Reports
+        Records
       </a>
       </div>
     <p style="margin-top:auto;font-weight:600">OJT-MS</p>
@@ -325,13 +287,13 @@ $evaluations = fetch_evaluations($conn);
         <a href="notifications.php" title="Notifications" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 17h5l-1.405-1.405A2.032 2.032 0 0 1 18 14.158V11a6 6 0 1 0-12 0v3.159c0 .538-.214 1.055-.595 1.436L4 17h5"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
         </a>
-        <!-- calendar icon (display only) - placed to the right of Notifications to match DTR -->
-        <div title="Calendar (display only)" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;background:transparent;pointer-events:none;">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-        </div>
-        <a href="settings.php" title="Settings" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06A2 2 0 1 1 2.28 16.8l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09c.7 0 1.3-.4 1.51-1A1.65 1.65 0 0 0 4.27 6.3L4.2 6.23A2 2 0 1 1 6 3.4l.06.06c.5.5 1.2.7 1.82.33.7-.4 1.51-.4 2.21 0 .62.37 1.32.17 1.82-.33L12.6 3.4a2 2 0 1 1 1.72 3.82l-.06.06c-.5.5-.7 1.2-.33 1.82.4.7.4 1.51 0 2.21-.37.62-.17 1.32.33 1.82l.06.06A2 2 0 1 1 19.4 15z"></path></svg>
-        </a>
+        <!-- calendar icon (clickable: opens calendar overlay) -->
+        <button id="openCalendarBtn" title="Calendar" aria-label="Open calendar" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;background:transparent;border:0;cursor:pointer;padding:0;">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+        </button>
+        <button id="btnSettings" type="button" title="Settings" aria-label="Settings" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;background:transparent;border:0;box-shadow:none;cursor:pointer;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06A2 2 0 1 1 2.28 16.8l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09c.7 0 1.3-.4 1.51-1A1.65 1.65 0 0 0 4.27 6.3L4.2 6.23A2 2 0 1 1 6 3.4l.06.06c.5.5 1.2.7 1.82.33.7-.4 1.51-.4 2.21 0 .62.37 1.32.17 1.82-.33L12.6 3.4a2 2 0 1 1 1.72 3.82l-.06.06c-.5.5-.7 1.2-.33 1.82.4.7.4 1.51 0 2.21-.37.62-.17 1.32.33 1.82l.06.06A2 2 0 1 1 19.4 15z"></path></svg>
+        </button>
         <a id="top-logout" href="../logout.php" title="Logout" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
         </a>
@@ -347,10 +309,10 @@ $evaluations = fetch_evaluations($conn);
         </div>
     </div>
 
-    <div class="card" role="region" aria-label="Reports">
+    <div class="card" role="region" aria-label="Records">
         <!-- header: Reports left, export top-right -->
         <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px;">
-          <h2 style="margin:0;color:#2f3850">Reports</h2>
+          <h2 style="margin:0;color:#2f3850">Records</h2>
 
           <div style="display:flex;align-items:center;gap:12px;flex:0 0 auto;">
             <button id="exportBtn" style="padding:8px 12px;border-radius:8px;border:1px solid #ddd;background:#3a4163;color:#fff;cursor:pointer">Export</button>
@@ -370,15 +332,7 @@ $evaluations = fetch_evaluations($conn);
             <button class="tab active" data-tab="students" role="tab" aria-selected="true" aria-controls="panel-students">
               <span>Students (<?= count($students) ?>)</span>
             </button>
-            <button class="tab" data-tab="offices" role="tab" aria-selected="false" aria-controls="panel-offices">
-              <span>Offices (<?= count($offices) ?>)</span>
-            </button>
-            <button class="tab" data-tab="moa" role="tab" aria-selected="false" aria-controls="panel-moa">
-              <span>MOA (<?= count($moa) ?>)</span>
-            </button>
-            <button class="tab" data-tab="requests" role="tab" aria-selected="false" aria-controls="panel-requests">
-              <span>Office Requests (<?= count($office_requests) ?>)</span>
-            </button>
+            <!-- Offices and MOA tabs removed -->
             <button class="tab" data-tab="evaluations" role="tab" aria-selected="false" aria-controls="panel-evaluations">
               <span>Evaluations (<?= count($evaluations) ?>)</span>
             </button>
@@ -406,38 +360,14 @@ $evaluations = fetch_evaluations($conn);
             </select>
 
             <select id="statusFilter" style="padding:8px;border-radius:8px;border:1px solid #ddd;background:#fff;min-width:160px;">
-              <option value="">All status</option>
-              <option value="pending">Pending</option>
-              <option value="approved">Approved</option>
-              <option value="ongoing">Ongoing</option>
-              <option value="completed">Completed</option>
+              <option value="">Status</option>
               <option value="evaluated">Evaluated</option>
               <option value="rejected">Rejected</option>
               <option value="deactivated">Deactivated</option>
             </select>
           </div>
 
-          <!-- right (offices) filters - shown only when Offices tab active -->
-          <div id="officesFilters" style="display:none;gap:8px;align-items:center;flex:0 0 auto;">
-            <select id="officesSortColumn" style="padding:8px;border-radius:8px;border:1px solid #ddd;background:#fff;min-width:220px;">
-              <option value="">None</option>
-              <option value="capacity">Capacity</option>
-              <option value="available">Available Slot</option>
-              <option value="approved">Approved OJTs</option>
-              <option value="ongoing">Ongoing OJTs</option>
-              <option value="completed">Completed OJTs</option>
-            </select>
-            <button id="officesSortDirBtn" data-dir="asc" title="Toggle sort direction" style="padding:8px 12px;border-radius:8px;border:1px solid #ddd;background:#fff;cursor:pointer">Asc</button>
-          </div>
-
-          <!-- right (moa) filters - shown only when MOA tab active -->
-          <div id="moaFilters" style="display:none;gap:8px;align-items:center;flex:0 0 auto;">
-            <select id="moaStatusFilter" style="padding:8px;border-radius:8px;border:1px solid #ddd;background:#fff;min-width:160px;">
-              <option value="">All status</option>
-              <option value="active">Active</option>
-              <option value="expired">Expired</option>
-            </select>
-          </div>
+          <!-- Offices and MOA specific filters removed -->
         </div>
 
       <div id="panel-students" class="panel" style="display:block">
@@ -475,107 +405,9 @@ $evaluations = fetch_evaluations($conn);
         </div>
       </div>
 
-      <div id="panel-offices" class="panel" style="display:none">
-        <div style="overflow-x:auto">
-          <table class="tbl" id="tblOffices">
-            <thead>
-              <tr>
-                <th>Office</th>
-                <th style="text-align:center">Capacity</th>
-                <th style="text-align:center">Available Slot</th>
-                <th style="text-align:center">Approved OJTs</th>
-                <th style="text-align:center">Ongoing OJTs</th>
-                <th style="text-align:center">Completed OJTs</th>
-              </tr>
-            </thead>
-            <tbody>
-              <?php if (empty($offices)): ?>
-                <tr><td colspan="6" class="empty">No offices found.</td></tr>
-              <?php else: foreach ($offices as $o): ?>
-                <tr data-search="<?= htmlspecialchars(strtolower($o['office_name'])) ?>">
-                  <td><?= htmlspecialchars($o['office_name']) ?></td>
-                  <td style="text-align:center"><?= is_null($o['capacity']) ? '—' : (int)$o['capacity'] ?></td>
-                  <td style="text-align:center"><?= is_string($o['available']) ? htmlspecialchars($o['available']) : (int)$o['available'] ?></td>
-                  <td style="text-align:center"><?= (int)($o['approved'] ?? 0) ?></td>
-                  <td style="text-align:center"><?= (int)($o['ongoing'] ?? 0) ?></td>
-                  <td style="text-align:center"><?= (int)($o['completed'] ?? 0) ?></td>
-                </tr>
-              <?php endforeach; endif; ?>
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <!-- Offices and MOA panels removed -->
 
-      <div id="panel-moa" class="panel" style="display:none">
-        <div style="overflow-x:auto">
-          <table class="tbl" id="tblMoa">
-            <thead>
-              <tr><th>School</th><th style="text-align:center">Students</th><th>MOA File</th><th>Date Signed</th><th style="text-align:center">Valid Until</th><th style="text-align:center">Status</th></tr>
-            </thead>
-            <tbody>
-              <?php if (empty($moa)): ?>
-                <tr><td colspan="6" class="empty">No MOA records.</td></tr>
-              <?php else: foreach ($moa as $m): ?>
-                 <tr data-search="<?= htmlspecialchars(strtolower($m['school_name'])) ?>">
-                   <td><?= htmlspecialchars($m['school_name']) ?></td>
-                   <td style="text-align:center"><?= (int)($m['student_count'] ?? 0) ?></td>
-                   <td>
-                     <?php if (!empty($m['moa_file'])): ?>
-                       <a href="<?= htmlspecialchars('../' . $m['moa_file']) ?>" target="_blank">View</a>
-                     <?php else: ?>—<?php endif; ?>
-                   </td>
-                  <?php
-                    // Date Signed and Valid Until are directly from DB
-                    $date_signed = fmtDate($m['date_signed']);
-                    $valid_until = fmtDate($m['valid_until']);
-                    $status_label = 'Expired';
-                    if (!empty($m['valid_until'])) {
-                      $valid_until_ts = strtotime($m['valid_until']);
-                      $today_ts = strtotime(date('Y-m-d'));
-                      $status_label = ($valid_until_ts >= $today_ts) ? 'Active' : 'Expired';
-                    }
-                    // css class suffix (lowercase) for client-side filtering
-                    $status_class = strtolower($status_label);
-                  ?>
-                  <td><?= htmlspecialchars($date_signed) ?></td>
-                  <td style="text-align:center"><?= htmlspecialchars($valid_until) ?></td>
-                  <td style="text-align:center"><span class="moa-status <?= htmlspecialchars($status_class) ?>"><?= htmlspecialchars($status_label) ?></span></td>
-                 </tr>
-               <?php endforeach; endif; ?>
-             </tbody>
-           </table>
-         </div>
-       </div>
-
-      <!-- NEW: Office Requests panel -->
-      <div id="panel-requests" class="panel" style="display:none">
-        <div style="overflow-x:auto">
-          <table class="tbl" id="tblRequests">
-            <thead>
-              <tr>
-                <th style="text-align:center">Date Requested</th>
-                <th>Office</th>
-                <th style="text-align:center">New Limit</th>
-                <th>Reason</th>
-                <th style="text-align:center">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              <?php if (empty($office_requests)): ?>
-                <tr><td colspan="5" class="empty">No office requests.</td></tr>
-              <?php else: foreach ($office_requests as $req): ?>
-                <tr data-search="<?= htmlspecialchars(strtolower(($req['office_name'] ?? '') . ' ' . ($req['reason'] ?? '') . ' ' . ($req['status'] ?? '')) ) ?>">
-                  <td style="text-align:center"><?= htmlspecialchars(fmtDate($req['date_requested'] ?? '')) ?></td>
-                  <td><?= htmlspecialchars($req['office_name'] ?? '-') ?></td>
-                  <td style="text-align:center"><?= is_null($req['new_limit']) ? '—' : (int)$req['new_limit'] ?></td>
-                  <td><?= htmlspecialchars($req['reason'] ?? '-') ?></td>
-                  <td style="text-align:center"><?= htmlspecialchars(ucfirst($req['status'] ?? '')) ?></td>
-                </tr>
-              <?php endforeach; endif; ?>
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <!-- Office Requests panel removed -->
 
       <!-- NEW: Evaluations panel -->
       <div id="panel-evaluations" class="panel" style="display:none">
@@ -583,23 +415,31 @@ $evaluations = fetch_evaluations($conn);
           <table class="tbl" id="tblEvaluations">
             <thead>
               <tr>
-                <th style="text-align:center">Date Evaluated</th>
-                <th style="text-align:center">Student Name</th>
-                <th style="text-align:center">Rating</th>
-                <th style="text-align:center">Feedback</th>
-                <th style="text-align:center">Evaluator</th>
-                <th style="text-align:center">View</th>
-                <th style="text-align:center">Print Certificate</th>
-              </tr>
+                  <th style="text-align:center">Date Evaluated</th>
+                  <th style="text-align:center">Student Name</th>
+                  <th style="text-align:center">Rating</th>
+                  <th style="text-align:center">School Grade</th>
+                  <th style="text-align:center">Feedback</th>
+                  <th style="text-align:center">Evaluator</th>
+                  <th style="text-align:center">View</th>
+                  <th style="text-align:center">Print Certificate</th>
+                </tr>
             </thead>
             <tbody>
               <?php if (empty($evaluations)): ?>
-                <tr><td colspan="7" class="empty">No evaluations found.</td></tr>
+                <tr><td colspan="8" class="empty">No evaluations found.</td></tr>
               <?php else: foreach ($evaluations as $e): ?>
                 <tr data-search="<?= htmlspecialchars(strtolower(($e['student_first'] ?? '') . ' ' . ($e['student_last'] ?? '') . ' ' . ($e['eval_first'] ?? '') . ' ' . ($e['eval_last'] ?? '') . ' ' . ($e['feedback'] ?? ''))) ?>">
                   <td style="text-align:center"><?= htmlspecialchars(fmtDate($e['date_evaluated'] ?? '')) ?></td>
                   <td style="text-align:center"><?= htmlspecialchars(trim(($e['student_first'] ?? '') . ' ' . ($e['student_last'] ?? ''))) ?: 'N/A' ?></td>
                   <td style="text-align:center"><?= htmlspecialchars($e['rating_desc'] ?? '') ?></td>
+                  <td style="text-align:center"><?php
+                      if (isset($e['school_eval']) && $e['school_eval'] !== null && $e['school_eval'] !== '') {
+                        echo htmlspecialchars(number_format((float)$e['school_eval'], 2, '.', ''));
+                      } else {
+                        echo '-';
+                      }
+                  ?></td>
                   <td style="text-align:center"><?= htmlspecialchars($e['feedback'] ?? '') ?></td>
                   <td style="text-align:center"><?= htmlspecialchars(trim(($e['eval_first'] ?? '') . ' ' . ($e['eval_last'] ?? ''))) ?: 'N/A' ?></td>
                   <td style="text-align:center">
@@ -645,7 +485,7 @@ $evaluations = fetch_evaluations($conn);
       const isStudents = visible.id === 'panel-students';
       const isOffices  = visible.id === 'panel-offices';
       const isMoa      = visible.id === 'panel-moa';
-      const isRequests = visible.id === 'panel-requests';
+      const isRequests = false; // Office Requests removed
       const isEvaluations = visible.id === 'panel-evaluations';
 
       visible.querySelectorAll('tbody tr').forEach(tr=>{
@@ -672,10 +512,6 @@ $evaluations = fetch_evaluations($conn);
           // status cell is the last td (index 5)
           const statusText = norm(tds[5]?.textContent || '');
           if (moaStatusVal) visibleByStatus = statusText.indexOf(moaStatusVal) !== -1;
-        } else if (isRequests) {
-          // office requests: rely on data-search (office, reason, status)
-          visibleByOffice = true;
-          visibleByStatus = true;
         } else if (isEvaluations) {
           // evaluations: rely on data-search (student name, evaluator name, feedback)
           visibleByOffice = true;
@@ -693,12 +529,11 @@ $evaluations = fetch_evaluations($conn);
        document.querySelectorAll('.tabs button').forEach(b=>b.classList.remove('active'));
        this.classList.add('active');
 
-       const tab = this.getAttribute('data-tab');
-       document.getElementById('panel-students').style.display = tab==='students' ? 'block' : 'none';
-       document.getElementById('panel-offices').style.display = tab==='offices' ? 'block' : 'none';
-       document.getElementById('panel-moa').style.display = tab==='moa' ? 'block' : 'none';
-       document.getElementById('panel-requests').style.display = tab==='requests' ? 'block' : 'none';
-       document.getElementById('panel-evaluations').style.display = tab==='evaluations' ? 'block' : 'none';
+      const tab = this.getAttribute('data-tab');
+      const ps = document.getElementById('panel-students'); if (ps) ps.style.display = tab==='students' ? 'block' : 'none';
+      const po = document.getElementById('panel-offices');  if (po) po.style.display = tab==='offices' ? 'block' : 'none';
+      const pm = document.getElementById('panel-moa');      if (pm) pm.style.display = tab==='moa' ? 'block' : 'none';
+      const pe = document.getElementById('panel-evaluations'); if (pe) pe.style.display = tab==='evaluations' ? 'block' : 'none';
 
        // show/hide students-only filters
        const sf = document.getElementById('studentsFilters');
@@ -809,17 +644,39 @@ $evaluations = fetch_evaluations($conn);
      const a = document.createElement('a'); a.href = url; a.download = 'reports_export.csv'; document.body.appendChild(a); a.click(); a.remove();
      URL.revokeObjectURL(url);
    });
-
-   // handle print certificate button clicks (open printable certificate in new tab)
-   document.addEventListener('click', function(e){
-     const btn = e.target.closest && e.target.closest('.print-btn');
-     if (!btn) return;
-     const evalId = btn.getAttribute('data-eval-id');
-     if (!evalId) return alert('Missing evaluation id');
-     const url = 'print_certificate_staff.php?eval_id=' + encodeURIComponent(evalId);
-     window.open(url, '_blank');
-   });
  })();
+</script>
+
+<script>
+  // Calendar modal open/close handlers (inline-styled overlay for Reports page)
+  (function(){
+    const openBtn = document.getElementById('openCalendarBtn');
+    if (!openBtn) return;
+    const calendarOverlay = document.createElement('div');
+    calendarOverlay.id = 'calendarOverlay';
+    calendarOverlay.style.position = 'fixed';
+    calendarOverlay.style.top = '0';
+    calendarOverlay.style.left = '0';
+    calendarOverlay.style.right = '0';
+    calendarOverlay.style.bottom = '0';
+    calendarOverlay.style.display = 'none';
+    calendarOverlay.style.alignItems = 'center';
+    calendarOverlay.style.justifyContent = 'center';
+    calendarOverlay.style.background = 'rgba(102, 51, 153, 0.18)';
+    calendarOverlay.style.zIndex = '9999';
+    calendarOverlay.setAttribute('role','dialog');
+    calendarOverlay.setAttribute('aria-hidden','true');
+    calendarOverlay.innerHTML = `
+      <div style="width:100%;height:100vh;max-width:100%;max-height:100vh;padding:0;background:transparent;display:flex;align-items:center;justify-content:center;position:relative;">
+        <iframe src="calendar_staff.php" title="Calendar" style="width:100%;height:100%;border:0;display:block;"></iframe>
+      </div>`;
+    document.body.appendChild(calendarOverlay);
+    function showCalendar(){ calendarOverlay.style.display = 'flex'; calendarOverlay.setAttribute('aria-hidden','false'); }
+    function hideCalendar(){ calendarOverlay.style.display = 'none'; calendarOverlay.setAttribute('aria-hidden','true'); }
+    window.closeCalendarOverlay = hideCalendar;
+    openBtn.addEventListener('click', function(){ showCalendar(); });
+    calendarOverlay.addEventListener('click', function(e){ if (e.target === calendarOverlay) hideCalendar(); });
+  })();
 </script>
 
 <script>
@@ -833,6 +690,51 @@ $evaluations = fetch_evaluations($conn);
         window.location.href = this.getAttribute('href');
       }
     });
+    // handle print certificate button clicks (open printable certificate in new tab)
+    document.addEventListener('click', function(e){
+      const btn = e.target.closest && e.target.closest('.print-btn');
+      if (!btn) return;
+      const evalId = btn.getAttribute('data-eval-id');
+      if (!evalId) return alert('Missing evaluation id');
+      const url = 'print_certificate_staff.php?eval_id=' + encodeURIComponent(evalId);
+      window.open(url, '_blank');
+    });
+  })();
+</script>
+
+<script>
+  // Settings modal open/close handlers (iframe overlay)
+  (function(){
+    const openBtn = document.getElementById('btnSettings');
+    if (!openBtn) return;
+    const settingsOverlay = document.createElement('div');
+    settingsOverlay.id = 'settingsOverlay';
+    settingsOverlay.style.position = 'fixed';
+    settingsOverlay.style.top = '0';
+    settingsOverlay.style.left = '0';
+    settingsOverlay.style.right = '0';
+    settingsOverlay.style.bottom = '0';
+    settingsOverlay.style.display = 'none';
+    settingsOverlay.style.alignItems = 'center';
+    settingsOverlay.style.justifyContent = 'center';
+    settingsOverlay.style.background = 'rgba(102, 51, 153, 0.18)';
+    settingsOverlay.style.zIndex = '9999';
+    settingsOverlay.setAttribute('role','dialog');
+    settingsOverlay.setAttribute('aria-hidden','true');
+
+    settingsOverlay.innerHTML = `
+      <div style="width:100%;height:100vh;max-width:100%;max-height:100vh;padding:0;background:transparent;display:flex;align-items:center;justify-content:center;position:relative;">
+        <iframe src="settings.php" title="Settings" style="width:100%;height:100%;border:0;display:block;"></iframe>
+      </div>`;
+
+    document.body.appendChild(settingsOverlay);
+
+    function showSettings(){ settingsOverlay.style.display = 'flex'; settingsOverlay.setAttribute('aria-hidden','false'); try{ openBtn.style.background = '#fff'; openBtn.style.boxShadow = '0 6px 18px rgba(0,0,0,0.06)'; }catch(e){} }
+    function hideSettings(){ settingsOverlay.style.display = 'none'; settingsOverlay.setAttribute('aria-hidden','true'); try{ openBtn.style.background = 'transparent'; openBtn.style.boxShadow = 'none'; }catch(e){} }
+    window.closeSettingsOverlay = hideSettings;
+
+    openBtn.addEventListener('click', function(ev){ ev.preventDefault(); showSettings(); });
+    settingsOverlay.addEventListener('click', function(e){ if (e.target === settingsOverlay) hideSettings(); });
   })();
 </script>
 

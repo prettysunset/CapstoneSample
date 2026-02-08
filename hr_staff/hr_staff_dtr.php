@@ -11,7 +11,7 @@ if (!isset($_SESSION['user_id'])) {
 
 // fetch user for sidebar display
 $user_id = (int)($_SESSION['user_id'] ?? 0);
-$stmtUser = $conn->prepare("SELECT first_name, middle_name, last_name, role, office_name FROM users WHERE user_id = ?");
+$stmtUser = $conn->prepare("SELECT first_name, middle_name, last_name, role, office_name, avatar FROM users WHERE user_id = ?");
 $stmtUser->bind_param("i", $user_id);
 $stmtUser->execute();
 $user = $stmtUser->get_result()->fetch_assoc() ?: [];
@@ -85,7 +85,8 @@ $stmtOff->close();
 <body>
   <div class="sidebar">
     <div class="profile">
-        <img src="https://cdn-icons-png.flaticon.com/512/149/149071.png" alt="Profile">
+        <?php $profileImg = !empty($user['avatar']) ? $user['avatar'] : 'https://cdn-icons-png.flaticon.com/512/149/149071.png'; ?>
+        <img src="<?php echo htmlspecialchars($profileImg); ?>" alt="Profile">
         <h3><?php echo htmlspecialchars($full_name ?: ($_SESSION['username'] ?? '')); ?></h3>
         <p><?php echo htmlspecialchars($role_label); ?></p>
         <?php if(!empty($user['office_name'])): ?>
@@ -109,7 +110,7 @@ $stmtOff->close();
         </svg>
         OJTs
       </a>
-      <a href="hr_staff_dtr.php" class="active">
+      <a href="#" class="active">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px">
           <circle cx="12" cy="12" r="8"></circle>
           <path d="M12 8v5l3 2"></path>
@@ -118,15 +119,15 @@ $stmtOff->close();
       </a>
       <a href="hr_staff_moa.php">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px">
-          <circle cx="12" cy="12" r="8"></circle>
-          <path d="M12 8v5l3 2"></path>
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+          <polyline points="14 2 14 8 20 8"></polyline>
         </svg>
         MOA
       </a>
       <a href="hr_staff_accounts.php">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px">
           <circle cx="12" cy="12" r="3"></circle>
-          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06A2 2 0 1 1 2.28 16.8l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09c.7 0 1.3-.4 1.51-1A1.65 1.65 0 0 0 4.27 6.3L4.2 6.23A2 2 0 1 1 6 3.4l.06.06c.5.5 1.2.7 1.82.33.7-.4 1.51-.4 2.21 0 .62.37 1.32.17 1.82-.33L12.6 3.4a2 2 0 1 1 1.72 3.82l-.06.06c-.5.5-.7 1.2-.33 1.82.4.7.4 1.51 0 2.21-.37.62-.17 1.32.33 1.82l.06.06A2 2 0 1 1 19.4 15z"></path>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06A2 2 0 1 1 2.28 16.8l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09c.7 0 1.3-.4 1.51-1A1.65 1.65 0 0 0 4.27 6.3L4.2 6.23A2 2 0 1 1 6 3.4l.06.06c.5.5 1.2.7 1.82.33.7-.4 1.51-.4 2.21 0 .62.37 1.32.17 1.82-.33L12.6 3.4a2 2 0 1 1 1.72 3.82l-.06.06c-.5.5-.7 1.2-.33 1.82.4.7.4 1.51 0 2.21-.37.62-.17 1.32.33 1.82l.06.06A2 2 0 1 1 19.4 15z"></path>
         </svg>
         Accounts
       </a>
@@ -136,7 +137,7 @@ $stmtOff->close();
           <rect x="10" y="6" width="4" height="14"></rect>
           <rect x="17" y="2" width="4" height="18"></rect>
         </svg>
-        Reports
+        Records
       </a>
     </div>
     <div style="margin-top:auto;padding:18px 0;width:100%;text-align:center;">
@@ -151,14 +152,14 @@ $stmtOff->close();
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 17h5l-1.405-1.405A2.032 2.032 0 0 1 18 14.158V11a6 6 0 1 0-12 0v3.159c0 .538-.214 1.055-.595 1.436L4 17h5"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
         </a>
 
-        <!-- calendar icon (display only, non-clickable) - placed to match OJTs -->
-        <div title="Calendar (display only)" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;background:transparent;pointer-events:none;">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-        </div>
+        <!-- calendar icon (clickable: opens calendar overlay) -->
+        <button id="openCalendarBtn" title="Calendar" aria-label="Open calendar" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;background:transparent;border:0;cursor:pointer;padding:0;">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+        </button>
 
-        <a href="settings.php" title="Settings" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06A2 2 0 1 1 2.28 16.8l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09c.7 0 1.3-.4 1.51-1A1.65 1.65 0 0 0 4.27 6.3L4.2 6.23A2 2 0 1 1 6 3.4l.06.06c.5.5 1.2.7 1.82.33.7-.4 1.51-.4 2.21 0 .62.37 1.32.17 1.82-.33L12.6 3.4a2 2 0 1 1 1.72 3.82l-.06.06c-.5.5-.7 1.2-.33 1.82.4.7.4 1.51 0 2.21-.37.62-.17 1.32.33 1.82l.06.06A2 2 0 1 1 19.4 15z"></path></svg>
-        </a>
+        <button id="btnSettings" type="button" title="Settings" aria-label="Settings" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;background:transparent;border:0;box-shadow:none;cursor:pointer;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06A2 2 0 1 1 2.28 16.8l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09c.7 0 1.3-.4 1.51-1A1.65 1.65 0 0 0 4.27 6.3L4.2 6.23A2 2 0 1 1 6 3.4l.06.06c.5.5 1.2.7 1.82.33.7-.4 1.51-.4 2.21 0 .62.37 1.32.17 1.82-.33L12.6 3.4a2 2 0 1 1 1.72 3.82l-.06.06c-.5.5-.7 1.2-.33 1.82.4.7.4 1.51 0 2.21-.37.62-.17 1.32.33 1.82l.06.06A2 2 0 1 1 19.4 15z"></path></svg>
+        </button>
         <a id="top-logout" href="../logout.php" title="Logout" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
         </a>
@@ -258,7 +259,7 @@ $stmtOff->close();
   const search = document.getElementById('search');
   const officeFilter = document.getElementById('officeFilter');
 
-  const today = new Date().toISOString().slice(0,10);
+  const today = '<?= date('Y-m-d') ?>';
   // prevent picking future dates (set max on inputs) and initialize values
   fromDateInput.max = today;
   toDateInput.max = today;
@@ -429,7 +430,7 @@ $stmtOff->close();
 </script>
 
 <script>
-  // attach confirm to top logout like hr_head_ojts.php
+  // attach confirm to top logout like hr_staff_ojts.php
   (function(){
     const logoutBtn = document.getElementById('top-logout');
     if (!logoutBtn) return;
@@ -441,5 +442,78 @@ $stmtOff->close();
     });
   })();
 </script>
+  <script>
+    // Calendar modal open/close handlers (inline-styled overlay)
+    (function(){
+      const openBtn = document.getElementById('openCalendarBtn');
+      if (!openBtn) return;
+      const calendarOverlay = document.createElement('div');
+      calendarOverlay.id = 'calendarOverlay';
+      // inline styles to ensure consistent overlay behavior even if page lacks .overlay CSS
+      calendarOverlay.style.position = 'fixed';
+      calendarOverlay.style.top = '0';
+      calendarOverlay.style.left = '0';
+      calendarOverlay.style.right = '0';
+      calendarOverlay.style.bottom = '0';
+      calendarOverlay.style.display = 'none';
+      calendarOverlay.style.alignItems = 'center';
+      calendarOverlay.style.justifyContent = 'center';
+      calendarOverlay.style.background = 'rgba(102, 51, 153, 0.18)';
+      calendarOverlay.style.zIndex = '9999';
+      calendarOverlay.setAttribute('role','dialog');
+      calendarOverlay.setAttribute('aria-hidden','true');
+
+      calendarOverlay.innerHTML = `
+        <div style="width:100%;height:100vh;max-width:100%;max-height:100vh;padding:0;background:transparent;display:flex;align-items:center;justify-content:center;position:relative;">
+          <iframe src="calendar_staff.php" title="Calendar" style="width:100%;height:100%;border:0;display:block;"></iframe>
+        </div>`;
+
+      document.body.appendChild(calendarOverlay);
+
+      function showCalendar(){ calendarOverlay.style.display = 'flex'; calendarOverlay.setAttribute('aria-hidden','false'); }
+      function hideCalendar(){ calendarOverlay.style.display = 'none'; calendarOverlay.setAttribute('aria-hidden','true'); }
+      window.closeCalendarOverlay = hideCalendar;
+
+      openBtn.addEventListener('click', function(){ showCalendar(); });
+      calendarOverlay.addEventListener('click', function(e){ if (e.target === calendarOverlay) hideCalendar(); });
+    })();
+  </script>
+
+  <script>
+    // Settings modal open/close handlers (iframe overlay)
+    (function(){
+      const openBtn = document.getElementById('btnSettings');
+      if (!openBtn) return;
+      const settingsOverlay = document.createElement('div');
+      settingsOverlay.id = 'settingsOverlay';
+      // inline styles mirror calendar overlay for consistency
+      settingsOverlay.style.position = 'fixed';
+      settingsOverlay.style.top = '0';
+      settingsOverlay.style.left = '0';
+      settingsOverlay.style.right = '0';
+      settingsOverlay.style.bottom = '0';
+      settingsOverlay.style.display = 'none';
+      settingsOverlay.style.alignItems = 'center';
+      settingsOverlay.style.justifyContent = 'center';
+      settingsOverlay.style.background = 'rgba(102, 51, 153, 0.18)';
+      settingsOverlay.style.zIndex = '9999';
+      settingsOverlay.setAttribute('role','dialog');
+      settingsOverlay.setAttribute('aria-hidden','true');
+
+      settingsOverlay.innerHTML = `
+        <div style="width:100%;height:100vh;max-width:100%;max-height:100vh;padding:0;background:transparent;display:flex;align-items:center;justify-content:center;position:relative;">
+          <iframe src="settings.php" title="Settings" style="width:100%;height:100%;border:0;display:block;"></iframe>
+        </div>`;
+
+      document.body.appendChild(settingsOverlay);
+
+      function showSettings(){ settingsOverlay.style.display = 'flex'; settingsOverlay.setAttribute('aria-hidden','false'); try{ openBtn.style.background = '#fff'; openBtn.style.boxShadow = '0 6px 18px rgba(0,0,0,0.06)'; }catch(e){} }
+      function hideSettings(){ settingsOverlay.style.display = 'none'; settingsOverlay.setAttribute('aria-hidden','true'); try{ openBtn.style.background = 'transparent'; openBtn.style.boxShadow = 'none'; }catch(e){} }
+      window.closeSettingsOverlay = hideSettings;
+
+      openBtn.addEventListener('click', function(ev){ ev.preventDefault(); showSettings(); });
+      settingsOverlay.addEventListener('click', function(e){ if (e.target === settingsOverlay) hideSettings(); });
+    })();
+  </script>
 </body>
 </html>
