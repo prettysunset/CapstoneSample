@@ -957,6 +957,7 @@ $stmtCompleted->close();
 
             <tr><td style="font-weight:700">College/University</td><td id="view_college"></td></tr>
             <tr><td style="font-weight:700">Course</td><td id="view_course"></td></tr>
+            <tr><td style="font-weight:700">Hours Required</td><td id="view_total_hours"></td></tr>
             <tr><td style="font-weight:700">Year level</td><td id="view_year"></td></tr>
             <tr><td style="font-weight:700">School Address</td><td id="view_school_address"></td></tr>
             <tr><td style="font-weight:700">OJT Adviser</td><td id="view_adviser"></td></tr>
@@ -1430,7 +1431,7 @@ async function openViewModal(appId) {
   const overlay = document.getElementById('viewOverlay');
   // clear
   ['view_name','view_status','view_age','view_birthday','view_address','view_phone','view_email',
-   'view_college','view_course','view_year','view_school_address','view_adviser',
+   'view_college','view_course','view_total_hours','view_year','view_school_address','view_adviser',
    'view_emg_name','view_emg_relation','view_emg_contact','view_attachments'].forEach(id=> {
      const el = document.getElementById(id);
      if (el) el.textContent = '';
@@ -1467,6 +1468,7 @@ async function openViewModal(appId) {
     setText('view_email', st.email);
     setText('view_college', st.college);
     setText('view_course', st.course);
+    setText('view_total_hours', (typeof st.total_hours_required !== 'undefined' && st.total_hours_required !== null) ? (st.total_hours_required + ' hrs') : 'N/A');
     setText('view_year', st.year_level);
     setText('view_school_address', st.school_address);
     setText('view_adviser', st.ojt_adviser);

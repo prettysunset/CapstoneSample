@@ -41,6 +41,44 @@ function json_resp($arr){
     exit;
 }
 
+// Helper: compute total rendered minutes for a user (dtr.student_id references users.user_id)
+function get_total_rendered_minutes($conn, $dtr_owner) {
+    $sql = "SELECT COALESCE(SUM((CASE WHEN am_in IS NOT NULL AND am_out IS NOT NULL THEN TIMESTAMPDIFF(MINUTE, CONCAT(log_date,' ',am_in), CONCAT(log_date,' ',am_out)) ELSE 0 END) + (CASE WHEN pm_in IS NOT NULL AND pm_out IS NOT NULL THEN TIMESTAMPDIFF(MINUTE, CONCAT(log_date,' ',pm_in), CONCAT(log_date,' ',pm_out)) ELSE 0 END)),0) AS totalMin FROM dtr WHERE student_id = ?";
+    $stmt = $conn->prepare($sql);
+    if (!$stmt) return 0;
+    $stmt->bind_param('i', $dtr_owner);
+    $stmt->execute();
+    $res = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+    return isset($res['totalMin']) ? (int)$res['totalMin'] : 0;
+}
+
+// Helper: mark user and student as completed when rendered minutes >= required hours
+function mark_user_and_student_completed_if_done($conn, $user_id, $student_id) {
+    try {
+        $totalMin = get_total_rendered_minutes($conn, $user_id);
+        $req = 0;
+        $st = $conn->prepare("SELECT total_hours_required FROM students WHERE student_id = ? LIMIT 1");
+        if ($st) {
+            $st->bind_param('i', $student_id);
+            $st->execute();
+            $r = $st->get_result()->fetch_assoc();
+            $st->close();
+            $req = isset($r['total_hours_required']) ? (int)$r['total_hours_required'] : 0;
+        }
+        if ($req > 0 && $totalMin >= ($req * 60)) {
+            $u = $conn->prepare("UPDATE users SET status = 'completed' WHERE user_id = ?");
+            if ($u) { $u->bind_param('i', $user_id); $u->execute(); $u->close(); }
+            $s = $conn->prepare("UPDATE students SET status = 'completed' WHERE student_id = ?");
+            if ($s) { $s->bind_param('i', $student_id); $s->execute(); $s->close(); }
+            return true;
+        }
+    } catch (Exception $e) {
+        // don't block main flow on helper errors
+    }
+    return false;
+}
+
 // Load attendance API keys from external config if present.
 // Create `config/attendance_keys.php` returning an array of `key => client_id|true`.
 $ATTENDANCE_API_KEYS = [];
@@ -336,6 +374,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             if (!$dtr) {
                 // create new row -> decide am_in vs pm_in based on parsed 24-hour value
                 $hour = is_null($hourForDecision) ? (int)date('H') : $hourForDecision;
+                // Prevent Time In if student already completed required hours
+                $totalMinRendered = get_total_rendered_minutes($conn, $dtr_owner);
+                $trqStmt = $conn->prepare("SELECT total_hours_required FROM students WHERE student_id = ? LIMIT 1");
+                if ($trqStmt) {
+                    $trqStmt->bind_param('i', $student_id);
+                    $trqStmt->execute();
+                    $trqRow = $trqStmt->get_result()->fetch_assoc();
+                    $trqStmt->close();
+                    $totalRequired = isset($trqRow['total_hours_required']) ? (int)$trqRow['total_hours_required'] : 0;
+                } else { $totalRequired = 0; }
+                if ($totalRequired > 0 && $totalMinRendered >= ($totalRequired * 60)) {
+                    $conn->rollback(); json_resp(['success'=>false,'message'=>'You have already completed the required OJT hours and cannot time in.']);
+                }
                 if ($hour < 12) {
                     $ins = $conn->prepare("INSERT INTO dtr (student_id, log_date, am_in) VALUES (?, ?, ?)");
                 } else {
@@ -356,10 +407,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             if (empty($dtr['am_in']) && empty($dtr['pm_in'])) {
                 // neither IN present: choose based on client hour
                 if ($hour < 12) {
+                    // Prevent Time In if student already completed required hours
+                    $totalMinRendered = get_total_rendered_minutes($conn, $dtr_owner);
+                    $trqStmt2 = $conn->prepare("SELECT total_hours_required FROM students WHERE student_id = ? LIMIT 1");
+                    if ($trqStmt2) {
+                        $trqStmt2->bind_param('i', $student_id);
+                        $trqStmt2->execute();
+                        $trqRow2 = $trqStmt2->get_result()->fetch_assoc();
+                        $trqStmt2->close();
+                        $totalRequired2 = isset($trqRow2['total_hours_required']) ? (int)$trqRow2['total_hours_required'] : 0;
+                    } else { $totalRequired2 = 0; }
+                    if ($totalRequired2 > 0 && $totalMinRendered >= ($totalRequired2 * 60)) { $conn->rollback(); json_resp(['success'=>false,'message'=>'Required hours already completed; cannot time in.']); }
                     $upd = $conn->prepare("UPDATE dtr SET am_in = ?, synced = 0 WHERE dtr_id = ?");
                     $upd->bind_param('si', $now, $dtr['dtr_id']); $upd->execute(); $upd->close();
                     $conn->commit(); json_resp(['success'=>true,'message'=>'Time in recorded. Have a good day, ' . $matched_display,'user_id'=>$matched_user_id,'username'=>$matched_display,'display_name'=>$matched_display]);
                 } else {
+                    // Prevent Time In if student already completed required hours
+                    $totalMinRendered = get_total_rendered_minutes($conn, $dtr_owner);
+                    $trqStmt3 = $conn->prepare("SELECT total_hours_required FROM students WHERE student_id = ? LIMIT 1");
+                    if ($trqStmt3) {
+                        $trqStmt3->bind_param('i', $student_id);
+                        $trqStmt3->execute();
+                        $trqRow3 = $trqStmt3->get_result()->fetch_assoc();
+                        $trqStmt3->close();
+                        $totalRequired3 = isset($trqRow3['total_hours_required']) ? (int)$trqRow3['total_hours_required'] : 0;
+                    } else { $totalRequired3 = 0; }
+                    if ($totalRequired3 > 0 && $totalMinRendered >= ($totalRequired3 * 60)) { $conn->rollback(); json_resp(['success'=>false,'message'=>'Required hours already completed; cannot time in.']); }
                     $upd = $conn->prepare("UPDATE dtr SET pm_in = ?, synced = 0 WHERE dtr_id = ?");
                     $upd->bind_param('si', $now, $dtr['dtr_id']); $upd->execute(); $upd->close();
                     $conn->commit(); json_resp(['success'=>true,'message'=>'Time in recorded. Have a good day, ' . $matched_display,'user_id'=>$matched_user_id,'username'=>$matched_display,'display_name'=>$matched_display]);
@@ -402,6 +475,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $hours = intdiv($totalMin, 60); $minutes = $totalMin % 60;
                 $up2 = $conn->prepare("UPDATE dtr SET hours = ?, minutes = ?, synced = 0 WHERE dtr_id = ?");
                 $up2->bind_param('iii', $hours, $minutes, $dtr['dtr_id']); $up2->execute(); $up2->close();
+                // mark completed if they've reached required hours
+                mark_user_and_student_completed_if_done($conn, $matched_user_id, $student_id);
                 $conn->commit(); json_resp(['success'=>true,'message'=>'Time out recorded. Thank you for today, ' . $matched_display,'user_id'=>$matched_user_id,'username'=>$matched_display,'display_name'=>$matched_display,'hours'=>$hours,'minutes'=>$minutes,'distance'=>$best['dist'],'templates_scanned'=>$templatesScanned]);
             }
             // if AM was timed in but AM out missing, allow face-scan to record AM time-out
@@ -439,7 +514,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $hours = intdiv($totalMin, 60); $minutes = $totalMin % 60;
                 $up2 = $conn->prepare("UPDATE dtr SET hours = ?, minutes = ?, synced = 0 WHERE dtr_id = ?");
                 $up2->bind_param('iii', $hours, $minutes, $dtr['dtr_id']); $up2->execute(); $up2->close();
-
+                // mark completed if they've reached required hours
+                mark_user_and_student_completed_if_done($conn, $matched_user_id, $student_id);
                 $conn->commit(); json_resp(['success'=>true,'message'=>'Time out recorded. Thank you for today, ' . $matched_display,'user_id'=>$matched_user_id,'username'=>$matched_display,'display_name'=>$matched_display,'hours'=>$hours,'minutes'=>$minutes,'distance'=>$best['dist'],'templates_scanned'=>$templatesScanned]);
             }
 
@@ -649,7 +725,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                         $hours = intdiv($totalMin, 60); $minutes = $totalMin % 60;
                         $up2 = $conn->prepare("UPDATE dtr SET hours = ?, minutes = ?, synced = 0 WHERE dtr_id = ?");
                         $up2->bind_param('iii', $hours, $minutes, $dtr['dtr_id']); $up2->execute(); $up2->close();
-
+                        // mark completed if they've reached required hours
+                        mark_user_and_student_completed_if_done($conn, $matched_user_id, $student_id);
                         $conn->commit(); json_resp(['success'=>true,'message'=>'Time out recorded. Thank you for today, ' . $matched_display,'user_id'=>$matched_user_id,'username'=>$matched_display,'display_name'=>$matched_display,'hours'=>$hours,'minutes'=>$minutes]);
                     }
                     if (!empty($dtr['am_out']) && empty($dtr['pm_in'])) {
@@ -690,7 +767,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                         $hours = intdiv($totalMin, 60); $minutes = $totalMin % 60;
                         $up2 = $conn->prepare("UPDATE dtr SET hours = ?, minutes = ?, synced = 0 WHERE dtr_id = ?");
                         $up2->bind_param('iii', $hours, $minutes, $dtr['dtr_id']); $up2->execute(); $up2->close();
-
+                        // mark completed if they've reached required hours
+                        mark_user_and_student_completed_if_done($conn, $matched_user_id, $student_id);
                         $conn->commit(); json_resp(['success'=>true,'message'=>'Time out recorded. Thank you for today, ' . $matched_display,'user_id'=>$matched_user_id,'username'=>$matched_display,'display_name'=>$matched_display,'hours'=>$hours,'minutes'=>$minutes]);
                     }
 
@@ -1107,6 +1185,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $up2->bind_param('iii', $hours, $minutes, $dtr['dtr_id']);
             $up2->execute();
             $up2->close();
+
+            // mark completed if they've reached required hours
+            if (isset($user) && isset($user['user_id'])) {
+                mark_user_and_student_completed_if_done($conn, (int)$user['user_id'], $student_id);
+            }
 
             $conn->commit();
             json_resp(['success'=>true,'message'=>'Time out recorded. Thank you for today, ' . $display_name,'time'=>$now,'hours'=>$hours,'minutes'=>$minutes,'display_name'=>$display_name]);

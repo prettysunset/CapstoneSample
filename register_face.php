@@ -63,42 +63,50 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $descArr = json_decode($descRaw, true);
     if (!is_array($descArr) || count($descArr) === 0) { echo json_encode(['ok'=>false,'message'=>'invalid descriptor']); exit; }
     // load all stored descriptors and find best (minimum L2) distance — same logic as pc_per_office.php
-    $q = $conn->prepare('SELECT ft.user_id, ft.descriptor, u.username FROM face_templates ft LEFT JOIN users u ON ft.user_id = u.user_id WHERE ft.descriptor IS NOT NULL');
-    $best = ['dist' => INF, 'user_id' => null, 'username' => null];
+    $best = ['dist' => PHP_FLOAT_MAX, 'user_id' => null, 'username' => null];
     $templatesScanned = 0;
-    if ($q) {
-      $q->execute();
-      $res = $q->get_result();
-      while ($row = $res->fetch_assoc()) {
-        $storedJson = $row['descriptor'] ?? null;
-        if (!$storedJson) continue;
-        $storedArr = json_decode($storedJson, true);
-        if (!is_array($storedArr) || count($storedArr) !== count($descArr)) continue;
-        $templatesScanned++;
-        $sum = 0.0;
-        $n = count($descArr);
-        for ($i=0; $i<$n; $i++) {
-          $a = floatval($descArr[$i]);
-          $b = floatval($storedArr[$i]);
-          $d = $a - $b;
-          $sum += $d * $d;
+    try {
+      $q = $conn->prepare('SELECT ft.user_id, ft.descriptor, u.username FROM face_templates ft LEFT JOIN users u ON ft.user_id = u.user_id WHERE ft.descriptor IS NOT NULL');
+      if ($q) {
+        $q->execute();
+        $res = $q->get_result();
+        while ($row = $res->fetch_assoc()) {
+          $storedJson = $row['descriptor'] ?? null;
+          if (!$storedJson) continue;
+          $storedArr = json_decode($storedJson, true);
+          if (!is_array($storedArr) || count($storedArr) !== count($descArr)) continue;
+          $templatesScanned++;
+          $sum = 0.0;
+          $n = count($descArr);
+          for ($i=0; $i<$n; $i++) {
+            $a = floatval($descArr[$i]);
+            $b = floatval($storedArr[$i]);
+            $d = $a - $b;
+            $sum += $d * $d;
+          }
+          $dist = sqrt($sum);
+          if ($dist < $best['dist']) {
+            $best['dist'] = $dist;
+            $best['user_id'] = (int)$row['user_id'];
+            $best['username'] = $row['username'] ?? null;
+          }
         }
-        $dist = sqrt($sum);
-        if ($dist < $best['dist']) {
-          $best['dist'] = $dist;
-          $best['user_id'] = (int)$row['user_id'];
-          $best['username'] = $row['username'] ?? null;
-        }
+        $q->close();
       }
-      $q->close();
+    } catch (Exception $ex) {
+      // If the table is missing or another DB error occurred, treat as "no templates" (allow registration)
+      $templatesScanned = 0;
+      $best = ['dist' => PHP_FLOAT_MAX, 'user_id' => null, 'username' => null];
     }
+
     // apply a stricter threshold to avoid false positives (stricter than pc_per_office)
     $threshold = 0.40;
+    $bestDistOut = ($best['dist'] === PHP_FLOAT_MAX) ? null : $best['dist'];
     if ($best['user_id'] !== null && $best['dist'] <= $threshold) {
-      echo json_encode(['ok'=>true,'match'=>true,'match'=>['user_id'=>$best['user_id'],'username'=>$best['username'],'distance'=>$best['dist'],'templates_scanned'=>$templatesScanned]]);
+      echo json_encode(['ok'=>true,'match'=>true,'match_info'=>['user_id'=>$best['user_id'],'username'=>$best['username'],'distance'=>$bestDistOut],'templates_scanned'=>$templatesScanned]);
       exit;
     }
-    echo json_encode(['ok'=>true,'match'=>false,'best_distance'=>$best['dist'],'templates_scanned'=>$templatesScanned]);
+    echo json_encode(['ok'=>true,'match'=>false,'best_distance'=>$bestDistOut,'templates_scanned'=>$templatesScanned]);
     exit;
   } catch (Exception $e) { echo json_encode(['ok'=>false,'message'=>'error']); exit; }
 }
@@ -113,6 +121,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
   <style>
     body{font-family:Arial,Helvetica,sans-serif;background:#f6f8fb;padding:24px}
     .card{max-width:520px;margin:24px auto;background:#fff;padding:20px;border-radius:10px;box-shadow:0 6px 24px rgba(0,0,0,0.08)}
+    .card{position:relative}
+    .back-btn{position:absolute;right:12px;top:12px;background:#fff;border:1px solid #e6e6e6;padding:6px 10px;border-radius:8px;cursor:pointer;color:#333;font-size:14px}
     .input{width:100%;padding:10px;margin:8px 0;border-radius:6px;border:1px solid #ddd}
     video{width:100%;border-radius:8px;background:#000}
     canvas{display:none}
@@ -125,10 +135,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     button{padding:10px 14px;border-radius:8px;border:0;background:#3d44a8;color:#fff;cursor:pointer}
     button.secondary{background:#6b7280}
     .msg{margin-top:10px}
+    .success-overlay{position:fixed;left:0;top:0;right:0;bottom:0;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;z-index:10000}
+    .success-card{background:#fff;padding:20px;border-radius:8px;max-width:520px;width:90%;text-align:center;font-size:16px}
   </style>
 </head>
 <body>
   <div class="card">
+    <button id="backBtn" class="back-btn" title="Back to kiosk" aria-label="Back to kiosk">← Back</button>
     <h2>Register Face</h2>
     <p>Enter your username and password, then take a photo to register your face.</p>
     <input id="username" class="input" placeholder="Username" autocomplete="username">
@@ -347,11 +360,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         const res = await fetch('save_face.php', { method: 'POST', body: fd });
         const j = await res.json();
         if (j && j.success){ 
-          show('Face registered successfully', true);
           stopCamera();
-          // Redirect back to caller if provided, else use referrer or pc_per_office.php
           const target = RETURN_TO || document.referrer || './pc_per_office.php';
-          setTimeout(()=>{ window.location.href = target; }, 900);
+          // show prominent overlay for 5 seconds before redirect
+          showSuccessAndRedirect('Face registered successfully — please proceed to Time In.', target, 5000);
+          return;
         }
         else { show('Error: ' + (j && j.message ? j.message : 'failed'), false); }
       }catch(e){ show('Upload failed: ' + (e.message || e), false); }
@@ -377,6 +390,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         await uploadDescriptor(descriptor, dataUrl);
       }catch(e){ show('Descriptor check failed: ' + (e.message||e), false); }
     }
+
+    // Back button handler
+    // show success overlay and redirect after a timeout
+    function showSuccessAndRedirect(message, target, ms){
+      try{
+        let existing = document.getElementById('successOverlay');
+        if (existing) existing.remove();
+        const overlay = document.createElement('div');
+        overlay.id = 'successOverlay';
+        overlay.className = 'success-overlay';
+        const card = document.createElement('div');
+        card.className = 'success-card';
+        const p = document.createElement('p');
+        p.textContent = message;
+        const countdown = document.createElement('div');
+        countdown.style.marginTop = '10px';
+        const seconds = Math.max(1, Math.ceil((ms||5000)/1000));
+        countdown.textContent = `Redirecting in ${seconds}...`;
+        card.appendChild(p);
+        card.appendChild(countdown);
+        overlay.appendChild(card);
+        document.body.appendChild(overlay);
+        let rem = seconds;
+        const iv = setInterval(()=>{
+          rem -= 1;
+          if (rem <= 0){ clearInterval(iv); countdown.textContent = `Redirecting...`; }
+          else { countdown.textContent = `Redirecting in ${rem}...`; }
+        }, 1000);
+        setTimeout(()=>{ try{ window.location.href = target; }catch(e){} }, ms||5000);
+      }catch(e){ console.error('showSuccessAndRedirect error', e); }
+    }
+
+    try{
+      const backBtn = document.getElementById('backBtn');
+      if (backBtn) backBtn.addEventListener('click', function(){ window.location.href = 'pc_per_office.php'; });
+    }catch(e){/* ignore */}
 
   })();
   </script>
