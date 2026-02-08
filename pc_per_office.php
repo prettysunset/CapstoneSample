@@ -249,7 +249,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
         $threshold = 0.48;
         if ($best['user_id'] === null || $best['dist'] > $threshold) {
-            json_resp(['success'=>false,'message'=>'No face match','best_distance'=>$best['dist'],'templates_scanned'=>$templatesScanned]);
+            json_resp(['success'=>false,'message'=>'No face match']);
         }
 
         // matched user
@@ -725,7 +725,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
         $threshold = 0.48;
         if ($best['user_id'] === null || $best['dist'] > $threshold) {
-            json_resp(['success'=>false,'message'=>'No face match','best_distance'=>$best['dist']]);
+            json_resp(['success'=>false,'message'=>'No face match']);
         }
 
         // map matched user_id to username so the downstream time_in/time_out logic uses the matched account
