@@ -28,15 +28,77 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
       $st->execute();
       $r = $st->get_result()->fetch_assoc();
       $st->close();
-      if (!$r) { echo json_encode(['ok'=>true,'user_exists'=>false,'password_ok'=>false,'printed'=>0]); exit; }
+      if (!$r) { echo json_encode(['ok'=>true,'user_exists'=>false,'password_ok'=>false,'printed'=>0,'has_face'=>false]); exit; }
       $stored = (string)($r['password'] ?? '');
       $role = (string)($r['role'] ?? '');
       $password_ok = ($pwd !== '' && $pwd === $stored) ? true : false;
       $role_ok = ($role === 'ojt') ? true : false;
-      echo json_encode(['ok'=>true,'user_exists'=>true,'password_ok'=>$password_ok,'printed'=>(int)($r['endorsement_printed'] ?? 0),'role'=>$role,'role_ok'=>$role_ok]);
+      // check if user already has an entry in face_templates
+      $has_face = false;
+      $user_id = (int)($r['user_id'] ?? 0);
+      if ($user_id) {
+        $st2 = $conn->prepare('SELECT 1 FROM face_templates WHERE user_id = ? LIMIT 1');
+        if ($st2) {
+          $st2->bind_param('i', $user_id);
+          $st2->execute();
+          $res2 = $st2->get_result();
+          if ($res2 && $res2->num_rows > 0) { $has_face = true; }
+          $st2->close();
+        }
+      }
+      echo json_encode(['ok'=>true,'user_exists'=>true,'password_ok'=>$password_ok,'printed'=>(int)($r['endorsement_printed'] ?? 0),'role'=>$role,'role_ok'=>$role_ok,'has_face'=>$has_face]);
       exit;
     }
-    echo json_encode(['ok'=>true,'user_exists'=>false,'password_ok'=>false,'printed'=>0,'role'=>'','role_ok'=>false]);
+    echo json_encode(['ok'=>true,'user_exists'=>false,'password_ok'=>false,'printed'=>0,'role'=>'','role_ok'=>false,'has_face'=>false]);
+    exit;
+  } catch (Exception $e) { echo json_encode(['ok'=>false,'message'=>'error']); exit; }
+}
+// AJAX: check whether a submitted descriptor matches any existing face_templates
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'check_descriptor') {
+  header('Content-Type: application/json; charset=utf-8');
+  $descRaw = $_POST['descriptor'] ?? '';
+  $username = trim($_POST['username'] ?? '');
+  if ($descRaw === '') { echo json_encode(['ok'=>false,'message'=>'missing descriptor']); exit; }
+  try {
+    $descArr = json_decode($descRaw, true);
+    if (!is_array($descArr) || count($descArr) === 0) { echo json_encode(['ok'=>false,'message'=>'invalid descriptor']); exit; }
+    // load all stored descriptors and find best (minimum L2) distance — same logic as pc_per_office.php
+    $q = $conn->prepare('SELECT ft.user_id, ft.descriptor, u.username FROM face_templates ft LEFT JOIN users u ON ft.user_id = u.user_id WHERE ft.descriptor IS NOT NULL');
+    $best = ['dist' => INF, 'user_id' => null, 'username' => null];
+    $templatesScanned = 0;
+    if ($q) {
+      $q->execute();
+      $res = $q->get_result();
+      while ($row = $res->fetch_assoc()) {
+        $storedJson = $row['descriptor'] ?? null;
+        if (!$storedJson) continue;
+        $storedArr = json_decode($storedJson, true);
+        if (!is_array($storedArr) || count($storedArr) !== count($descArr)) continue;
+        $templatesScanned++;
+        $sum = 0.0;
+        $n = count($descArr);
+        for ($i=0; $i<$n; $i++) {
+          $a = floatval($descArr[$i]);
+          $b = floatval($storedArr[$i]);
+          $d = $a - $b;
+          $sum += $d * $d;
+        }
+        $dist = sqrt($sum);
+        if ($dist < $best['dist']) {
+          $best['dist'] = $dist;
+          $best['user_id'] = (int)$row['user_id'];
+          $best['username'] = $row['username'] ?? null;
+        }
+      }
+      $q->close();
+    }
+    // apply a stricter threshold to avoid false positives (stricter than pc_per_office)
+    $threshold = 0.40;
+    if ($best['user_id'] !== null && $best['dist'] <= $threshold) {
+      echo json_encode(['ok'=>true,'match'=>true,'match'=>['user_id'=>$best['user_id'],'username'=>$best['username'],'distance'=>$best['dist'],'templates_scanned'=>$templatesScanned]]);
+      exit;
+    }
+    echo json_encode(['ok'=>true,'match'=>false,'best_distance'=>$best['dist'],'templates_scanned'=>$templatesScanned]);
     exit;
   } catch (Exception $e) { echo json_encode(['ok'=>false,'message'=>'error']); exit; }
 }
@@ -156,6 +218,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             if (!j.password_ok) { show('Invalid password', false); return; }
             if (!j.role_ok) { show('Only OJT accounts may register a face', false); return; }
             if (!j.printed) { show('The endorsement has not yet been printed by the HR Head.', false); return; }
+            if (j.has_face) { show('User already has a registered face; camera will not open.', false); return; }
             await ensureModels();
             await startCamera();
             startDetectionLoop();
@@ -207,7 +270,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         row.appendChild(yes); row.appendChild(no);
         card.appendChild(img); card.appendChild(p); card.appendChild(row); overlay.appendChild(card); document.body.appendChild(overlay);
 
-        yes.addEventListener('click', ()=>{ overlay.style.display='none'; uploadDescriptor(descriptor, dataUrl); });
+        yes.addEventListener('click', ()=>{ overlay.style.display='none'; checkAndUpload(descriptor, dataUrl); });
         no.addEventListener('click', ()=>{ overlay.style.display='none'; if (!detecting) { detecting = false; startDetectionLoop(); } });
       }
       document.getElementById('confirmImg').src = dataUrl;
@@ -238,6 +301,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         }
         else { show('Error: ' + (j && j.message ? j.message : 'failed'), false); }
       }catch(e){ show('Upload failed: ' + (e.message || e), false); }
+    }
+
+    async function checkAndUpload(descriptor, dataUrl){
+      show('Checking for existing face...', true);
+      try{
+        const fd = new FormData();
+        fd.append('action','check_descriptor');
+        fd.append('descriptor', JSON.stringify(Array.from(descriptor)));
+        fd.append('username', username.value.trim());
+        const res = await fetch(window.location.href, { method: 'POST', body: fd });
+        const j = await res.json().catch(()=>null);
+        if (!j || !j.ok) { show('Error checking descriptor', false); return; }
+        if (j.match) {
+          show('A matching face is already registered', false);
+          try{ stopCamera(); }catch(e){}
+          setTimeout(()=>{ window.location.reload(); }, 5000);
+          return;
+        }
+        // no match — proceed to upload
+        await uploadDescriptor(descriptor, dataUrl);
+      }catch(e){ show('Descriptor check failed: ' + (e.message||e), false); }
     }
 
   })();

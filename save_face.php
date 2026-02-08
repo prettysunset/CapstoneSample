@@ -61,6 +61,34 @@ if ($image && preg_match('#^data:image/(jpeg|png);base64,#i', $image, $m)) {
 
 // store record in DB: face_templates (descriptor optional)
 try {
+    // If a descriptor was provided, check for duplicates first (use strict threshold)
+    $descThreshold = 0.40; // stricter than probe threshold used elsewhere
+    if ($descriptor) {
+        $probe = json_decode($descriptor, true);
+        if (is_array($probe) && count($probe) > 0) {
+            $q = $conn->query("SELECT descriptor FROM face_templates WHERE descriptor IS NOT NULL");
+            $best = ['dist' => INF];
+            if ($q) {
+                while ($r = $q->fetch_assoc()) {
+                    $djson = $r['descriptor'] ?? null;
+                    if (!$djson) continue;
+                    $darr = json_decode($djson, true);
+                    if (!is_array($darr) || count($darr) !== count($probe)) continue;
+                    $sum = 0.0;
+                    for ($i=0,$n=count($probe); $i<$n; $i++) { $diff = (floatval($darr[$i]) - floatval($probe[$i])); $sum += $diff * $diff; }
+                    $dist = sqrt($sum);
+                    if ($dist < $best['dist']) { $best['dist'] = $dist; }
+                }
+                $q->close();
+            }
+            if ($best['dist'] !== INF && $best['dist'] <= $descThreshold) {
+                // duplicate found — do not save
+                if (!empty($path)) @unlink($path);
+                echo json_encode(['success'=>false,'message'=>'Duplicate face detected (similar template exists)','best_distance'=>$best['dist']]);
+                exit;
+            }
+        }
+    }
     $ins = $conn->prepare("INSERT INTO face_templates (user_id, file_path, descriptor) VALUES (?, ?, ?)");
     $descJson = $descriptor ? $descriptor : null;
     $ins->bind_param('iss', $user['user_id'], $rel, $descJson);
