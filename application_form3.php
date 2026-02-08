@@ -148,8 +148,14 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         if (!in_array($finfoType, $allowedMimes, true)) {
           return '';
         }
-        $fileName = 'tmp_' . uniqid() . '_' . preg_replace('/[^A-Za-z0-9_\-\.]/', '_', basename($_FILES[$inputName]['name']));
+        // try to preserve the original filename for clarity; avoid collisions by adding a uniqid prefix only when needed
+        $origBase = preg_replace('/[^A-Za-z0-9_\-\.]/', '_', basename($_FILES[$inputName]['name']));
+        $fileName = $origBase;
         $targetPath = $tmpDir . $fileName;
+        if (file_exists($targetPath)) {
+          $fileName = uniqid() . '_' . $origBase;
+          $targetPath = $tmpDir . $fileName;
+        }
         if (move_uploaded_file($_FILES[$inputName]['tmp_name'], $targetPath)) {
           // return web-accessible relative path (same uploads/ prefix used elsewhere)
           $rel = 'uploads/tmp/' . $fileName;
@@ -260,11 +266,19 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                   // $relPath expected like 'uploads/tmp/tmp_xxx_filename'
                   $src = __DIR__ . DIRECTORY_SEPARATOR . ltrim(str_replace('/', DIRECTORY_SEPARATOR, $relPath), DIRECTORY_SEPARATOR);
                   if (!file_exists($src)) return '';
-                  $newName = time() . '_' . basename($src);
-                  $destFS = __DIR__ . DIRECTORY_SEPARATOR . rtrim(str_replace('/', DIRECTORY_SEPARATOR, $uploadDir), DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . $newName;
+                  // Preserve original basename when promoting; avoid collisions by prefixing timestamp only if needed
+                  $origBasename = basename($src);
+                  $newName = $origBasename;
+                  $destDir = __DIR__ . DIRECTORY_SEPARATOR . rtrim(str_replace('/', DIRECTORY_SEPARATOR, $uploadDir), DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR;
+                  if (!is_dir($destDir)) mkdir($destDir, 0777, true);
+                  $destFS = $destDir . $newName;
+                  if (file_exists($destFS)) {
+                    $newName = time() . '_' . $origBasename;
+                    $destFS = $destDir . $newName;
+                  }
                   if (rename($src, $destFS)) {
                     // return relative web path (uploads/filename)
-                    return rtrim($uploadDir, '/') . $newName;
+                    return rtrim($uploadDir, '/') . '/' . $newName;
                   }
                   return '';
                 }
@@ -591,6 +605,22 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     color: #4a6ff3;
     text-decoration: underline;
   }
+  /* style the "Change" control as a compact native-like button */
+  .change-file {
+    background: #f5f5f5;
+    border: 1px solid #bfbfbf;
+    color: #222;
+    padding: 4px 8px;
+    margin-left: 8px;
+    cursor: pointer;
+    font-size: 13px;
+    border-radius: 6px;
+    display: inline-block;
+    text-decoration: none;
+    font-weight: 600;
+    line-height: 1.1;
+  }
+  .change-file:focus { outline: none; box-shadow: 0 0 0 3px rgba(74,111,243,0.12); }
 /* Login button */
 .nav-links .login a {
     background-color: #344265;
@@ -795,7 +825,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
   }
 ?>
           <?php else: ?>
-            <label>Memorandum of Agreement (to follow) (PDF preferred)</label>
+            <label>Memorandum of Agreement (to follow) (PDF)</label>
             <?php if (!empty($af3['files']['moa'])): ?>
               <?php $fp = htmlspecialchars($af3['files']['moa']); ?>
               <div class="saved-file" data-field="moa">

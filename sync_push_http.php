@@ -174,8 +174,64 @@ try {
 } catch (Exception $e) {
     // ignore pull errors
 }
+$studentsPulled = 0; $studentsCreated = 0; $studentsUpdated = 0;
+// --- remote -> local students sync (pull full table, including total_hours_required) ---
+try {
+    $c = $local->query("SHOW TABLES LIKE 'students'");
+    if ($c && $c->num_rows > 0) {
+        // Ensure local column exists (best-effort)
+        try { $local->query("ALTER TABLE students ADD COLUMN IF NOT EXISTS total_hours_required INT DEFAULT 0"); } catch (Exception $e) {}
 
-echo json_encode(['ok'=>true,'pushed'=>$pushed,'failed'=>$failed,'users_pulled'=>$usersPulled,'users_created'=>$usersCreated,'users_updated'=>$usersUpdated]);
+        $rs = $remote->query("SELECT student_id, user_id, first_name, last_name, status, COALESCE(total_hours_required,0) AS total_hours_required FROM students");
+        if ($rs) {
+            while ($r = $rs->fetch_assoc()) {
+                $studentsPulled++;
+                $sid = isset($r['student_id']) ? (int)$r['student_id'] : null;
+                // check local existence by student_id
+                $st = null;
+                if ($sid !== null) {
+                    $chk = $local->prepare('SELECT student_id FROM students WHERE student_id = ? LIMIT 1');
+                    if ($chk) {
+                        $chk->bind_param('i', $sid);
+                        $chk->execute();
+                        $st = $chk->get_result()->fetch_assoc();
+                        $chk->close();
+                    }
+                }
+
+                $fn = $r['first_name'] ?? '';
+                $ln = $r['last_name'] ?? '';
+                $uid = isset($r['user_id']) ? (int)$r['user_id'] : 0;
+                $status = $r['status'] ?? '';
+                $thr = isset($r['total_hours_required']) ? (int)$r['total_hours_required'] : 0;
+
+                if ($st) {
+                    // update local row
+                    try {
+                        $u = $local->prepare('UPDATE students SET user_id = ?, first_name = ?, last_name = ?, status = ?, total_hours_required = ? WHERE student_id = ?');
+                        if ($u) { $u->bind_param('isssii', $uid, $fn, $ln, $status, $thr, $sid); $u->execute(); $u->close(); $studentsUpdated++; }
+                    } catch (Exception $ex) { /* ignore per-row errors */ }
+                } else {
+                    // insert minimal row (use provided student_id if available)
+                    try {
+                        if ($sid !== null) {
+                            $ins = $local->prepare('INSERT INTO students (student_id, user_id, first_name, last_name, status, total_hours_required) VALUES (?, ?, ?, ?, ?, ?)');
+                            if ($ins) { $ins->bind_param('iisssi', $sid, $uid, $fn, $ln, $status, $thr); $ok = $ins->execute(); $ins->close(); if ($ok) $studentsCreated++; }
+                        } else {
+                            $ins = $local->prepare('INSERT INTO students (user_id, first_name, last_name, status, total_hours_required) VALUES (?, ?, ?, ?, ?)');
+                            if ($ins) { $ins->bind_param('isssi', $uid, $fn, $ln, $status, $thr); $ok = $ins->execute(); $ins->close(); if ($ok) $studentsCreated++; }
+                        }
+                    } catch (Exception $ex) { /* ignore insert errors */ }
+                }
+            }
+            $rs->close();
+        }
+    }
+} catch (Exception $e) {
+    // ignore students pull errors
+}
+
+echo json_encode(['ok'=>true,'pushed'=>$pushed,'failed'=>$failed,'users_pulled'=>$usersPulled,'users_created'=>$usersCreated,'users_updated'=>$usersUpdated,'students_pulled'=>$studentsPulled,'students_created'=>$studentsCreated,'students_updated'=>$studentsUpdated]);
 $local->close(); $remote->close();
 exit;
 
