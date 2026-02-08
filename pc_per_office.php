@@ -404,7 +404,48 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $up2->bind_param('iii', $hours, $minutes, $dtr['dtr_id']); $up2->execute(); $up2->close();
                 $conn->commit(); json_resp(['success'=>true,'message'=>'Time out recorded. Thank you for today, ' . $matched_display,'user_id'=>$matched_user_id,'username'=>$matched_display,'display_name'=>$matched_display,'hours'=>$hours,'minutes'=>$minutes,'distance'=>$best['dist'],'templates_scanned'=>$templatesScanned]);
             }
+            // if AM was timed in but AM out missing, allow face-scan to record AM time-out
+            if (!empty($dtr['am_in']) && empty($dtr['am_out'])) {
+                $inTime = $dtr['am_in'];
+                $fmtIn = DateTime::createFromFormat('Y-m-d H:i:s', $today . ' ' . $inTime) ?: DateTime::createFromFormat('Y-m-d H:i', $today . ' ' . $inTime);
+                $fmtNow = DateTime::createFromFormat('Y-m-d H:i:s', $today . ' ' . $now) ?: DateTime::createFromFormat('Y-m-d H:i', $today . ' ' . $now);
+                if ($fmtIn && $fmtNow) {
+                    if ($fmtNow <= $fmtIn) { $conn->rollback(); json_resp(['success'=>false,'message'=>'AM Time Out must be after AM Time In']); }
+                }
+
+                // require explicit confirmation to record a time-out (prevents accidental double-punches)
+                if (empty($_POST['confirm']) || $_POST['confirm'] !== '1') {
+                    $conn->rollback();
+                    json_resp(['success'=>false,'confirm'=>'time_out','message'=>'ARE YOU SURE YOU WILL TIME OUT?','field'=>'am_out']);
+                }
+
+                $upd = $conn->prepare("UPDATE dtr SET am_out = ? WHERE dtr_id = ?");
+                $upd->bind_param('si', $now, $dtr['dtr_id']); $upd->execute(); $upd->close();
+
+                // recompute hours/minutes for any completed pairs and update dtr
+                $sel = $conn->prepare("SELECT am_in,am_out,pm_in,pm_out FROM dtr WHERE dtr_id = ? LIMIT 1");
+                $sel->bind_param('i', $dtr['dtr_id']); $sel->execute(); $row = $sel->get_result()->fetch_assoc(); $sel->close();
+                $totalMin = 0;
+                foreach ([['am_in','am_out'], ['pm_in','pm_out']] as $p) {
+                    if (!empty($row[$p[0]]) && !empty($row[$p[1]])) {
+                        $fmt1 = DateTime::createFromFormat('Y-m-d H:i:s', $today . ' ' . $row[$p[0]]);
+                        if (!$fmt1) $fmt1 = DateTime::createFromFormat('Y-m-d H:i', $today . ' ' . $row[$p[0]]);
+                        $fmt2 = DateTime::createFromFormat('Y-m-d H:i:s', $today . ' ' . $row[$p[1]]);
+                        if (!$fmt2) $fmt2 = DateTime::createFromFormat('Y-m-d H:i', $today . ' ' . $row[$p[1]]);
+                        if ($fmt1 && $fmt2) { $diff = $fmt2->getTimestamp() - $fmt1->getTimestamp(); if ($diff > 0) $totalMin += intval($diff/60); }
+                    }
+                }
+                if ($totalMin > 480) $totalMin = 480;
+                $hours = intdiv($totalMin, 60); $minutes = $totalMin % 60;
+                $up2 = $conn->prepare("UPDATE dtr SET hours = ?, minutes = ? WHERE dtr_id = ?");
+                $up2->bind_param('iii', $hours, $minutes, $dtr['dtr_id']); $up2->execute(); $up2->close();
+
+                $conn->commit(); json_resp(['success'=>true,'message'=>'Time out recorded. Thank you for today, ' . $matched_display,'user_id'=>$matched_user_id,'username'=>$matched_display,'display_name'=>$matched_display,'hours'=>$hours,'minutes'=>$minutes,'distance'=>$best['dist'],'templates_scanned'=>$templatesScanned]);
+            }
+
             if (!empty($dtr['am_out']) && empty($dtr['pm_in'])) {
+                // do not allow starting PM session during morning hours
+                if (isset($hourForDecision) && $hourForDecision < 12) { $conn->rollback(); json_resp(['success'=>false,'message'=>'Cannot record PM time-in during morning hours']); }
                 $upd = $conn->prepare("UPDATE dtr SET pm_in = ? WHERE dtr_id = ?");
                 $upd->bind_param('si', $now, $dtr['dtr_id']); $upd->execute(); $upd->close();
                 $conn->commit(); json_resp(['success'=>true,'message'=>'Time in recorded. Have a good day, ' . $matched_display,'user_id'=>$matched_user_id,'username'=>$matched_display,'display_name'=>$matched_display]);
@@ -612,6 +653,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                         $conn->commit(); json_resp(['success'=>true,'message'=>'Time out recorded. Thank you for today, ' . $matched_display,'user_id'=>$matched_user_id,'username'=>$matched_display,'display_name'=>$matched_display,'hours'=>$hours,'minutes'=>$minutes]);
                     }
                     if (!empty($dtr['am_out']) && empty($dtr['pm_in'])) {
+                        // do not allow starting PM session during morning hours
+                        if (isset($hourForDecision) && $hourForDecision < 12) { $conn->rollback(); json_resp(['success'=>false,'message'=>'Cannot record PM time-in during morning hours']); }
                         $upd = $conn->prepare("UPDATE dtr SET pm_in = ? WHERE dtr_id = ?");
                         $upd->bind_param('si', $now, $dtr['dtr_id']); $upd->execute(); $upd->close();
                         $conn->commit(); json_resp(['success'=>true,'message'=>'Time in recorded (PM)','user_id'=>$matched_user_id,'username'=>$matched_display,'display_name'=>$matched_display]);
@@ -738,38 +781,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $display_name = trim($urow2['display_name'] ?? '') ?: ($user['username'] ?? '');
     } catch (Exception $e) { $display_name = ($user['username'] ?? ''); }
 
-    // --- enforce account age: disallow time-in/out if account is less than 1 week old ---
-    try {
-        $dc = $conn->prepare("SELECT DATE_FORMAT(date_created, '%Y-%m-%d') AS date_created FROM users WHERE user_id = ? LIMIT 1");
-        $dc->bind_param('i', $user['user_id']);
-        $dc->execute();
-        $dcRow = $dc->get_result()->fetch_assoc();
-        $dc->close();
-    } catch (Exception $e) {
-        $dcRow = null;
-    }
-    if ($dcRow && !empty($dcRow['date_created'])) {
-        $createdDate = $dcRow['date_created']; // yyyy-mm-dd
-        // determine effective date: prefer client_local_date, then client_ts, then server date
-        $effectiveDate = '';
-        if (!empty($client_local_date)) {
-            $effectiveDate = $client_local_date;
-        } elseif (!empty($client_ts)) {
-            try { $tmp = new DateTime($client_ts); $effectiveDate = $tmp->format('Y-m-d'); } catch (Exception $e) { /* ignore */ }
-        }
-        if (!$effectiveDate) {
-            $row = $conn->query("SELECT DATE_FORMAT(NOW(), '%Y-%m-%d') AS today")->fetch_assoc();
-            $effectiveDate = $row['today'] ?? date('Y-m-d');
-        }
-        // per requirement allow logging on createdDate + 8 days (example: 2025-11-17 -> allowed 2025-11-25)
-        $allowFrom = (new DateTime($createdDate))->modify('+8 days')->format('Y-m-d');
-        if ($effectiveDate < $allowFrom) {
-            json_resp([
-                'success' => false,
-                'message' => "You will be able to time in after your orientation"
-            ]);
-        }
-    }
+    // Account age enforcement removed: registration/endorsement is validated in register_face.php
 
     // 2) Verify password - SKIPPED per request (development only)
     // Allow action when username exists and role will be checked below.
@@ -911,16 +923,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
             // NOTE: 17:00 Time In cutoff removed for testing — allow Time In at any time.
 
-            if ($field === 'am_in') {
-                if ($dtr && !empty($dtr['am_in'])) {
-                    $conn->rollback();
-                    json_resp(['success'=>false,'message'=>'AM already timed in']);
-                }
+            // Enforce AM/PM strictness based on the click time: disallow creating a PM time-in during morning hours
+            $dtTmp2 = DateTime::createFromFormat('H:i:s', $now) ?: DateTime::createFromFormat('H:i', $now);
+            $currHour = $dtTmp2 ? (int)$dtTmp2->format('H') : (int)date('H');
+            $isAMNow = ($currHour < 12);
+            if ($isAMNow) {
+                // during morning hours only AM time-ins allowed
+                if ($field !== 'am_in') { $conn->rollback(); json_resp(['success'=>false,'message'=>'Cannot record PM time-in during morning hours']); }
+                if ($dtr && !empty($dtr['am_in']) && !empty($dtr['am_out'])) { $conn->rollback(); json_resp(['success'=>false,'message'=>'Morning session already completed']); }
+                if ($dtr && !empty($dtr['am_in']) && empty($dtr['am_out'])) { $conn->rollback(); json_resp(['success'=>false,'message'=>'AM already timed in']); }
             } else {
-                if ($dtr && !empty($dtr['pm_in'])) {
-                    $conn->rollback();
-                    json_resp(['success'=>false,'message'=>'PM already timed in']);
-                }
+                // during afternoon hours only PM time-ins allowed
+                if ($field !== 'pm_in') { $conn->rollback(); json_resp(['success'=>false,'message'=>'Cannot record AM time-in during afternoon hours']); }
+                if ($dtr && !empty($dtr['pm_in']) && !empty($dtr['pm_out'])) { $conn->rollback(); json_resp(['success'=>false,'message'=>'Afternoon session already completed']); }
+                if ($dtr && !empty($dtr['pm_in']) && empty($dtr['pm_out'])) { $conn->rollback(); json_resp(['success'=>false,'message'=>'PM already timed in']); }
             }
         } elseif ($action === 'time_out') {
             // must have an existing dtr row with an unmatched IN
