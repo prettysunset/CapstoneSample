@@ -136,6 +136,71 @@ while ($row = $res->fetch_assoc()) {
 
 echo "Push complete: {$pushed} pushed, {$failed} failed\n";
 
+// --- Push unsynced users and students using the same connections (run together) ---
+try {
+    // ensure synced columns exist on users/students (best-effort)
+    try {
+        $c = $local->query("SHOW COLUMNS FROM `users` LIKE 'synced'"); if (!$c || $c->num_rows === 0) $local->query("ALTER TABLE users ADD COLUMN synced TINYINT(1) DEFAULT 1");
+        $c = $local->query("SHOW COLUMNS FROM `students` LIKE 'synced'"); if (!$c || $c->num_rows === 0) $local->query("ALTER TABLE students ADD COLUMN synced TINYINT(1) DEFAULT 1");
+    } catch (Exception $e) { /* ignore */ }
+
+    // push users (status only)
+    $pushedUsers = 0; $failedUsers = 0;
+    $ru = $local->query("SELECT user_id, status FROM users WHERE COALESCE(synced,0) = 0 LIMIT 500");
+    if ($ru && $ru->num_rows) {
+        error_log('sync_push: found unsynced users: ' . $ru->num_rows);
+        while ($rowU = $ru->fetch_assoc()) {
+            $uid = (int)$rowU['user_id'];
+            try {
+                $remote->begin_transaction();
+                $chk = $remote->prepare('SELECT user_id FROM users WHERE user_id = ? LIMIT 1');
+                $chk->bind_param('i', $uid); $chk->execute(); $rchk = $chk->get_result()->fetch_assoc(); $chk->close();
+                if ($rchk) {
+                    $stmt = $remote->prepare('UPDATE users SET status = ? WHERE user_id = ?');
+                    $stmt->bind_param('si', $rowU['status'], $uid); $stmt->execute(); $stmt->close();
+                } else {
+                    $stmt = $remote->prepare('INSERT INTO users (user_id, status) VALUES (?, ?)');
+                    $stmt->bind_param('is', $uid, $rowU['status']); $stmt->execute(); $stmt->close();
+                }
+                $remote->commit();
+                $u = $local->prepare('UPDATE users SET synced = 1 WHERE user_id = ?'); $u->bind_param('i', $uid); $u->execute(); $u->close();
+                $pushedUsers++;
+            } catch (Exception $e) {
+                $remote->rollback(); $failedUsers++; error_log('sync_push: user push failed user_id=' . $uid . ' err=' . $e->getMessage());
+            }
+        }
+    }
+    error_log('sync_push: users pushed=' . $pushedUsers . ' failed=' . $failedUsers);
+
+    // push students (status only)
+    $pushedStudents = 0; $failedStudents = 0;
+    $rs = $local->query("SELECT student_id, status FROM students WHERE COALESCE(synced,0) = 0 LIMIT 500");
+    if ($rs && $rs->num_rows) {
+        error_log('sync_push: found unsynced students: ' . $rs->num_rows);
+        while ($rowS = $rs->fetch_assoc()) {
+            $sid = (int)$rowS['student_id'];
+            try {
+                $remote->begin_transaction();
+                $chk = $remote->prepare('SELECT student_id FROM students WHERE student_id = ? LIMIT 1');
+                $chk->bind_param('i', $sid); $chk->execute(); $rchk = $chk->get_result()->fetch_assoc(); $chk->close();
+                if ($rchk) {
+                    $stmt = $remote->prepare('UPDATE students SET status = ? WHERE student_id = ?');
+                    $stmt->bind_param('si', $rowS['status'], $sid); $stmt->execute(); $stmt->close();
+                } else {
+                    $stmt = $remote->prepare('INSERT INTO students (student_id, status) VALUES (?, ?)');
+                    $stmt->bind_param('is', $sid, $rowS['status']); $stmt->execute(); $stmt->close();
+                }
+                $remote->commit();
+                $u = $local->prepare('UPDATE students SET synced = 1 WHERE student_id = ?'); $u->bind_param('i', $sid); $u->execute(); $u->close();
+                $pushedStudents++;
+            } catch (Exception $e) {
+                $remote->rollback(); $failedStudents++; error_log('sync_push: student push failed student_id=' . $sid . ' err=' . $e->getMessage());
+            }
+        }
+    }
+    error_log('sync_push: students pushed=' . $pushedStudents . ' failed=' . $failedStudents);
+} catch (Exception $e) { error_log('sync_push: users/students push error: ' . $e->getMessage()); }
+
 $local->close();
 $remote->close();
 

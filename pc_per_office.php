@@ -33,6 +33,22 @@ try {
 // Use the same connection as localConn for any local-buffer helper functions
 $localConn = $conn;
 
+// Best-effort: ensure `synced` column exists on key tables to avoid SQL errors
+function ensure_synced_column_exists($conn, $table) {
+    try {
+        $c = $conn->query("SHOW COLUMNS FROM `" . $table . "` LIKE 'synced'");
+        if (!$c || $c->num_rows === 0) {
+            $conn->query("ALTER TABLE `" . $table . "` ADD COLUMN synced TINYINT(1) DEFAULT 1");
+        }
+    } catch (Exception $e) {
+        // ignore: if ALTER fails (permissions) we still prefer the main flow to continue
+    }
+}
+
+ensure_synced_column_exists($localConn, 'users');
+ensure_synced_column_exists($localConn, 'students');
+ensure_synced_column_exists($localConn, 'dtr');
+
 
 // Helper to send JSON
 function json_resp($arr){
@@ -67,9 +83,10 @@ function mark_user_and_student_completed_if_done($conn, $user_id, $student_id) {
             $req = isset($r['total_hours_required']) ? (int)$r['total_hours_required'] : 0;
         }
         if ($req > 0 && $totalMin >= ($req * 60)) {
-            $u = $conn->prepare("UPDATE users SET status = 'completed' WHERE user_id = ?");
+            // mark local rows as changed and ensure sync job will push them
+            $u = $conn->prepare("UPDATE users SET status = 'completed', synced = 0 WHERE user_id = ?");
             if ($u) { $u->bind_param('i', $user_id); $u->execute(); $u->close(); }
-            $s = $conn->prepare("UPDATE students SET status = 'completed' WHERE student_id = ?");
+            $s = $conn->prepare("UPDATE students SET status = 'completed', synced = 0 WHERE student_id = ?");
             if ($s) { $s->bind_param('i', $student_id); $s->execute(); $s->close(); }
             return true;
         }
@@ -396,7 +413,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $ins->execute();
                 $ins->close();
                 // update statuses if needed
-                $updUser = $conn->prepare("UPDATE users SET status = 'ongoing' WHERE user_id = ?");
+                $updUser = $conn->prepare("UPDATE users SET status = 'ongoing', synced = 0 WHERE user_id = ?");
                 $updUser->bind_param('i', $matched_user_id); $updUser->execute(); $updUser->close();
                 $conn->commit();
                 json_resp(['success'=>true,'message'=>'Time in recorded. Have a good day, ' . $matched_display,'user_id'=>$matched_user_id,'username'=>$matched_display,'display_name'=>$matched_display]);
@@ -673,7 +690,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                         $ins->bind_param('iss', $dtr_owner, $today, $now);
                         $ins->execute();
                         $ins->close();
-                        $updUser = $conn->prepare("UPDATE users SET status = 'ongoing' WHERE user_id = ?");
+                        $updUser = $conn->prepare("UPDATE users SET status = 'ongoing', synced = 0 WHERE user_id = ?");
                         $updUser->bind_param('i', $matched_user_id); $updUser->execute(); $updUser->close();
                         $conn->commit();
                         json_resp(['success'=>true,'message'=>$msgLabel,'user_id'=>$matched_user_id,'username'=>$matched_display,'display_name'=>$matched_display]);
@@ -1117,12 +1134,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
             // if this is the first time-in ever, update statuses to 'ongoing'
             if ($isFirstTimeIn) {
-                $updUser = $conn->prepare("UPDATE users SET status = 'ongoing' WHERE user_id = ?");
+                $updUser = $conn->prepare("UPDATE users SET status = 'ongoing', synced = 0 WHERE user_id = ?");
                 $updUser->bind_param('i', $user['user_id']);
                 $updUser->execute();
                 $updUser->close();
 
-                $updStudent = $conn->prepare("UPDATE students SET status = 'ongoing' WHERE student_id = ?");
+                $updStudent = $conn->prepare("UPDATE students SET status = 'ongoing', synced = 0 WHERE student_id = ?");
                 $updStudent->bind_param('i', $student_id);
                 $updStudent->execute();
                 $updStudent->close();
