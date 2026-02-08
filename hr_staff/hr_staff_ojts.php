@@ -543,7 +543,7 @@ if ($moa_q) {
                      <td><?= htmlspecialchars($hours) ?></td>
                      <td class="<?= $statusClass ?>"><?= ucfirst($status) ?></td>
                      <td>
-                         <button class="view-btn" title="View" onclick="openViewModal(<?= $appId ?>, <?= $userId ?>)" aria-label="View">
+                         <button class="view-btn" title="View" onclick="openViewModal(<?= $appId ?>, <?= $userId ?>, <?= json_encode(round((float)$rendered,2)) ?>, <?= json_encode($reqVal === null ? null : (int)$reqVal) ?>)" aria-label="View">
                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true">
                              <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/>
                              <circle cx="12" cy="12" r="3"/>
@@ -577,7 +577,6 @@ if ($moa_q) {
           </div>
 
           <div class="view-tools" aria-hidden="true">
-            <button class="tool-link" id="printEndorse">Print Endorsement</button>
             <button class="tool-link" id="printDTR">Print DTR</button>
           </div>
         </div>
@@ -855,8 +854,8 @@ if ($moa_q) {
 
     // expose simple view open used elsewhere
     window.openViewModal = window.openViewModal || function(appId){
-        // fallback: navigate to application_view.php if modal endpoint not available
-        window.location.href = 'application_view.php?id=' + encodeURIComponent(appId);
+      // fallback: navigate to application_view.php if modal endpoint not available
+      window.location.href = 'application_view.php?id=' + encodeURIComponent(appId);
     };
 
     // call backend to approve/decline office requested limits
@@ -907,7 +906,9 @@ if ($moa_q) {
       t.addEventListener('click', switchViewTab);
     });
     // openViewModal: fetch application details and populate modal
-    window.openViewModal = async function(appId, userId){
+    // accepts optional precomputed values from the table row to display immediately:
+    // openViewModal(appId, userId, preRenderedHours:number|null, preRequiredHours:number|null)
+    window.openViewModal = async function(appId, userId, preRendered, preRequired){
        showViewOverlay();
        // reset
        ['view_name','view_age','view_birthday','view_address','view_phone','view_email','view_college','view_course','view_year','view_school_address','view_adviser','view_emg_name','view_emg_rel','view_emg_contact','view_hours_text','view_dates','view_assigned_office','view_office_head','view_office_contact','view_attachments_list'].forEach(id=>{
@@ -994,15 +995,27 @@ if ($moa_q) {
         }
 
         // hours + progress
-        const rendered = Number(s.hours_rendered || d.hours_rendered || 0);
-        const requiredRaw = (s.total_hours_required !== undefined && s.total_hours_required !== null) ? s.total_hours_required : (d.total_hours_required !== undefined && d.total_hours_required !== null ? d.total_hours_required : null);
-        const required = Number(requiredRaw || 0);
-        const requiredDisplay = requiredRaw === null ? '—' : String(required);
-        document.getElementById('view_hours_text').textContent = `${rendered} out of ${requiredDisplay} hours`;
-        // Date Started / Expected End will be computed after fetching DTR rows below
-        document.getElementById('view_dates').textContent = `Date Started: —\nExpected End Date: —`;
-        const pct = (requiredRaw !== null && required > 0) ? (rendered / required * 100) : 0;
-        setDonut(pct);
+          // use server-provided values but prefer precomputed values passed from the table
+          const rendered = Number(s.hours_rendered || d.hours_rendered || 0);
+          const requiredRaw = (s.total_hours_required !== undefined && s.total_hours_required !== null) ? s.total_hours_required : (d.total_hours_required !== undefined && d.total_hours_required !== null ? d.total_hours_required : null);
+          const required = Number(requiredRaw || 0);
+          const requiredDisplay = requiredRaw === null ? '—' : String(required);
+          // If the caller provided precomputed values (table already had DTR-summed hours),
+          // show them immediately while the modal fetches detailed DTR rows. These will
+          // still be overridden later when computeAndUpdateDates runs.
+          if (typeof preRendered !== 'undefined' && preRendered !== null) {
+            const hoursElImmediate = document.getElementById('view_hours_text');
+            const reqDispImmediate = (preRequired === null || preRequired === undefined) ? requiredDisplay : String(preRequired);
+            if (hoursElImmediate) hoursElImmediate.textContent = `${preRendered} out of ${reqDispImmediate} hours`;
+            const pctImmediate = (preRequired !== null && preRequired !== undefined && preRequired > 0) ? (Number(preRendered) / Number(preRequired) * 100) : 0;
+            setDonut(pctImmediate);
+          } else {
+            document.getElementById('view_hours_text').textContent = `${rendered} out of ${requiredDisplay} hours`;
+            // Date Started / Expected End will be computed after fetching DTR rows below
+            document.getElementById('view_dates').textContent = `Date Started: —\nExpected End Date: —`;
+            const pct = (requiredRaw !== null && required > 0) ? (rendered / required * 100) : 0;
+            setDonut(pct);
+          }
 
         // assigned office block
         document.getElementById('view_assigned_office').textContent = d.office1 || d.office || '—';
@@ -1290,7 +1303,6 @@ if ($moa_q) {
         })();
 
         // wire print buttons (simple open new window to printable endpoint)
-        document.getElementById('printEndorse').onclick = function(){ window.open('print_endorsement_staff.php?id=' + encodeURIComponent(appId),'_blank'); };
         document.getElementById('printDTR').onclick = function(){ window.open('print_dtr.php?id=' + encodeURIComponent(appId),'_blank'); };
 
       }catch(err){
