@@ -11236,3 +11236,17 @@ Press CTRL+C to quit
 127.0.0.1 - - [08/Feb/2026 14:00:32] "POST /antispoof HTTP/1.1" 200 -
 127.0.0.1 - - [08/Feb/2026 14:33:32] "GET /ping HTTP/1.1" 200 -
 127.0.0.1 - - [08/Feb/2026 14:35:00] "GET /ping HTTP/1.1" 200 -
+127.0.0.1 - - [08/Feb/2026 14:40:01] "GET /ping HTTP/1.1" 200 -
+127.0.0.1 - - [08/Feb/2026 14:43:46] "GET /ping HTTP/1.1" 200 -
+127.0.0.1 - - [08/Feb/2026 14:44:38] "GET /ping HTTP/1.1" 200 -
+127.0.0.1 - - [08/Feb/2026 14:45:24] "OPTIONS /antispoof HTTP/1.1" 200 -
+127.0.0.1 - - [08/Feb/2026 14:45:24] "POST /antispoof HTTP/1.1" 200 -
+127.0.0.1 - - [08/Feb/2026 14:45:24] "POST /antispoof HTTP/1.1" 200 -
+127.0.0.1 - - [08/Feb/2026 14:45:25] "POST /antispoof HTTP/1.1" 200 -
+127.0.0.1 - - [08/Feb/2026 14:45:26] "POST /antispoof HTTP/1.1" 200 -
+127.0.0.1 - - [08/Feb/2026 14:45:27] "POST /antispoof HTTP/1.1" 200 -
+127.0.0.1 - - [08/Feb/2026 14:45:28] "POST /antispoof HTTP/1.1" 200 -
+127.0.0.1 - - [08/Feb/2026 14:47:11] "OPTIONS /antispoof HTTP/1.1" 200 -
+127.0.0.1 - - [08/Feb/2026 14:47:11] "POST /antispoof HTTP/1.1" 200 -
+127.0.0.1 - - [08/Feb/2026 14:47:11] "POST /antispoof HTTP/1.1" 200 -
+127.0.0.1 - - [08/Feb/2026 14:47:15] "POST /antispoof HTTP/1.1" 200 -

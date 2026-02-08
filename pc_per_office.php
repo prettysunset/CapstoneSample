@@ -356,11 +356,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             if (empty($dtr['am_in']) && empty($dtr['pm_in'])) {
                 // neither IN present: choose based on client hour
                 if ($hour < 12) {
-                    $upd = $conn->prepare("UPDATE dtr SET am_in = ? WHERE dtr_id = ?");
+                    $upd = $conn->prepare("UPDATE dtr SET am_in = ?, synced = 0 WHERE dtr_id = ?");
                     $upd->bind_param('si', $now, $dtr['dtr_id']); $upd->execute(); $upd->close();
                     $conn->commit(); json_resp(['success'=>true,'message'=>'Time in recorded. Have a good day, ' . $matched_display,'user_id'=>$matched_user_id,'username'=>$matched_display,'display_name'=>$matched_display]);
                 } else {
-                    $upd = $conn->prepare("UPDATE dtr SET pm_in = ? WHERE dtr_id = ?");
+                    $upd = $conn->prepare("UPDATE dtr SET pm_in = ?, synced = 0 WHERE dtr_id = ?");
                     $upd->bind_param('si', $now, $dtr['dtr_id']); $upd->execute(); $upd->close();
                     $conn->commit(); json_resp(['success'=>true,'message'=>'Time in recorded. Have a good day, ' . $matched_display,'user_id'=>$matched_user_id,'username'=>$matched_display,'display_name'=>$matched_display]);
                 }
@@ -383,7 +383,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     json_resp(['success'=>false,'confirm'=>'time_out','message'=>'ARE YOU SURE YOU WILL TIME OUT?','field'=>'pm_out']);
                 }
 
-                $upd = $conn->prepare("UPDATE dtr SET pm_out = ? WHERE dtr_id = ?");
+                $upd = $conn->prepare("UPDATE dtr SET pm_out = ?, synced = 0 WHERE dtr_id = ?");
                 $upd->bind_param('si', $now, $dtr['dtr_id']); $upd->execute(); $upd->close();
                 // recompute hours/minutes for any completed pairs and update dtr
                 $sel = $conn->prepare("SELECT am_in,am_out,pm_in,pm_out FROM dtr WHERE dtr_id = ? LIMIT 1");
@@ -400,7 +400,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 }
                 if ($totalMin > 480) $totalMin = 480;
                 $hours = intdiv($totalMin, 60); $minutes = $totalMin % 60;
-                $up2 = $conn->prepare("UPDATE dtr SET hours = ?, minutes = ? WHERE dtr_id = ?");
+                $up2 = $conn->prepare("UPDATE dtr SET hours = ?, minutes = ?, synced = 0 WHERE dtr_id = ?");
                 $up2->bind_param('iii', $hours, $minutes, $dtr['dtr_id']); $up2->execute(); $up2->close();
                 $conn->commit(); json_resp(['success'=>true,'message'=>'Time out recorded. Thank you for today, ' . $matched_display,'user_id'=>$matched_user_id,'username'=>$matched_display,'display_name'=>$matched_display,'hours'=>$hours,'minutes'=>$minutes,'distance'=>$best['dist'],'templates_scanned'=>$templatesScanned]);
             }
@@ -419,7 +419,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     json_resp(['success'=>false,'confirm'=>'time_out','message'=>'ARE YOU SURE YOU WILL TIME OUT?','field'=>'am_out']);
                 }
 
-                $upd = $conn->prepare("UPDATE dtr SET am_out = ? WHERE dtr_id = ?");
+                $upd = $conn->prepare("UPDATE dtr SET am_out = ?, synced = 0 WHERE dtr_id = ?");
                 $upd->bind_param('si', $now, $dtr['dtr_id']); $upd->execute(); $upd->close();
 
                 // recompute hours/minutes for any completed pairs and update dtr
@@ -437,7 +437,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 }
                 if ($totalMin > 480) $totalMin = 480;
                 $hours = intdiv($totalMin, 60); $minutes = $totalMin % 60;
-                $up2 = $conn->prepare("UPDATE dtr SET hours = ?, minutes = ? WHERE dtr_id = ?");
+                $up2 = $conn->prepare("UPDATE dtr SET hours = ?, minutes = ?, synced = 0 WHERE dtr_id = ?");
                 $up2->bind_param('iii', $hours, $minutes, $dtr['dtr_id']); $up2->execute(); $up2->close();
 
                 $conn->commit(); json_resp(['success'=>true,'message'=>'Time out recorded. Thank you for today, ' . $matched_display,'user_id'=>$matched_user_id,'username'=>$matched_display,'display_name'=>$matched_display,'hours'=>$hours,'minutes'=>$minutes,'distance'=>$best['dist'],'templates_scanned'=>$templatesScanned]);
@@ -446,7 +446,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             if (!empty($dtr['am_out']) && empty($dtr['pm_in'])) {
                 // do not allow starting PM session during morning hours
                 if (isset($hourForDecision) && $hourForDecision < 12) { $conn->rollback(); json_resp(['success'=>false,'message'=>'Cannot record PM time-in during morning hours']); }
-                $upd = $conn->prepare("UPDATE dtr SET pm_in = ? WHERE dtr_id = ?");
+                $upd = $conn->prepare("UPDATE dtr SET pm_in = ?, synced = 0 WHERE dtr_id = ?");
                 $upd->bind_param('si', $now, $dtr['dtr_id']); $upd->execute(); $upd->close();
                 $conn->commit(); json_resp(['success'=>true,'message'=>'Time in recorded. Have a good day, ' . $matched_display,'user_id'=>$matched_user_id,'username'=>$matched_display,'display_name'=>$matched_display]);
             }
@@ -630,7 +630,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                             json_resp(['success'=>false,'confirm'=>'time_out','message'=>'ARE YOU SURE YOU WILL TIME OUT?','field'=>'pm_out']);
                         }
 
-                        $upd = $conn->prepare("UPDATE dtr SET pm_out = ? WHERE dtr_id = ?");
+                        $upd = $conn->prepare("UPDATE dtr SET pm_out = ?, synced = 0 WHERE dtr_id = ?");
                         $upd->bind_param('si', $now, $dtr['dtr_id']); $upd->execute(); $upd->close();
                         // recompute hours/minutes for any completed pairs and update dtr
                         $sel = $conn->prepare("SELECT am_in,am_out,pm_in,pm_out FROM dtr WHERE dtr_id = ? LIMIT 1");
@@ -647,7 +647,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                         }
                         if ($totalMin > 480) $totalMin = 480;
                         $hours = intdiv($totalMin, 60); $minutes = $totalMin % 60;
-                        $up2 = $conn->prepare("UPDATE dtr SET hours = ?, minutes = ? WHERE dtr_id = ?");
+                        $up2 = $conn->prepare("UPDATE dtr SET hours = ?, minutes = ?, synced = 0 WHERE dtr_id = ?");
                         $up2->bind_param('iii', $hours, $minutes, $dtr['dtr_id']); $up2->execute(); $up2->close();
 
                         $conn->commit(); json_resp(['success'=>true,'message'=>'Time out recorded. Thank you for today, ' . $matched_display,'user_id'=>$matched_user_id,'username'=>$matched_display,'display_name'=>$matched_display,'hours'=>$hours,'minutes'=>$minutes]);
@@ -655,7 +655,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     if (!empty($dtr['am_out']) && empty($dtr['pm_in'])) {
                         // do not allow starting PM session during morning hours
                         if (isset($hourForDecision) && $hourForDecision < 12) { $conn->rollback(); json_resp(['success'=>false,'message'=>'Cannot record PM time-in during morning hours']); }
-                        $upd = $conn->prepare("UPDATE dtr SET pm_in = ? WHERE dtr_id = ?");
+                        $upd = $conn->prepare("UPDATE dtr SET pm_in = ?, synced = 0 WHERE dtr_id = ?");
                         $upd->bind_param('si', $now, $dtr['dtr_id']); $upd->execute(); $upd->close();
                         $conn->commit(); json_resp(['success'=>true,'message'=>'Time in recorded (PM)','user_id'=>$matched_user_id,'username'=>$matched_display,'display_name'=>$matched_display]);
                     }
@@ -672,7 +672,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                             json_resp(['success'=>false,'confirm'=>'time_out','message'=>'ARE YOU SURE YOU WILL TIME OUT?','field'=>'pm_out']);
                         }
 
-                        $upd = $conn->prepare("UPDATE dtr SET pm_out = ? WHERE dtr_id = ?");
+                        $upd = $conn->prepare("UPDATE dtr SET pm_out = ?, synced = 0 WHERE dtr_id = ?");
                         $upd->bind_param('si', $now, $dtr['dtr_id']); $upd->execute(); $upd->close();
                         $sel = $conn->prepare("SELECT am_in,am_out,pm_in,pm_out FROM dtr WHERE dtr_id = ? LIMIT 1");
                         $sel->bind_param('i', $dtr['dtr_id']); $sel->execute(); $row = $sel->get_result()->fetch_assoc(); $sel->close();
@@ -688,7 +688,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                         }
                         if ($totalMin > 480) $totalMin = 480;
                         $hours = intdiv($totalMin, 60); $minutes = $totalMin % 60;
-                        $up2 = $conn->prepare("UPDATE dtr SET hours = ?, minutes = ? WHERE dtr_id = ?");
+                        $up2 = $conn->prepare("UPDATE dtr SET hours = ?, minutes = ?, synced = 0 WHERE dtr_id = ?");
                         $up2->bind_param('iii', $hours, $minutes, $dtr['dtr_id']); $up2->execute(); $up2->close();
 
                         $conn->commit(); json_resp(['success'=>true,'message'=>'Time out recorded. Thank you for today, ' . $matched_display,'user_id'=>$matched_user_id,'username'=>$matched_display,'display_name'=>$matched_display,'hours'=>$hours,'minutes'=>$minutes]);
@@ -1000,7 +1000,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     $conn->rollback();
                     json_resp(['success'=>false,'message'=>'Already timed in for today']);
                 }
-                $upd = $conn->prepare("UPDATE dtr SET {$field} = ? WHERE dtr_id = ?");
+                $upd = $conn->prepare("UPDATE dtr SET {$field} = ?, synced = 0 WHERE dtr_id = ?");
                 $upd->bind_param('si', $now, $dtr['dtr_id']);
                 $upd->execute();
                 $upd->close();
@@ -1071,7 +1071,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $conn->rollback();
                 json_resp(['success'=>false,'message'=>'Nothing to time out or already timed out']);
             }
-            $upd = $conn->prepare("UPDATE dtr SET {$field} = ? WHERE dtr_id = ?");
+            $upd = $conn->prepare("UPDATE dtr SET {$field} = ?, synced = 0 WHERE dtr_id = ?");
             $upd->bind_param('si', $now, $dtr['dtr_id']);
             $upd->execute();
             $upd->close();
@@ -1103,7 +1103,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
              $hours = intdiv($totalMin, 60);
              $minutes = $totalMin % 60;
 
-            $up2 = $conn->prepare("UPDATE dtr SET hours = ?, minutes = ? WHERE dtr_id = ?");
+            $up2 = $conn->prepare("UPDATE dtr SET hours = ?, minutes = ?, synced = 0 WHERE dtr_id = ?");
             $up2->bind_param('iii', $hours, $minutes, $dtr['dtr_id']);
             $up2->execute();
             $up2->close();
