@@ -18,3 +18,10 @@
 [2026-02-09 07:17:09] Found user lookup result for santiagojasminem@gmail.com: user_id=70
 [2026-02-09 07:17:09] Inserted OTP for santiagojasminem@gmail.com, otp=213320, expires_at=2026-02-09 07:20:09
 [2026-02-09 07:17:14] PHPMailer send() succeeded for santiagojasminem@gmail.com
+[2026-02-09 16:34:59] Found user lookup result for santiagojasminem@gmail.com: user_id=6
+[2026-02-09 16:34:59] Inserted OTP for santiagojasminem@gmail.com, otp=500541, expires_at=2026-02-09 16:37:59
+[2026-02-09 16:35:02] PHPMailer send() succeeded for santiagojasminem@gmail.com
+[2026-02-09 16:36:05] Found user lookup result for santiagojasminem@gmail.com: user_id=6
+[2026-02-09 16:36:05] Inserted OTP for santiagojasminem@gmail.com, otp=100975, expires_at=2026-02-09 16:39:05
+[2026-02-09 16:36:09] PHPMailer send() succeeded for santiagojasminem@gmail.com
+[2026-02-09 16:39:28] Email not found: jasdgmkasd@gmail.com

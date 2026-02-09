@@ -295,6 +295,74 @@ if (is_array($inputJson) && isset($inputJson['action']) && $inputJson['action'] 
     exit;
   }
 
+  // AJAX: update OJT account (handle inside this file so no other files changed)
+  if (is_array($inputJson) && isset($inputJson['action']) && $inputJson['action'] === 'update_ojt_account') {
+    header('Content-Type: application/json; charset=utf-8');
+    $callerId = (int)($_SESSION['user_id'] ?? 0);
+    // permission check
+    $st = $conn->prepare("SELECT role FROM users WHERE user_id = ? LIMIT 1");
+    if ($st) {
+      $st->bind_param('i', $callerId);
+      $st->execute();
+      $rr = $st->get_result()->fetch_assoc();
+      $st->close();
+    } else {
+      echo json_encode(['success'=>false,'message'=>'Permission check failed']); exit;
+    }
+    if (!$rr || !in_array($rr['role'], ['hr_head','hr_staff'])) {
+      echo json_encode(['success'=>false,'message'=>'Permission denied']); exit;
+    }
+
+    $user_id = (int)($inputJson['user_id'] ?? 0);
+    if ($user_id <= 0) { echo json_encode(['success'=>false,'message'=>'Missing user_id']); exit; }
+
+    $first_name = trim($inputJson['first_name'] ?? '');
+    $last_name = trim($inputJson['last_name'] ?? '');
+    $email = trim($inputJson['email'] ?? '');
+    $address = trim($inputJson['address'] ?? '');
+
+    // basic validation
+    if ($first_name === '' || $last_name === '' || $email === '') {
+      echo json_encode(['success'=>false,'message'=>'Missing required fields']); exit;
+    }
+
+    $students_only = !empty($inputJson['students_only']);
+    // update users table basic fields (don't alter office here) unless students_only is requested
+    if (!$students_only) {
+      $upd = $conn->prepare("UPDATE users SET first_name = ?, last_name = ?, email = ? WHERE user_id = ?");
+      if (!$upd) { echo json_encode(['success'=>false,'message'=>'DB prepare failed: '.$conn->error]); exit; }
+      $upd->bind_param('sssi', $first_name, $last_name, $email, $user_id);
+      if (!$upd->execute()) { $upd->close(); echo json_encode(['success'=>false,'message'=>'DB update failed: '.$conn->error]); exit; }
+      $upd->close();
+    }
+
+    // update or insert into students table
+    try {
+      $ps = $conn->prepare("SELECT 1 FROM students WHERE user_id = ? LIMIT 1");
+      $exists = false;
+      if ($ps) {
+        $ps->bind_param('i', $user_id);
+        $ps->execute();
+        $ps->store_result();
+        $exists = $ps->num_rows > 0;
+        $ps->close();
+      }
+
+      if ($exists) {
+        $ups = $conn->prepare("UPDATE students SET first_name = ?, last_name = ?, email = ?, address = ? WHERE user_id = ?");
+        if ($ups) { $ups->bind_param('ssssi', $first_name, $last_name, $email, $address, $user_id); $ups->execute(); $ups->close(); }
+      } else {
+        $ins = $conn->prepare("INSERT INTO students (user_id, first_name, last_name, email, address) VALUES (?, ?, ?, ?, ?)");
+        if ($ins) { $ins->bind_param('issss', $user_id, $first_name, $last_name, $email, $address); $ins->execute(); $ins->close(); }
+      }
+    } catch (mysqli_sql_exception $e) {
+      // ignore student update failures but return success for users update
+    }
+
+    echo json_encode(['success'=>true,'message'=>'Updated']);
+    exit;
+  }
+
 // fetch HR user info for sidebar
 $user_id = (int)($_SESSION['user_id'] ?? 0);
 $stmtU = $conn->prepare("SELECT first_name, middle_name, last_name, role, office_name, avatar FROM users WHERE user_id = ? LIMIT 1");
@@ -333,7 +401,7 @@ $q2->close();
 
 // fetch OJT accounts with non-active status (inactive, approved, completed, ongoing)
 $ojts = [];
-$q3 = $conn->prepare("SELECT u.user_id, u.username, u.email, u.first_name, u.last_name, u.office_name, u.status, s.address, s.first_name AS s_first, s.last_name AS s_last FROM users u LEFT JOIN students s ON u.user_id = s.user_id WHERE u.role = 'ojt' AND u.status <> 'active' ORDER BY u.first_name, u.last_name");
+$q3 = $conn->prepare("SELECT u.user_id, u.username, u.email, u.first_name, u.last_name, u.office_name, u.status, s.address, s.email AS s_email, s.first_name AS s_first, s.last_name AS s_last FROM users u LEFT JOIN students s ON u.user_id = s.user_id WHERE u.role = 'ojt' AND u.status <> 'active' ORDER BY u.first_name, u.last_name");
 if ($q3) {
     $q3->execute();
     $res3 = $q3->get_result();
@@ -658,7 +726,7 @@ foreach ($officeHeads as $oh) {
                   <td><?= htmlspecialchars($officeName ?: '—') ?></td>
                   <td style="text-align:center" class="actions">
                     <!-- actions temporarily inert: onclick handlers removed so clicks do nothing -->
-                    <button class="icon-btn" title="Edit" data-user="<?= (int)$o['user_id'] ?>">
+                    <button class="icon-btn" title="Edit" data-action="edit" data-user="<?= (int)$o['user_id'] ?>">
                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
                          <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
                          <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
@@ -673,12 +741,7 @@ foreach ($officeHeads as $oh) {
                         <polyline points="21 12 21 7 16 7"></polyline>
                       </svg>
                     </button>
-                    <button class="icon-btn" title="Disable account" data-action="toggle" data-user="<?= (int)$o['user_id'] ?>">
-                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-                         <circle cx="12" cy="12" r="10"></circle>
-                         <line x1="4.93" y1="4.93" x2="19.07" y2="19.07"></line>
-                       </svg>
-                     </button>
+                    <!-- Disable button removed for Office Heads -->
                    </td>
                 </tr>
               <?php endforeach; endif; ?>
@@ -724,12 +787,7 @@ foreach ($officeHeads as $oh) {
                         <polyline points="21 12 21 7 16 7"></polyline>
                       </svg>
                     </button>
-                    <button class="icon-btn" title="Disable account" data-action="toggle" data-user="<?= (int)$h['user_id'] ?>">
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-                        <circle cx="12" cy="12" r="10"></circle>
-                        <line x1="4.93" y1="4.93" x2="19.07" y2="19.07"></line>
-                      </svg>
-                    </button>
+                    <!-- Disable button removed for HR Staffs -->
                   </td>
                 </tr>
               <?php endforeach; endif; ?>
@@ -745,7 +803,6 @@ foreach ($officeHeads as $oh) {
               <tr>
                 <th>Name</th>
                 <th>Email</th>
-                <th>Office</th>
                 <th>Address</th>
                 <th style="text-align:center">Status</th>
                 <th style="text-align:center">Actions</th>
@@ -756,19 +813,17 @@ foreach ($officeHeads as $oh) {
                 <tr><td colspan="6" class="empty">No OJT accounts with non-active status found.</td></tr>
               <?php else: foreach ($ojts as $o):
                 $name = trim(($o['s_first'] ?? '') . ' ' . ($o['s_last'] ?? '')) ?: ($o['username'] ?? '');
-                $email = $o['email'] ?: ($o['username'] ?? '');
+                $email = !empty($o['s_email']) ? $o['s_email'] : ($o['email'] ?: ($o['username'] ?? ''));
                 $officeName = $o['office_name'] ?: '';
                 $address = $o['address'] ?: '';
                 $status = ucwords(strtolower($o['status'] ?? ''));
               ?>
                 <tr
-                  data-search="<?= htmlspecialchars(strtolower($name . ' ' . $email . ' ' . $officeName . ' ' . $address . ' ' . $status)) ?>"
+                  data-search="<?= htmlspecialchars(strtolower($name . ' ' . $email . ' ' . $address . ' ' . $status)) ?>"
                   data-status="<?= htmlspecialchars(strtolower($o['status'] ?? '')) ?>"
-                  data-office="<?= htmlspecialchars(strtolower($officeName)) ?>"
                 >
                   <td><?= htmlspecialchars($name) ?></td>
                   <td><?= htmlspecialchars($email ?: '—') ?></td>
-                  <td><?= htmlspecialchars($officeName ?: '—') ?></td>
                   <td><?= htmlspecialchars($address ?: '—') ?></td>
                   <td style="text-align:center"><?= htmlspecialchars($status) ?></td>
                   <td style="text-align:center" class="actions">
@@ -778,7 +833,7 @@ foreach ($officeHeads as $oh) {
                         <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
                       </svg>
                     </button>
-                    <button class="icon-btn" title="Change Password" data-user="<?= (int)$o['user_id'] ?>">
+                    <button class="icon-btn" title="Change Password" data-action="reset" data-user="<?= (int)$o['user_id'] ?>">
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
                         <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
                         <circle cx="12" cy="16" r="1"></circle>
@@ -787,12 +842,7 @@ foreach ($officeHeads as $oh) {
                         <path d="M20 10l-2-2-2 2"></path>
                       </svg>
                     </button>
-                    <button class="icon-btn" title="Disable account" data-action="toggle" data-user="<?= (int)$o['user_id'] ?>">
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-                        <circle cx="12" cy="12" r="10"></circle>
-                        <line x1="4.93" y1="4.93" x2="19.07" y2="19.07"></line>
-                      </svg>
-                    </button>
+                    <!-- Disable button removed for OJTs -->
                   </td>
                 </tr>
               <?php endforeach; endif; ?>
@@ -816,7 +866,7 @@ foreach ($officeHeads as $oh) {
     // show OJT filters only on OJTs tab
     // NOTE: explicit inline display ('inline-block') is required to override the CSS rule that sets display:none
     if (statusFilter) statusFilter.style.display = (tab === 'ojt') ? 'inline-block' : 'none';
-    if (officeFilter) officeFilter.style.display = (tab === 'ojt') ? 'inline-block' : 'none';
+    if (officeFilter) officeFilter.style.display = 'none';
      // update search placeholder: remove "office" when HR Staffs tab is active
      const search = document.getElementById('search');
      if (search) {
@@ -927,6 +977,13 @@ function openAdd(){
   const title = document.getElementById('m_modal_title'); if (title) title.textContent = 'Create Office Head Account';
   const createBtn = document.getElementById('btnCreate'); if (createBtn) createBtn.textContent = 'Create';
   const uidEl = document.getElementById('m_user_id'); if (uidEl) uidEl.value = '';
+  // ensure office-related fields visible for create
+  const initEl = document.getElementById('m_initial_limit'); if (initEl) initEl.style.display = '';
+  const officeEl = document.getElementById('m_office'); if (officeEl) officeEl.style.display = '';
+  const courseInput = document.getElementById('m_course_input'); if (courseInput) courseInput.style.display = '';
+  const addCourseBtn = document.getElementById('m_add_course_btn'); if (addCourseBtn) addCourseBtn.style.display = '';
+  const courseTags = document.getElementById('m_course_tags'); if (courseTags) courseTags.style.display = '';
+  try { m.dataset.role = 'office_head'; } catch(e) { m.setAttribute('data-role','office_head'); }
   m.style.display = 'flex';
 }
 function closeAdd(){
@@ -942,6 +999,13 @@ function closeAdd(){
   const title = document.getElementById('m_modal_title'); if (title) title.textContent = 'Create Office Head Account';
   const createBtn = document.getElementById('btnCreate'); if (createBtn) createBtn.textContent = 'Create';
   const uidEl = document.getElementById('m_user_id'); if (uidEl) uidEl.value = '';
+  // restore visibility of office-related fields
+  const initEl = document.getElementById('m_initial_limit'); if (initEl) initEl.style.display = '';
+  const officeEl = document.getElementById('m_office'); if (officeEl) officeEl.style.display = '';
+  const courseInput = document.getElementById('m_course_input'); if (courseInput) courseInput.style.display = '';
+  const addCourseBtn = document.getElementById('m_add_course_btn'); if (addCourseBtn) addCourseBtn.style.display = '';
+  const courseTags = document.getElementById('m_course_tags'); if (courseTags) courseTags.style.display = '';
+  try { delete m.dataset.role; } catch(e) { m.removeAttribute('data-role'); }
 }
 
 // HR Staff modal: open/close/submit (first name, last name, email only)
@@ -955,6 +1019,8 @@ function closeAddHr(){
   if(!m) return;
   m.style.display = 'none';
   ['hr_first','hr_last','hr_email'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  const uidEl = document.getElementById('hr_user_id'); if (uidEl) uidEl.value = '';
+  try { delete m.dataset.editing; } catch(e) { m.removeAttribute('data-editing'); }
   const st = document.getElementById('addHrModalStatus'); if (st) st.style.display = 'none';
 }
 
@@ -987,11 +1053,47 @@ async function submitAddHr(){
 
   if (statusEl) { statusEl.style.display = 'block'; statusEl.style.background = '#fffbe6'; statusEl.style.color = '#333'; statusEl.textContent = 'Creating account...'; }
 
-  const unameBase = (first_name.charAt(0) + last_name).toLowerCase().replace(/[^a-z0-9]/g,'') || 'hr';
-  const username = unameBase + Math.floor(Math.random()*900 + 100);
-  const password = (typeof randomPassword === 'function') ? randomPassword(10) : Math.random().toString(36).slice(-10);
-
+  const modal = document.getElementById('addHrModal');
+  const isEdit = modal && modal.dataset && modal.dataset.editing;
+  // if editing, call update_account; otherwise create
   try {
+    if (isEdit) {
+      const userId = parseInt(document.getElementById('hr_user_id').value || 0, 10);
+      if (!userId) { if (statusEl) { statusEl.style.background = '#fff4f4'; statusEl.style.color = '#a00'; statusEl.textContent = 'Missing user id for edit.'; } return; }
+      const payload = {
+        action: 'update_account',
+        user_id: userId,
+        first_name: first_name,
+        last_name: last_name,
+        email: email,
+        office: ''
+      };
+      const res = await fetch('../hr_actions.php', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+      const j = await res.json().catch(()=>null);
+      if (!j || !j.success) {
+        if (statusEl) { statusEl.style.background = '#fff4f4'; statusEl.style.color = '#a00'; statusEl.textContent = 'Failed: ' + (j && j.message ? j.message : 'Unknown error'); }
+        return;
+      }
+      // update row in table
+      try {
+        const btn = document.querySelector('#panel-hr button[data-user="' + userId + '"]');
+        const tr = btn ? btn.closest('tr') : null;
+        if (tr) {
+          const tdName = tr.querySelectorAll('td')[0];
+          const tdEmail = tr.querySelectorAll('td')[1];
+          if (tdName) tdName.textContent = (first_name + ' ' + last_name).trim() || '—';
+          if (tdEmail) tdEmail.textContent = email || '—';
+        }
+      } catch (domErr) { console.error('update HR row DOM:', domErr); }
+      if (statusEl) { statusEl.style.background = '#e6f9ee'; statusEl.style.color = '#0b7a3a'; statusEl.textContent = 'HR staff updated.'; }
+      setTimeout(()=>{ closeAddHr(); }, 700);
+      return;
+    }
+
+    const unameBase = (first_name.charAt(0) + last_name).toLowerCase().replace(/[^a-z0-9]/g,'') || 'hr';
+    const username = unameBase + Math.floor(Math.random()*900 + 100);
+    const password = (typeof randomPassword === 'function') ? randomPassword(10) : Math.random().toString(36).slice(-10);
+
     const payload = {
       action: 'create_account',
       username: username,
@@ -1083,12 +1185,6 @@ async function submitAddHr(){
               <polyline points="21 12 21 7 16 7"></polyline>
             </svg>
           </button>
-          <button class="icon-btn" title="Disable/Restrict" data-action="toggle" data-user="${newId}">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="12" cy="12" r="10"></circle>
-              <line x1="4.93" y1="4.93" x2="19.07" y2="19.07"></line>
-            </svg>
-          </button>
         `;
 
         tr.innerHTML = `
@@ -1153,6 +1249,7 @@ document.getElementById('btnAddHr').addEventListener('click', function(e){
       <input id="m_email" placeholder="Email" style="padding:10px;border:1px solid #ddd;border-radius:8px;grid-column:span 2" />
       <!-- replaced dropdown with free-text office input -->
       <input id="m_office" placeholder="Office" style="padding:10px;border:1px solid #ddd;border-radius:8px;grid-column:span 2" />
+      <input id="m_address" placeholder="Address" style="padding:10px;border:1px solid #ddd;border-radius:8px;grid-column:span 2" />
       <input id="m_initial_limit" type="number" min="0" placeholder="Initial OJT limit (e.g. 10)" style="padding:10px;border:1px solid #ddd;border-radius:8px" />
       <div style="display:flex;gap:8px;align-items:center">
         <div style="position:relative;flex:1;display:flex;gap:8px;align-items:center">
@@ -1185,10 +1282,11 @@ document.getElementById('btnAddHr').addEventListener('click', function(e){
       <input id="hr_first" placeholder="First name" style="padding:10px;border:1px solid #ddd;border-radius:8px" />
       <input id="hr_last" placeholder="Last name" style="padding:10px;border:1px solid #ddd;border-radius:8px" />
       <input id="hr_email" placeholder="Email" style="padding:10px;border:1px solid #ddd;border-radius:8px;grid-column:span 2" />
+      <input type="hidden" id="hr_user_id" />
     </div>
     <div style="display:flex;gap:8px;justify-content:flex-end">
       <button onclick="closeAddHr()" class="btn" type="button">Cancel</button>
-      <button id="btnCreateHr" class="btn btn-add" type="button">Create</button>
+      <button id="btnCreateHr" class="btn btn-add" type="button">Save Changes</button>
     </div>
     <div id="addHrModalStatus" style="margin-top:10px;display:none;padding:8px;border-radius:6px"></div>
   </div>
@@ -1360,12 +1458,32 @@ document.getElementById('btnAddHr').addEventListener('click', function(e){
 <script>window._officeHeadData = {};</script>
 <?php endif; ?>
 
+<?php
+// prepare simple OJT details (email prioritizes student email if available)
+$ojtDetails = [];
+foreach ($ojts as $oj) {
+  $uid = (int)($oj['user_id'] ?? 0);
+  $email = '';
+  if (!empty($oj['s_email'])) $email = $oj['s_email'];
+  else if (!empty($oj['email'])) $email = $oj['email'];
+  $ojtDetails[$uid] = [
+    'user_id' => $uid,
+    'first_name' => $oj['s_first'] ?? $oj['first_name'] ?? '',
+    'last_name' => $oj['s_last'] ?? $oj['last_name'] ?? '',
+    'email' => $email,
+    'address' => $oj['address'] ?? ''
+  ];
+}
+?>
+<script>window._ojtData = <?= json_encode($ojtDetails, JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT) ?>;</script>
+
 <script>
 async function submitAdd(){
   const first_name = (document.getElementById('m_first').value || '').trim();
   const last_name = (document.getElementById('m_last').value || '').trim();
   const email = (document.getElementById('m_email').value || '').trim();
   const office = (document.getElementById('m_office').value || '').trim();
+  const address = (document.getElementById('m_address').value || '').trim();
   const initial_limit = parseInt(document.getElementById('m_initial_limit').value || '0', 10) || 0;
   const courses = (window.__hr_modal && window.__hr_modal.getCourses()) ? window.__hr_modal.getCourses() : [];
   const accept_courses = courses.join(',');
@@ -1455,6 +1573,7 @@ async function submitAdd(){
       email: email,
       role: 'office_head',
       office: office,
+      address: address,
       initial_limit: initial_limit,
       accept_courses: accept_courses,
       email_notify: false
@@ -1590,6 +1709,37 @@ document.addEventListener('DOMContentLoaded', function(){
 </script>
 
 <script>
+// open HR edit modal when Edit clicked in HR table
+document.addEventListener('DOMContentLoaded', function(){
+  try {
+    document.querySelectorAll('#panel-hr .icon-btn[title="Edit"]').forEach(btn => {
+      btn.addEventListener('click', function(e){
+        e.preventDefault();
+        const uid = this.getAttribute('data-user'); if (!uid) return;
+        // populate modal from table row
+        const tr = this.closest('tr');
+        const cells = tr ? tr.querySelectorAll('td') : [];
+        const nameCell = cells[0] ? cells[0].textContent.trim() : '';
+        const emailCell = cells[1] ? cells[1].textContent.trim() : '';
+        let first = '', last = '';
+        if (nameCell) {
+          const parts = nameCell.split(' ');
+          first = parts.shift() || '';
+          last = parts.join(' ') || '';
+        }
+        document.getElementById('hr_first').value = first;
+        document.getElementById('hr_last').value = last;
+        document.getElementById('hr_email').value = (emailCell === '—') ? '' : emailCell;
+        document.getElementById('hr_user_id').value = uid;
+        const m = document.getElementById('addHrModal'); if (!m) return; m.style.display = 'flex'; m.dataset.editing = String(uid);
+        const st = document.getElementById('addHrModalStatus'); if (st) st.style.display = 'none';
+      });
+    });
+  } catch(e){ console.error('bind HR edit:', e); }
+});
+</script>
+
+<script>
 // Bind reset password buttons across tables
 document.addEventListener('DOMContentLoaded', function(){
   function doReset(btn){
@@ -1705,8 +1855,67 @@ document.addEventListener('DOMContentLoaded', function(){
         openEditModal(uid);
       });
     });
+    // bind Edit buttons in OJTs panel to open the same modal prefilled with Name/Email/Office/Address
+    document.querySelectorAll('#panel-ojt .icon-btn[title="Edit"]').forEach(btn => {
+      btn.addEventListener('click', function(e){
+        e.preventDefault();
+        const uid = this.getAttribute('data-user');
+        if (!uid) return;
+        openEditModalOjt(uid);
+      });
+    });
   } catch (err) { console.error('bind edit buttons:', err); }
 });
+
+function openEditModalOjt(userId){
+  const m = document.getElementById('addModal'); if(!m) return;
+  // prefer server-side OJT data mapping (student email) if available
+  const od = (window._ojtData && window._ojtData[userId]) ? window._ojtData[userId] : null;
+  let first = '', last = '', email = '', address = '';
+  if (od) {
+    first = od.first_name || '';
+    last = od.last_name || '';
+    email = od.email || '';
+    address = od.address || '';
+  } else {
+    // fallback: read from table (columns: Name, Email, Address, Status, Actions)
+    const btn = document.querySelector('#panel-ojt button[data-user="' + userId + '"]');
+    const tr = btn ? btn.closest('tr') : null;
+    const cells = tr ? tr.querySelectorAll('td') : [];
+    const nameCell = cells[0] ? cells[0].textContent.trim() : '';
+    const emailCell = cells[1] ? cells[1].textContent.trim() : '';
+    const addressCell = cells[2] ? cells[2].textContent.trim() : '';
+    if (nameCell) {
+      const parts = nameCell.split(' ');
+      first = parts.shift() || '';
+      last = parts.join(' ') || '';
+    }
+    email = emailCell === '—' ? '' : emailCell;
+    address = addressCell === '—' ? '' : addressCell;
+  }
+
+  document.getElementById('m_first').value = first;
+  document.getElementById('m_last').value = last;
+  document.getElementById('m_email').value = email;
+  document.getElementById('m_address').value = address;
+  document.getElementById('m_user_id').value = userId;
+  // clear office-specific fields not relevant to OJT
+
+  const initEl = document.getElementById('m_initial_limit'); if (initEl) { initEl.value = ''; initEl.style.display = 'none'; }
+  const officeEl = document.getElementById('m_office'); if (officeEl) officeEl.style.display = 'none';
+  const courseInput = document.getElementById('m_course_input'); if (courseInput) courseInput.style.display = 'none';
+  const addCourseBtn = document.getElementById('m_add_course_btn'); if (addCourseBtn) addCourseBtn.style.display = 'none';
+  const courseTags = document.getElementById('m_course_tags'); if (courseTags) courseTags.style.display = 'none';
+  const courseSug = document.getElementById('m_course_suggestions'); if (courseSug) courseSug.style.display = 'none';
+  if (window.__hr_modal && typeof window.__hr_modal.setCourses === 'function') window.__hr_modal.setCourses([]);
+
+  // mark modal role for submit logic
+  try { m.dataset.role = 'ojt'; } catch(e) { m.setAttribute('data-role','ojt'); }
+
+  m.style.display = 'flex'; m.dataset.editing = String(userId);
+  const title = document.getElementById('m_modal_title'); if (title) title.textContent = 'Edit OJT Account';
+  const createBtn = document.getElementById('btnCreate'); if (createBtn) createBtn.textContent = 'Save Changes';
+}
 
 function openEditModal(userId){
   const m = document.getElementById('addModal');
@@ -1744,9 +1953,17 @@ function openEditModal(userId){
     document.getElementById('m_accept_courses').value = coursesCsv;
   }
 
+  // ensure office-related fields are visible for Office Head edit
+  const initEl2 = document.getElementById('m_initial_limit'); if (initEl2) initEl2.style.display = '';
+  const officeEl2 = document.getElementById('m_office'); if (officeEl2) officeEl2.style.display = '';
+  const courseInput2 = document.getElementById('m_course_input'); if (courseInput2) courseInput2.style.display = '';
+  const addCourseBtn2 = document.getElementById('m_add_course_btn'); if (addCourseBtn2) addCourseBtn2.style.display = '';
+  const courseTags2 = document.getElementById('m_course_tags'); if (courseTags2) courseTags2.style.display = '';
+
   // show modal and set editing state
   m.style.display = 'flex';
   m.dataset.editing = String(userId);
+  try { m.dataset.role = 'office_head'; } catch(e) { m.setAttribute('data-role','office_head'); }
   const title = document.getElementById('m_modal_title'); if (title) title.textContent = 'Edit Office Head Account';
   const createBtn = document.getElementById('btnCreate'); if (createBtn) createBtn.textContent = 'Save Changes';
 }
@@ -1758,11 +1975,15 @@ async function submitEdit(){
   const last_name = (document.getElementById('m_last').value || '').trim();
   const email = (document.getElementById('m_email').value || '').trim();
   const office = (document.getElementById('m_office').value || '').trim();
+  const address = (document.getElementById('m_address').value || '').trim();
   const initial_limit = parseInt(document.getElementById('m_initial_limit').value || '0', 10) || 0;
   const courses = (window.__hr_modal && window.__hr_modal.getCourses()) ? window.__hr_modal.getCourses() : [];
   const accept_courses = courses.join(',');
 
-  if (!first_name || !last_name || !email || !office) { alert('Please fill First name, Last name, Email and Office.'); return; }
+  // allow office to be empty when editing OJT (role marked on modal)
+  const modalEl = document.getElementById('addModal');
+  const role = modalEl ? (modalEl.dataset && modalEl.dataset.role ? modalEl.dataset.role : modalEl.getAttribute('data-role')) : null;
+  if (!first_name || !last_name || !email || (!office && role !== 'ojt')) { alert('Please fill First name, Last name, Email and Office.'); return; }
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { alert('Please enter a valid email address.'); return; }
 
   const statusEl = document.getElementById('addModalStatus');
@@ -1776,14 +1997,28 @@ async function submitEdit(){
       last_name: last_name,
       email: email,
       office: office,
+      address: address,
       initial_limit: initial_limit,
       accept_courses: accept_courses
     };
 
-    const res = await fetch('../hr_actions.php', {
-      method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload)
-    });
-    const j = await res.json().catch(()=>null);
+    let res, j;
+    if (role === 'ojt') {
+      // first update users via hr_actions.php (keeps behaviour consistent with Office Head edits)
+      res = await fetch('../hr_actions.php', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(Object.assign({}, { action: 'update_account' }, payload)) });
+      j = await res.json().catch(()=>null);
+      // if users update succeeded, also update students table via local handler (students_only)
+      if (j && j.success) {
+        try {
+          const studs = await fetch(window.location.href, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ action: 'update_ojt_account', user_id: user_id, first_name: first_name, last_name: last_name, email: email, address: address, students_only: true }) });
+          const sj = await studs.json().catch(()=>null);
+          // ignore sj failure (students update non-fatal)
+        } catch(e) { /* ignore */ }
+      }
+    } else {
+      res = await fetch('../hr_actions.php', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+      j = await res.json().catch(()=>null);
+    }
     if (!j || !j.success) {
       statusEl.style.background = '#fff4f4'; statusEl.style.color = '#a00';
       statusEl.textContent = 'Failed to update: ' + (j && j.message ? j.message : 'Unknown error');

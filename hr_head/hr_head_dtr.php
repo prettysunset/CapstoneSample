@@ -183,22 +183,7 @@ $stmtOff->close();
           <!-- Only Daily Logs retained -->
           <div style="font-size:18px;font-weight:700;color:#2f3850">Daily Logs</div>
 
-          <!-- sort controls moved here -->
-          <div style="display:flex;gap:6px;align-items:center;">
-            <label for="sortBy" style="font-weight:600">Sort by</label>
-            <select id="sortBy" style="padding:8px;border:1px solid #ddd;border-radius:8px">
-              <option value="none">None</option>
-              <option value="am_in">A.M. Arrival</option>
-              <option value="am_out">A.M. Departure</option>
-              <option value="pm_in">P.M. Arrival</option>
-              <option value="pm_out">P.M. Departure</option>
-            </select>
-
-            <select id="sortDir" style="padding:8px;border:1px solid #ddd;border-radius:8px">
-              <option value="asc">Asc</option>
-              <option value="desc">Desc</option>
-            </select>
-          </div>
+          <!-- sort controls removed -->
         </div>
       </div>
 

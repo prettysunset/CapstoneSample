@@ -168,25 +168,7 @@ $current_date = date("l, F j, Y");
       color:#777;
       margin:0 auto 12px auto;
     }
-    #view_approve_btn, #view_reject_btn {
-      background:#fff;
-      border:2px solid;
-      padding:8px 14px;
-      border-radius:24px;
-      cursor:pointer;
-      font-weight:500;
-      display:inline-flex;
-      align-items:center;
-      gap:6px;
-    }
-    #view_approve_btn {
-      color:#28a745;
-      border-color:#28a745;
-    }
-    #view_reject_btn {
-      color:#dc3545;
-      border-color:#dc3545;
-    }
+    /* Approve/reject buttons removed from view modal for HR Staff (view-only) */
     #view_attachments {
       display:flex;
       flex-direction:column;
@@ -316,8 +298,8 @@ $current_date = date("l, F j, Y");
       </a>
       <a href="hr_staff_moa.php">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px">
-          <circle cx="12" cy="12" r="8"></circle>
-          <path d="M12 8v5l3 2"></path>
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+          <polyline points="14 2 14 8 20 8"></polyline>
         </svg>
         MOA
       </a>
@@ -334,7 +316,7 @@ $current_date = date("l, F j, Y");
           <rect x="10" y="6" width="4" height="14"></rect>
           <rect x="17" y="2" width="4" height="18"></rect>
         </svg>
-        Reports
+        Records
       </a>
       </div>
     <div style="margin-top:auto;padding:18px 0;width:100%;text-align:center;">
@@ -500,8 +482,8 @@ $stmtCompleted = $conn->prepare("
                   <th style="padding:6px;border:1px solid #eee;background:#e6e9fb;text-align:center">Capacity</th>
                   <th style="padding:6px;border:1px solid #eee;background:#e6e9fb;text-align:center">Ongoing OJTs</th>
                   <th style="padding:6px;border:1px solid #eee;background:#e6e9fb;text-align:center">Approved</th>
-                  <th style="padding:6px;border:1px solid #eee;background:#e6e9fb;text-align:center">Completed OJTs</th>
                   <th style="padding:6px;border:1px solid #eee;background:#e6e9fb;text-align:center">Available Slot</th>
+                  <th style="padding:6px;border:1px solid #eee;background:#e6e9fb;text-align:center">Completed OJTs</th>
                   <th style="padding:6px;border:1px solid #eee;background:#e6e9fb;text-align:center">Status</th>
                 </tr>
               </thead>
@@ -578,8 +560,8 @@ $stmtCompleted = $conn->prepare("
                     <td style="text-align:center;padding:6px;border:1px solid #eee"><?= $cap === null ? '—' : $cap ?></td>
                     <td style="text-align:center;padding:6px;border:1px solid #eee"><?= $active ?></td>
                     <td style="text-align:center;padding:6px;border:1px solid #eee"><?= $approved ?></td>
-                    <td style="text-align:center;padding:6px;border:1px solid #eee"><?= $completed ?></td>
                     <td style="text-align:center;padding:6px;border:1px solid #eee"><?= $availableDisplay ?></td>
+                    <td style="text-align:center;padding:6px;border:1px solid #eee"><?= $completed ?></td>
                     <td style="text-align:center;padding:6px;border:1px solid #eee"><span class="<?= $statusClass ?>"><?= htmlspecialchars($statusLabel) ?></span></td>
                   </tr>
                 <?php endforeach; ?>
@@ -644,7 +626,8 @@ $stmtCompleted->close();
 
   // column indices in the table body (0-based)
   // updated to include Completed OJTs column (new index)
-  const COL = { capacity:1, active:2, approved:3, completed:4, available:5 };
+  // Updated column indices after swapping Completed and Available columns
+  const COL = { capacity:1, active:2, approved:3, available:4, completed:5 };
 
   function parseNumCell(text){
     if (!text) return null;
@@ -1374,50 +1357,7 @@ async function openViewModal(appId) {
       }
     }
 
-    const isOpen = (d.status === 'approved' || d.status === 'pending');
-    const approveBtn = document.getElementById('view_approve_btn');
-    const rejectBtn = document.getElementById('view_reject_btn');
-    if (approveBtn) {
-      approveBtn.style.display = isOpen ? 'inline-flex' : 'none';
-      // wire same approve flow as the table action icons:
-      approveBtn.onclick = function(e){
-        // close view modal then open approve modal with same data
-        closeViewModal();
-        const fakeBtn = {
-          getAttribute: (k) => {
-            switch(k) {
-              case 'data-appid': return String(appId);
-              case 'data-name': return studentName;
-              case 'data-email': return st.email || '';
-              case 'data-opt1': return d.office1 || '';
-              case 'data-opt2': return d.office2 || '';
-              case 'data-opt1-id': return String(d.office_preference1 || 0);
-              case 'data-opt2-id': return String(d.office_preference2 || 0);
-            }
-            return null;
-          }
-        };
-        openApproveModal(fakeBtn);
-      };
-    }
-    if (rejectBtn) {
-      rejectBtn.style.display = isOpen ? 'inline-flex' : 'none';
-      // wire same reject flow as the table action icons:
-      rejectBtn.onclick = function(e){
-        closeViewModal();
-        const fakeBtn = {
-          getAttribute: (k) => {
-            switch(k) {
-              case 'data-appid': return String(appId);
-              case 'data-name': return studentName;
-              case 'data-email': return st.email || '';
-            }
-            return null;
-          }
-        };
-        openRejectModal(fakeBtn);
-      };
-    }
+    // Approve/reject actions intentionally omitted for HR Staff view (view-only)
 
     // show modal
     if (overlay) {

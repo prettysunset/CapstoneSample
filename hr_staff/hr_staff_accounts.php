@@ -265,9 +265,107 @@ if (is_array($inputJson) && isset($inputJson['action']) && $inputJson['action'] 
     exit;
 }
 
+  // AJAX: check if email already exists in users OR students (POST JSON { action: 'check_email_unique', email: '...' })
+  if (is_array($inputJson) && isset($inputJson['action']) && $inputJson['action'] === 'check_email_unique') {
+    header('Content-Type: application/json; charset=utf-8');
+    $email = trim($inputJson['email'] ?? '');
+    $exists = false;
+    if ($email !== '') {
+      $sql = "SELECT 1 FROM users WHERE email = ? LIMIT 1";
+      if ($stmt = $conn->prepare($sql)) {
+        $stmt->bind_param('s', $email);
+        $stmt->execute();
+        $stmt->store_result();
+        if ($stmt->num_rows > 0) $exists = true;
+        $stmt->close();
+      }
+      if (!$exists) {
+        $sql = "SELECT 1 FROM students WHERE email = ? LIMIT 1";
+        if ($stmt = $conn->prepare($sql)) {
+          $stmt->bind_param('s', $email);
+          $stmt->execute();
+          $stmt->store_result();
+          if ($stmt->num_rows > 0) $exists = true;
+          $stmt->close();
+        }
+      }
+    }
+
+    echo json_encode(['exists' => (bool)$exists]);
+    exit;
+  }
+
+  // AJAX: update OJT account (handle inside this file so no other files changed)
+  if (is_array($inputJson) && isset($inputJson['action']) && $inputJson['action'] === 'update_ojt_account') {
+    header('Content-Type: application/json; charset=utf-8');
+    $callerId = (int)($_SESSION['user_id'] ?? 0);
+    // permission check
+    $st = $conn->prepare("SELECT role FROM users WHERE user_id = ? LIMIT 1");
+    if ($st) {
+      $st->bind_param('i', $callerId);
+      $st->execute();
+      $rr = $st->get_result()->fetch_assoc();
+      $st->close();
+    } else {
+      echo json_encode(['success'=>false,'message'=>'Permission check failed']); exit;
+    }
+    if (!$rr || !in_array($rr['role'], ['hr_head','hr_staff'])) {
+      echo json_encode(['success'=>false,'message'=>'Permission denied']); exit;
+    }
+
+    $user_id = (int)($inputJson['user_id'] ?? 0);
+    if ($user_id <= 0) { echo json_encode(['success'=>false,'message'=>'Missing user_id']); exit; }
+
+    $first_name = trim($inputJson['first_name'] ?? '');
+    $last_name = trim($inputJson['last_name'] ?? '');
+    $email = trim($inputJson['email'] ?? '');
+    $address = trim($inputJson['address'] ?? '');
+
+    // basic validation
+    if ($first_name === '' || $last_name === '' || $email === '') {
+      echo json_encode(['success'=>false,'message'=>'Missing required fields']); exit;
+    }
+
+    $students_only = !empty($inputJson['students_only']);
+    // update users table basic fields (don't alter office here) unless students_only is requested
+    if (!$students_only) {
+      $upd = $conn->prepare("UPDATE users SET first_name = ?, last_name = ?, email = ? WHERE user_id = ?");
+      if (!$upd) { echo json_encode(['success'=>false,'message'=>'DB prepare failed: '.$conn->error]); exit; }
+      $upd->bind_param('sssi', $first_name, $last_name, $email, $user_id);
+      if (!$upd->execute()) { $upd->close(); echo json_encode(['success'=>false,'message'=>'DB update failed: '.$conn->error]); exit; }
+      $upd->close();
+    }
+
+    // update or insert into students table
+    try {
+      $ps = $conn->prepare("SELECT 1 FROM students WHERE user_id = ? LIMIT 1");
+      $exists = false;
+      if ($ps) {
+        $ps->bind_param('i', $user_id);
+        $ps->execute();
+        $ps->store_result();
+        $exists = $ps->num_rows > 0;
+        $ps->close();
+      }
+
+      if ($exists) {
+        $ups = $conn->prepare("UPDATE students SET first_name = ?, last_name = ?, email = ?, address = ? WHERE user_id = ?");
+        if ($ups) { $ups->bind_param('ssssi', $first_name, $last_name, $email, $address, $user_id); $ups->execute(); $ups->close(); }
+      } else {
+        $ins = $conn->prepare("INSERT INTO students (user_id, first_name, last_name, email, address) VALUES (?, ?, ?, ?, ?)");
+        if ($ins) { $ins->bind_param('issss', $user_id, $first_name, $last_name, $email, $address); $ins->execute(); $ins->close(); }
+      }
+    } catch (mysqli_sql_exception $e) {
+      // ignore student update failures but return success for users update
+    }
+
+    echo json_encode(['success'=>true,'message'=>'Updated']);
+    exit;
+  }
+
 // fetch HR user info for sidebar
 $user_id = (int)($_SESSION['user_id'] ?? 0);
-$stmtU = $conn->prepare("SELECT first_name, middle_name, last_name, role FROM users WHERE user_id = ? LIMIT 1");
+$stmtU = $conn->prepare("SELECT first_name, middle_name, last_name, role, office_name, avatar FROM users WHERE user_id = ? LIMIT 1");
 $stmtU->bind_param("i", $user_id);
 $stmtU->execute();
 $user = $stmtU->get_result()->fetch_assoc() ?: [];
@@ -303,7 +401,7 @@ $q2->close();
 
 // fetch OJT accounts with non-active status (inactive, approved, completed, ongoing)
 $ojts = [];
-$q3 = $conn->prepare("SELECT u.user_id, u.username, u.email, u.first_name, u.last_name, u.office_name, u.status, s.address, s.first_name AS s_first, s.last_name AS s_last FROM users u LEFT JOIN students s ON u.user_id = s.user_id WHERE u.role = 'ojt' AND u.status <> 'active' ORDER BY u.first_name, u.last_name");
+$q3 = $conn->prepare("SELECT u.user_id, u.username, u.email, u.first_name, u.last_name, u.office_name, u.status, s.address, s.email AS s_email, s.first_name AS s_first, s.last_name AS s_last FROM users u LEFT JOIN students s ON u.user_id = s.user_id WHERE u.role = 'ojt' AND u.status <> 'active' ORDER BY u.first_name, u.last_name");
 if ($q3) {
     $q3->execute();
     $res3 = $q3->get_result();
@@ -316,6 +414,74 @@ $ojt_offices = [];
 foreach ($ojts as $zz) {
     $on = trim($zz['office_name'] ?? '');
     if ($on !== '' && !in_array($on, $ojt_offices)) $ojt_offices[] = $on;
+}
+
+// prepare office head details for client-side edit-prefill (lookup office metadata if available)
+$officeHeadDetails = [];
+foreach ($officeHeads as $oh) {
+  $uid = (int)($oh['user_id'] ?? 0);
+  $officeName = $oh['office_name'] ?? '';
+  $initial_limit = null;
+  $accept_courses = '';
+  if ($officeName !== '') {
+    // resolve office_id first
+    $office_id = null;
+    try {
+      $ps = $conn->prepare("SELECT office_id FROM offices WHERE office_name = ? LIMIT 1");
+      if ($ps) {
+        $ps->bind_param('s', $officeName);
+        $ps->execute();
+        $rr = $ps->get_result()->fetch_assoc();
+        if ($rr && isset($rr['office_id'])) $office_id = (int)$rr['office_id'];
+        $ps->close();
+      }
+    } catch (mysqli_sql_exception $e) {
+      $office_id = null;
+    }
+
+    // try to fetch initial_limit if column exists (non-fatal)
+    if ($office_id !== null) {
+      try {
+        $ps2 = $conn->prepare("SELECT initial_limit FROM offices WHERE office_id = ? LIMIT 1");
+        if ($ps2) {
+          $ps2->bind_param('i', $office_id);
+          $ps2->execute();
+          $rr2 = $ps2->get_result()->fetch_assoc();
+          if ($rr2 && array_key_exists('initial_limit', $rr2)) $initial_limit = $rr2['initial_limit'];
+          $ps2->close();
+        }
+      } catch (mysqli_sql_exception $e) {
+        // ignore missing column
+      }
+
+      // fetch mapped courses from office_courses -> courses
+      try {
+        $map = $conn->prepare("SELECT c.course_name FROM office_courses oc JOIN courses c ON oc.course_id = c.course_id WHERE oc.office_id = ? ORDER BY c.course_name");
+        if ($map) {
+          $map->bind_param('i', $office_id);
+          $map->execute();
+          $resmap = $map->get_result();
+          $courseArr = [];
+          while ($rr3 = $resmap->fetch_assoc()) {
+            if (!empty($rr3['course_name'])) $courseArr[] = $rr3['course_name'];
+          }
+          if (!empty($courseArr)) $accept_courses = implode(',', $courseArr);
+          $map->close();
+        }
+      } catch (mysqli_sql_exception $e) {
+        // ignore if mapping table/columns missing
+      }
+    }
+  }
+  $officeHeadDetails[$uid] = [
+    'user_id' => $uid,
+    'first_name' => $oh['first_name'] ?? '',
+    'last_name' => $oh['last_name'] ?? '',
+    'email' => $oh['oh_email'] ?? '',
+    'office_name' => $officeName,
+    'initial_limit' => $initial_limit,
+    'accept_courses' => $accept_courses
+  ];
 }
 ?>
 <!doctype html>
@@ -380,7 +546,8 @@ foreach ($ojts as $zz) {
 <body>
   <div class="sidebar">
     <div class="profile">
-        <img src="https://cdn-icons-png.flaticon.com/512/149/149071.png" alt="Profile">
+        <?php $profileImg = !empty($user['avatar']) ? $user['avatar'] : 'https://cdn-icons-png.flaticon.com/512/149/149071.png'; ?>
+        <img src="<?php echo htmlspecialchars($profileImg); ?>" alt="Profile">
         <h3><?php echo htmlspecialchars($full_name ?: ($_SESSION['username'] ?? '')); ?></h3>
         <p><?php echo htmlspecialchars($role_label); ?></p>
         <?php if(!empty($user['office_name'])): ?>
@@ -413,12 +580,12 @@ foreach ($ojts as $zz) {
       </a>
       <a href="hr_staff_moa.php">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px">
-          <circle cx="12" cy="12" r="8"></circle>
-          <path d="M12 8v5l3 2"></path>
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+          <polyline points="14 2 14 8 20 8"></polyline>
         </svg>
         MOA
       </a>
-      <a href="hr_staff_accounts.php" class="active">
+      <a href="#" class="active">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px">
           <circle cx="12" cy="12" r="3"></circle>
           <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06A2 2 0 1 1 2.28 16.8l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09c.7 0 1.3-.4 1.51-1A1.65 1.65 0 0 0 4.27 6.3L4.2 6.23A2 2 0 1 1 6 3.4l.06.06c.5.5 1.2.7 1.82.33.7-.4 1.51-.4 2.21 0 .62.37 1.32.17 1.82-.33L12.6 3.4a2 2 0 1 1 1.72 3.82l-.06.06c-.5.5-.7 1.2-.33 1.82.4.7.4 1.51 0 2.21-.37.62-.17 1.32.33 1.82l.06.06A2 2 0 1 1 19.4 15z"></path>
@@ -431,7 +598,7 @@ foreach ($ojts as $zz) {
           <rect x="10" y="6" width="4" height="14"></rect>
           <rect x="17" y="2" width="4" height="18"></rect>
         </svg>
-        Reports
+        Records
       </a>
     </div>
     <div style="margin-top:auto;font-weight:700">OJT-MS</div>
@@ -447,14 +614,14 @@ foreach ($ojts as $zz) {
           <span class="notif-count" aria-hidden="true" style="position:absolute;top:-4px;right:-4px;min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:#ef4444;color:#fff;font-size:11px;line-height:18px;text-align:center;display:none;">0</span>
         </a>
 
-        <!-- calendar icon (display only) - placed to the right of Notifications to match DTR -->
-        <div title="Calendar (display only)" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;background:transparent;pointer-events:none;">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-        </div>
+        <!-- calendar icon (clickable: opens calendar overlay) -->
+        <button id="openCalendarBtn" title="Calendar" aria-label="Open calendar" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;background:transparent;border:0;cursor:pointer;padding:0;">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+        </button>
 
-        <a href="settings.php" title="Settings" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06A2 2 0 1 1 2.28 16.8l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09c.7 0 1.3-.4 1.51-1A1.65 1.65 0 0 0 4.27 6.3L4.2 6.23A2 2 0 1 1 6 3.4l.06.06c.5.5 1.2.7 1.82.33.7-.4 1.51-.4 2.21 0 .62.37 1.32.17 1.82-.33L12.6 3.4a2 2 0 1 1 1.72 3.82l-.06.06c-.5.5-.7 1.2-.33 1.82.4.7.4 1.51 0 2.21-.37.62-.17 1.32.33 1.82l.06.06A2 2 0 1 1 19.4 15z"></path></svg>
-        </a>
+        <button id="btnSettings" type="button" title="Settings" aria-label="Settings" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;background:transparent;border:0;box-shadow:none;cursor:pointer;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06A2 2 0 1 1 2.28 16.8l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09c.7 0 1.3-.4 1.51-1A1.65 1.65 0 0 0 4.27 6.3L4.2 6.23A2 2 0 1 1 6 3.4l.06.06c.5.5 1.2.7 1.82.33.7-.4 1.51-.4 2.21 0 .62.37 1.32.17 1.82-.33L12.6 3.4a2 2 0 1 1 1.72 3.82l-.06.06c-.5.5-.7 1.2-.33 1.82.4.7.4 1.51 0 2.21-.37.62-.17 1.32.33 1.82l.06.06A2 2 0 1 1 19.4 15z"></path></svg>
+        </button>
         <a id="top-logout" href="../logout.php" title="Logout" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
         </a>
@@ -559,7 +726,7 @@ foreach ($ojts as $zz) {
                   <td><?= htmlspecialchars($officeName ?: '—') ?></td>
                   <td style="text-align:center" class="actions">
                     <!-- actions temporarily inert: onclick handlers removed so clicks do nothing -->
-                    <button class="icon-btn" title="Edit" data-user="<?= (int)$o['user_id'] ?>">
+                    <button class="icon-btn" title="Edit" data-action="edit" data-user="<?= (int)$o['user_id'] ?>">
                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
                          <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
                          <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
@@ -574,12 +741,7 @@ foreach ($ojts as $zz) {
                         <polyline points="21 12 21 7 16 7"></polyline>
                       </svg>
                     </button>
-                    <button class="icon-btn" title="Disable/Restrict" data-action="toggle" data-user="<?= (int)$o['user_id'] ?>">
-                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-                         <circle cx="12" cy="12" r="10"></circle>
-                         <line x1="4.93" y1="4.93" x2="19.07" y2="19.07"></line>
-                       </svg>
-                     </button>
+                    <!-- Disable button removed for Office Heads -->
                    </td>
                 </tr>
               <?php endforeach; endif; ?>
@@ -625,12 +787,7 @@ foreach ($ojts as $zz) {
                         <polyline points="21 12 21 7 16 7"></polyline>
                       </svg>
                     </button>
-                    <button class="icon-btn" title="Disable/Restrict" data-action="toggle" data-user="<?= (int)$h['user_id'] ?>">
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-                        <circle cx="12" cy="12" r="10"></circle>
-                        <line x1="4.93" y1="4.93" x2="19.07" y2="19.07"></line>
-                      </svg>
-                    </button>
+                    <!-- Disable button removed for HR Staffs -->
                   </td>
                 </tr>
               <?php endforeach; endif; ?>
@@ -646,7 +803,6 @@ foreach ($ojts as $zz) {
               <tr>
                 <th>Name</th>
                 <th>Email</th>
-                <th>Office</th>
                 <th>Address</th>
                 <th style="text-align:center">Status</th>
                 <th style="text-align:center">Actions</th>
@@ -657,19 +813,17 @@ foreach ($ojts as $zz) {
                 <tr><td colspan="6" class="empty">No OJT accounts with non-active status found.</td></tr>
               <?php else: foreach ($ojts as $o):
                 $name = trim(($o['s_first'] ?? '') . ' ' . ($o['s_last'] ?? '')) ?: ($o['username'] ?? '');
-                $email = $o['email'] ?: ($o['username'] ?? '');
+                $email = !empty($o['s_email']) ? $o['s_email'] : ($o['email'] ?: ($o['username'] ?? ''));
                 $officeName = $o['office_name'] ?: '';
                 $address = $o['address'] ?: '';
                 $status = ucwords(strtolower($o['status'] ?? ''));
               ?>
                 <tr
-                  data-search="<?= htmlspecialchars(strtolower($name . ' ' . $email . ' ' . $officeName . ' ' . $address . ' ' . $status)) ?>"
+                  data-search="<?= htmlspecialchars(strtolower($name . ' ' . $email . ' ' . $address . ' ' . $status)) ?>"
                   data-status="<?= htmlspecialchars(strtolower($o['status'] ?? '')) ?>"
-                  data-office="<?= htmlspecialchars(strtolower($officeName)) ?>"
                 >
                   <td><?= htmlspecialchars($name) ?></td>
                   <td><?= htmlspecialchars($email ?: '—') ?></td>
-                  <td><?= htmlspecialchars($officeName ?: '—') ?></td>
                   <td><?= htmlspecialchars($address ?: '—') ?></td>
                   <td style="text-align:center"><?= htmlspecialchars($status) ?></td>
                   <td style="text-align:center" class="actions">
@@ -679,7 +833,7 @@ foreach ($ojts as $zz) {
                         <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
                       </svg>
                     </button>
-                    <button class="icon-btn" title="Change Password" data-user="<?= (int)$o['user_id'] ?>">
+                    <button class="icon-btn" title="Change Password" data-action="reset" data-user="<?= (int)$o['user_id'] ?>">
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
                         <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
                         <circle cx="12" cy="16" r="1"></circle>
@@ -688,12 +842,7 @@ foreach ($ojts as $zz) {
                         <path d="M20 10l-2-2-2 2"></path>
                       </svg>
                     </button>
-                    <button class="icon-btn" title="Disable/Restrict" data-user="<?= (int)$o['user_id'] ?>">
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-                        <circle cx="12" cy="12" r="10"></circle>
-                        <line x1="4.93" y1="4.93" x2="19.07" y2="19.07"></line>
-                      </svg>
-                    </button>
+                    <!-- Disable button removed for OJTs -->
                   </td>
                 </tr>
               <?php endforeach; endif; ?>
@@ -717,7 +866,7 @@ foreach ($ojts as $zz) {
     // show OJT filters only on OJTs tab
     // NOTE: explicit inline display ('inline-block') is required to override the CSS rule that sets display:none
     if (statusFilter) statusFilter.style.display = (tab === 'ojt') ? 'inline-block' : 'none';
-    if (officeFilter) officeFilter.style.display = (tab === 'ojt') ? 'inline-block' : 'none';
+    if (officeFilter) officeFilter.style.display = 'none';
      // update search placeholder: remove "office" when HR Staffs tab is active
      const search = document.getElementById('search');
      if (search) {
@@ -790,13 +939,17 @@ function changePassword(userId) {
 }
 
 async function toggleStatus(userId, btn) {
-  if (!confirm('Change account status?')) return;
+  // confirm disable
+  // derive name from row
+  let name = 'this user';
+  try { const tr = btn.closest('tr'); if (tr) { const td = tr.querySelector('td'); if (td) name = td.textContent.trim(); } } catch(e){}
+  if (!confirm('Disable account for ' + name + '?')) return;
   try {
     btn.disabled = true;
     const res = await fetch('../hr_actions.php', {
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ action: 'toggle_user_status', user_id: parseInt(userId,10) })
+      body: JSON.stringify({ action: 'deactivate_user', user_id: parseInt(userId,10) })
     });
     const j = await res.json();
     if (!j || !j.success) {
@@ -804,8 +957,9 @@ async function toggleStatus(userId, btn) {
       btn.disabled = false;
       return;
     }
-    // reflect change in UI: swap icon
-    if (j.new_status === 'active') btn.textContent = '🔓'; else btn.textContent = '🔒';
+    alert('Account disabled for ' + name + '.');
+    // optionally update row UI to indicate deactivated
+    const tr = btn.closest('tr'); if (tr) { tr.style.opacity = '0.5'; }
     btn.disabled = false;
   } catch (e) {
     console.error(e);
@@ -818,6 +972,18 @@ async function toggleStatus(userId, btn) {
 function openAdd(){
   const m = document.getElementById('addModal');
   if(!m) return;
+  // ensure create mode
+  try { delete m.dataset.editing; } catch(e) { m.removeAttribute('data-editing'); }
+  const title = document.getElementById('m_modal_title'); if (title) title.textContent = 'Create Office Head Account';
+  const createBtn = document.getElementById('btnCreate'); if (createBtn) createBtn.textContent = 'Create';
+  const uidEl = document.getElementById('m_user_id'); if (uidEl) uidEl.value = '';
+  // ensure office-related fields visible for create
+  const initEl = document.getElementById('m_initial_limit'); if (initEl) initEl.style.display = '';
+  const officeEl = document.getElementById('m_office'); if (officeEl) officeEl.style.display = '';
+  const courseInput = document.getElementById('m_course_input'); if (courseInput) courseInput.style.display = '';
+  const addCourseBtn = document.getElementById('m_add_course_btn'); if (addCourseBtn) addCourseBtn.style.display = '';
+  const courseTags = document.getElementById('m_course_tags'); if (courseTags) courseTags.style.display = '';
+  try { m.dataset.role = 'office_head'; } catch(e) { m.setAttribute('data-role','office_head'); }
   m.style.display = 'flex';
 }
 function closeAdd(){
@@ -828,6 +994,18 @@ function closeAdd(){
   const inputs = m.querySelectorAll('input');
   inputs.forEach(i => { if (i.type !== 'hidden') i.value = ''; });
   if (window.__hr_modal && window.__hr_modal.reset) window.__hr_modal.reset();
+  // exit edit mode if active
+  try { delete m.dataset.editing; } catch(e) { m.removeAttribute('data-editing'); }
+  const title = document.getElementById('m_modal_title'); if (title) title.textContent = 'Create Office Head Account';
+  const createBtn = document.getElementById('btnCreate'); if (createBtn) createBtn.textContent = 'Create';
+  const uidEl = document.getElementById('m_user_id'); if (uidEl) uidEl.value = '';
+  // restore visibility of office-related fields
+  const initEl = document.getElementById('m_initial_limit'); if (initEl) initEl.style.display = '';
+  const officeEl = document.getElementById('m_office'); if (officeEl) officeEl.style.display = '';
+  const courseInput = document.getElementById('m_course_input'); if (courseInput) courseInput.style.display = '';
+  const addCourseBtn = document.getElementById('m_add_course_btn'); if (addCourseBtn) addCourseBtn.style.display = '';
+  const courseTags = document.getElementById('m_course_tags'); if (courseTags) courseTags.style.display = '';
+  try { delete m.dataset.role; } catch(e) { m.removeAttribute('data-role'); }
 }
 
 // HR Staff modal: open/close/submit (first name, last name, email only)
@@ -841,6 +1019,8 @@ function closeAddHr(){
   if(!m) return;
   m.style.display = 'none';
   ['hr_first','hr_last','hr_email'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  const uidEl = document.getElementById('hr_user_id'); if (uidEl) uidEl.value = '';
+  try { delete m.dataset.editing; } catch(e) { m.removeAttribute('data-editing'); }
   const st = document.getElementById('addHrModalStatus'); if (st) st.style.display = 'none';
 }
 
@@ -853,13 +1033,67 @@ async function submitAddHr(){
   if (!first_name || !last_name || !email) { alert('Please fill First name, Last name and Email.'); return; }
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { alert('Please enter a valid email address.'); return; }
 
+  // pre-check: ensure email isn't already used
+  try {
+    const emailChk = await fetch(window.location.href, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ action: 'check_email_unique', email: email })
+    });
+    if (emailChk.ok) {
+      const ej = await emailChk.json().catch(()=>null);
+      if (ej && ej.exists) {
+        alert('This email is already in use. Please use a different email.');
+        return;
+      }
+    }
+  } catch (e) {
+    console.warn('Email uniqueness check failed', e);
+  }
+
   if (statusEl) { statusEl.style.display = 'block'; statusEl.style.background = '#fffbe6'; statusEl.style.color = '#333'; statusEl.textContent = 'Creating account...'; }
 
-  const unameBase = (first_name.charAt(0) + last_name).toLowerCase().replace(/[^a-z0-9]/g,'') || 'hr';
-  const username = unameBase + Math.floor(Math.random()*900 + 100);
-  const password = (typeof randomPassword === 'function') ? randomPassword(10) : Math.random().toString(36).slice(-10);
-
+  const modal = document.getElementById('addHrModal');
+  const isEdit = modal && modal.dataset && modal.dataset.editing;
+  // if editing, call update_account; otherwise create
   try {
+    if (isEdit) {
+      const userId = parseInt(document.getElementById('hr_user_id').value || 0, 10);
+      if (!userId) { if (statusEl) { statusEl.style.background = '#fff4f4'; statusEl.style.color = '#a00'; statusEl.textContent = 'Missing user id for edit.'; } return; }
+      const payload = {
+        action: 'update_account',
+        user_id: userId,
+        first_name: first_name,
+        last_name: last_name,
+        email: email,
+        office: ''
+      };
+      const res = await fetch('../hr_actions.php', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+      const j = await res.json().catch(()=>null);
+      if (!j || !j.success) {
+        if (statusEl) { statusEl.style.background = '#fff4f4'; statusEl.style.color = '#a00'; statusEl.textContent = 'Failed: ' + (j && j.message ? j.message : 'Unknown error'); }
+        return;
+      }
+      // update row in table
+      try {
+        const btn = document.querySelector('#panel-hr button[data-user="' + userId + '"]');
+        const tr = btn ? btn.closest('tr') : null;
+        if (tr) {
+          const tdName = tr.querySelectorAll('td')[0];
+          const tdEmail = tr.querySelectorAll('td')[1];
+          if (tdName) tdName.textContent = (first_name + ' ' + last_name).trim() || '—';
+          if (tdEmail) tdEmail.textContent = email || '—';
+        }
+      } catch (domErr) { console.error('update HR row DOM:', domErr); }
+      if (statusEl) { statusEl.style.background = '#e6f9ee'; statusEl.style.color = '#0b7a3a'; statusEl.textContent = 'HR staff updated.'; }
+      setTimeout(()=>{ closeAddHr(); }, 700);
+      return;
+    }
+
+    const unameBase = (first_name.charAt(0) + last_name).toLowerCase().replace(/[^a-z0-9]/g,'') || 'hr';
+    const username = unameBase + Math.floor(Math.random()*900 + 100);
+    const password = (typeof randomPassword === 'function') ? randomPassword(10) : Math.random().toString(36).slice(-10);
+
     const payload = {
       action: 'create_account',
       username: username,
@@ -951,12 +1185,6 @@ async function submitAddHr(){
               <polyline points="21 12 21 7 16 7"></polyline>
             </svg>
           </button>
-          <button class="icon-btn" title="Disable/Restrict" data-action="toggle" data-user="${newId}">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="12" cy="12" r="10"></circle>
-              <line x1="4.93" y1="4.93" x2="19.07" y2="19.07"></line>
-            </svg>
-          </button>
         `;
 
         tr.innerHTML = `
@@ -1013,7 +1241,7 @@ document.getElementById('btnAddHr').addEventListener('click', function(e){
 <!-- Add Account Modal -->
 <div id="addModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.35);align-items:center;justify-content:center;z-index:9999">
   <div style="background:#fff;padding:18px;border-radius:10px;width:560px;max-width:94%;box-shadow:0 12px 30px rgba(0,0,0,0.15)">
-    <h3 style="margin:0 0 12px">Create Office Head Account</h3>
+    <h3 id="m_modal_title" style="margin:0 0 12px">Create Office Head Account</h3>
 
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
       <input id="m_first" placeholder="First name" style="padding:10px;border:1px solid #ddd;border-radius:8px" />
@@ -1021,6 +1249,7 @@ document.getElementById('btnAddHr').addEventListener('click', function(e){
       <input id="m_email" placeholder="Email" style="padding:10px;border:1px solid #ddd;border-radius:8px;grid-column:span 2" />
       <!-- replaced dropdown with free-text office input -->
       <input id="m_office" placeholder="Office" style="padding:10px;border:1px solid #ddd;border-radius:8px;grid-column:span 2" />
+      <input id="m_address" placeholder="Address" style="padding:10px;border:1px solid #ddd;border-radius:8px;grid-column:span 2" />
       <input id="m_initial_limit" type="number" min="0" placeholder="Initial OJT limit (e.g. 10)" style="padding:10px;border:1px solid #ddd;border-radius:8px" />
       <div style="display:flex;gap:8px;align-items:center">
         <div style="position:relative;flex:1;display:flex;gap:8px;align-items:center">
@@ -1033,6 +1262,7 @@ document.getElementById('btnAddHr').addEventListener('click', function(e){
  
        <!-- hidden field to store CSV courses -->
        <input type="hidden" id="m_accept_courses" />
+       <input type="hidden" id="m_user_id" />
     </div>
 
     <div style="display:flex;gap:8px;justify-content:flex-end">
@@ -1052,10 +1282,11 @@ document.getElementById('btnAddHr').addEventListener('click', function(e){
       <input id="hr_first" placeholder="First name" style="padding:10px;border:1px solid #ddd;border-radius:8px" />
       <input id="hr_last" placeholder="Last name" style="padding:10px;border:1px solid #ddd;border-radius:8px" />
       <input id="hr_email" placeholder="Email" style="padding:10px;border:1px solid #ddd;border-radius:8px;grid-column:span 2" />
+      <input type="hidden" id="hr_user_id" />
     </div>
     <div style="display:flex;gap:8px;justify-content:flex-end">
       <button onclick="closeAddHr()" class="btn" type="button">Cancel</button>
-      <button id="btnCreateHr" class="btn btn-add" type="button">Create</button>
+      <button id="btnCreateHr" class="btn btn-add" type="button">Save Changes</button>
     </div>
     <div id="addHrModalStatus" style="margin-top:10px;display:none;padding:8px;border-radius:6px"></div>
   </div>
@@ -1210,12 +1441,41 @@ document.getElementById('btnAddHr').addEventListener('click', function(e){
   // hide suggestions on blur (allow click selection via mousedown above)
   input.addEventListener('blur', function(){ setTimeout(hideSuggestions, 120); });
 
-  // expose for submitAdd to read
-  window.__hr_modal = { getCourses: ()=>tags, reset: ()=>{ tags = []; renderTags(); } };
+  // expose for submitAdd to read (allow setting courses programmatically)
+  window.__hr_modal = {
+    getCourses: ()=>tags,
+    reset: ()=>{ tags = []; renderTags(); },
+    setCourses: (arr)=>{ tags = Array.isArray(arr) ? arr.map(String) : []; renderTags(); }
+  };
   // initial render (if any)
   renderTags();
 })();
 </script>
+
+<?php if (!empty($officeHeadDetails)): ?>
+<script>window._officeHeadData = <?= json_encode($officeHeadDetails, JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT) ?>;</script>
+<?php else: ?>
+<script>window._officeHeadData = {};</script>
+<?php endif; ?>
+
+<?php
+// prepare simple OJT details (email prioritizes student email if available)
+$ojtDetails = [];
+foreach ($ojts as $oj) {
+  $uid = (int)($oj['user_id'] ?? 0);
+  $email = '';
+  if (!empty($oj['s_email'])) $email = $oj['s_email'];
+  else if (!empty($oj['email'])) $email = $oj['email'];
+  $ojtDetails[$uid] = [
+    'user_id' => $uid,
+    'first_name' => $oj['s_first'] ?? $oj['first_name'] ?? '',
+    'last_name' => $oj['s_last'] ?? $oj['last_name'] ?? '',
+    'email' => $email,
+    'address' => $oj['address'] ?? ''
+  ];
+}
+?>
+<script>window._ojtData = <?= json_encode($ojtDetails, JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT) ?>;</script>
 
 <script>
 async function submitAdd(){
@@ -1223,6 +1483,7 @@ async function submitAdd(){
   const last_name = (document.getElementById('m_last').value || '').trim();
   const email = (document.getElementById('m_email').value || '').trim();
   const office = (document.getElementById('m_office').value || '').trim();
+  const address = (document.getElementById('m_address').value || '').trim();
   const initial_limit = parseInt(document.getElementById('m_initial_limit').value || '0', 10) || 0;
   const courses = (window.__hr_modal && window.__hr_modal.getCourses()) ? window.__hr_modal.getCourses() : [];
   const accept_courses = courses.join(',');
@@ -1252,6 +1513,27 @@ async function submitAdd(){
   statusEl.textContent = 'Validating...';
 
   try {
+    // pre-check: ensure email isn't already used in users or students
+    try {
+      const emailChk = await fetch(window.location.href, {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ action: 'check_email_unique', email: email })
+      });
+      if (emailChk.ok) {
+        const ej = await emailChk.json().catch(()=>null);
+        if (ej && ej.exists) {
+          statusEl.style.display = 'block';
+          statusEl.style.background = '#fff4f4';
+          statusEl.style.color = '#a00';
+          statusEl.textContent = 'This email is already in use. Please use a different email.';
+          return;
+        }
+      }
+    } catch (e) {
+      // if check fails, continue and let server-side endpoint handle duplicates
+      console.warn('Email uniqueness check failed', e);
+    }
     // server-side check: office existence
     const chkRes = await fetch(window.location.href, {
       method: 'POST',
@@ -1291,6 +1573,7 @@ async function submitAdd(){
       email: email,
       role: 'office_head',
       office: office,
+      address: address,
       initial_limit: initial_limit,
       accept_courses: accept_courses,
       email_notify: false
@@ -1389,7 +1672,11 @@ async function submitAdd(){
         // safe-guard: disable while processing
         if (b.disabled) return;
         b.disabled = true;
-        Promise.resolve().then(() => submitAdd()).finally(()=> b.disabled = false);
+        Promise.resolve().then(() => {
+          const modal = document.getElementById('addModal');
+          const isEdit = modal && modal.dataset && modal.dataset.editing;
+          return isEdit ? submitEdit() : submitAdd();
+        }).finally(()=> b.disabled = false);
       });
     }
   } catch (err){
@@ -1422,6 +1709,68 @@ document.addEventListener('DOMContentLoaded', function(){
 </script>
 
 <script>
+// open HR edit modal when Edit clicked in HR table
+document.addEventListener('DOMContentLoaded', function(){
+  try {
+    document.querySelectorAll('#panel-hr .icon-btn[title="Edit"]').forEach(btn => {
+      btn.addEventListener('click', function(e){
+        e.preventDefault();
+        const uid = this.getAttribute('data-user'); if (!uid) return;
+        // populate modal from table row
+        const tr = this.closest('tr');
+        const cells = tr ? tr.querySelectorAll('td') : [];
+        const nameCell = cells[0] ? cells[0].textContent.trim() : '';
+        const emailCell = cells[1] ? cells[1].textContent.trim() : '';
+        let first = '', last = '';
+        if (nameCell) {
+          const parts = nameCell.split(' ');
+          first = parts.shift() || '';
+          last = parts.join(' ') || '';
+        }
+        document.getElementById('hr_first').value = first;
+        document.getElementById('hr_last').value = last;
+        document.getElementById('hr_email').value = (emailCell === '—') ? '' : emailCell;
+        document.getElementById('hr_user_id').value = uid;
+        const m = document.getElementById('addHrModal'); if (!m) return; m.style.display = 'flex'; m.dataset.editing = String(uid);
+        const st = document.getElementById('addHrModalStatus'); if (st) st.style.display = 'none';
+      });
+    });
+  } catch(e){ console.error('bind HR edit:', e); }
+});
+</script>
+
+<script>
+// Bind reset password buttons across tables
+document.addEventListener('DOMContentLoaded', function(){
+  function doReset(btn){
+    const uid = btn.getAttribute('data-user');
+    if (!uid) return;
+    // derive name from row
+    let name = '';
+    try { const tr = btn.closest('tr'); if (tr) { const td = tr.querySelector('td'); if (td) name = td.textContent.trim(); } } catch(e){}
+    if (!name) name = 'this user';
+    if (!confirm('Reset password for ' + name + '?')) return;
+    btn.disabled = true;
+    fetch('../hr_actions.php', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ action: 'reset_password', user_id: parseInt(uid,10) })
+    }).then(r => r.json()).then(j => {
+      if (!j || !j.success) {
+        alert('Failed to reset: ' + (j?.message || j?.error || 'Unknown error'));
+      } else {
+        // show a simple confirmation that password was reset for the user
+        alert('Password has been reset for ' + name + '.');
+      }
+    }).catch(err => { console.error(err); alert('Request failed'); }).finally(()=> btn.disabled = false);
+  }
+
+  document.querySelectorAll('.icon-btn[data-action="reset"]').forEach(btn => {
+    btn.addEventListener('click', function(e){ e.preventDefault(); doReset(this); });
+  });
+});
+</script>
+
+<script>
   // attach confirm to top logout like hr_head_ojts.php
   (function(){
     const logoutBtn = document.getElementById('top-logout');
@@ -1432,6 +1781,38 @@ document.addEventListener('DOMContentLoaded', function(){
         window.location.href = this.getAttribute('href');
       }
     });
+  })();
+</script>
+
+<script>
+  // Calendar modal open/close handlers (inline-styled overlay for Accounts page)
+  (function(){
+    const openBtn = document.getElementById('openCalendarBtn');
+    if (!openBtn) return;
+    const calendarOverlay = document.createElement('div');
+    calendarOverlay.id = 'calendarOverlay';
+    calendarOverlay.style.position = 'fixed';
+    calendarOverlay.style.top = '0';
+    calendarOverlay.style.left = '0';
+    calendarOverlay.style.right = '0';
+    calendarOverlay.style.bottom = '0';
+    calendarOverlay.style.display = 'none';
+    calendarOverlay.style.alignItems = 'center';
+    calendarOverlay.style.justifyContent = 'center';
+    calendarOverlay.style.background = 'rgba(102, 51, 153, 0.18)';
+    calendarOverlay.style.zIndex = '9999';
+    calendarOverlay.setAttribute('role','dialog');
+    calendarOverlay.setAttribute('aria-hidden','true');
+    calendarOverlay.innerHTML = `
+      <div style="width:100%;height:100vh;max-width:100%;max-height:100vh;padding:0;background:transparent;display:flex;align-items:center;justify-content:center;position:relative;">
+        <iframe src="calendar_staff.php" title="Calendar" style="width:100%;height:100%;border:0;display:block;"></iframe>
+      </div>`;
+    document.body.appendChild(calendarOverlay);
+    function showCalendar(){ calendarOverlay.style.display = 'flex'; calendarOverlay.setAttribute('aria-hidden','false'); }
+    function hideCalendar(){ calendarOverlay.style.display = 'none'; calendarOverlay.setAttribute('aria-hidden','true'); }
+    window.closeCalendarOverlay = hideCalendar;
+    openBtn.addEventListener('click', function(){ showCalendar(); });
+    calendarOverlay.addEventListener('click', function(e){ if (e.target === calendarOverlay) hideCalendar(); });
   })();
 </script>
 
@@ -1462,91 +1843,318 @@ function randomPassword(len){
 </script>
 
 <script>
-  (function(){
-    const notifBtn = document.getElementById('btnNotif');
-    if (!notifBtn) return;
-    const badge = notifBtn.querySelector('.notif-count');
+/* Edit-mode modal support: open prefilled modal and submit updates */
+document.addEventListener('DOMContentLoaded', function(){
+  // bind Edit buttons in Office Heads panel
+  try {
+    document.querySelectorAll('#panel-office .icon-btn[title="Edit"]').forEach(btn => {
+      btn.addEventListener('click', function(e){
+        e.preventDefault();
+        const uid = this.getAttribute('data-user');
+        if (!uid) return;
+        openEditModal(uid);
+      });
+    });
+    // bind Edit buttons in OJTs panel to open the same modal prefilled with Name/Email/Office/Address
+    document.querySelectorAll('#panel-ojt .icon-btn[title="Edit"]').forEach(btn => {
+      btn.addEventListener('click', function(e){
+        e.preventDefault();
+        const uid = this.getAttribute('data-user');
+        if (!uid) return;
+        openEditModalOjt(uid);
+      });
+    });
+  } catch (err) { console.error('bind edit buttons:', err); }
+});
 
-    let overlay = document.getElementById('notifOverlay');
-    if (!overlay) {
-      overlay = document.createElement('div');
-      overlay.id = 'notifOverlay';
-      overlay.setAttribute('role', 'dialog');
-      overlay.setAttribute('aria-hidden', 'true');
-      overlay.style.position = 'fixed';
-      overlay.style.inset = '0';
-      overlay.style.display = 'none';
-      overlay.style.alignItems = 'flex-start';
-      overlay.style.justifyContent = 'flex-end';
-      overlay.style.padding = '18px';
-      overlay.style.background = 'rgba(15, 23, 42, 0.25)';
-      overlay.style.zIndex = '10050';
-      overlay.innerHTML =
-        '<div style="width:360px;max-width:calc(100% - 32px);height:600px;max-height:calc(100vh - 36px);background:#fff;border-radius:16px;box-shadow:0 18px 45px rgba(15, 23, 42, 0.18);overflow:hidden;">' +
-        '<iframe src="notif.php?embed=1" title="Notifications" style="width:100%;height:100%;border:0;"></iframe>' +
-        '</div>';
-      document.body.appendChild(overlay);
+function openEditModalOjt(userId){
+  const m = document.getElementById('addModal'); if(!m) return;
+  // prefer server-side OJT data mapping (student email) if available
+  const od = (window._ojtData && window._ojtData[userId]) ? window._ojtData[userId] : null;
+  let first = '', last = '', email = '', address = '';
+  if (od) {
+    first = od.first_name || '';
+    last = od.last_name || '';
+    email = od.email || '';
+    address = od.address || '';
+  } else {
+    // fallback: read from table (columns: Name, Email, Address, Status, Actions)
+    const btn = document.querySelector('#panel-ojt button[data-user="' + userId + '"]');
+    const tr = btn ? btn.closest('tr') : null;
+    const cells = tr ? tr.querySelectorAll('td') : [];
+    const nameCell = cells[0] ? cells[0].textContent.trim() : '';
+    const emailCell = cells[1] ? cells[1].textContent.trim() : '';
+    const addressCell = cells[2] ? cells[2].textContent.trim() : '';
+    if (nameCell) {
+      const parts = nameCell.split(' ');
+      first = parts.shift() || '';
+      last = parts.join(' ') || '';
     }
+    email = emailCell === '—' ? '' : emailCell;
+    address = addressCell === '—' ? '' : addressCell;
+  }
 
-    notifBtn.setAttribute('aria-haspopup', 'dialog');
+  document.getElementById('m_first').value = first;
+  document.getElementById('m_last').value = last;
+  document.getElementById('m_email').value = email;
+  document.getElementById('m_address').value = address;
+  document.getElementById('m_user_id').value = userId;
+  // clear office-specific fields not relevant to OJT
+
+  const initEl = document.getElementById('m_initial_limit'); if (initEl) { initEl.value = ''; initEl.style.display = 'none'; }
+  const officeEl = document.getElementById('m_office'); if (officeEl) officeEl.style.display = 'none';
+  const courseInput = document.getElementById('m_course_input'); if (courseInput) courseInput.style.display = 'none';
+  const addCourseBtn = document.getElementById('m_add_course_btn'); if (addCourseBtn) addCourseBtn.style.display = 'none';
+  const courseTags = document.getElementById('m_course_tags'); if (courseTags) courseTags.style.display = 'none';
+  const courseSug = document.getElementById('m_course_suggestions'); if (courseSug) courseSug.style.display = 'none';
+  if (window.__hr_modal && typeof window.__hr_modal.setCourses === 'function') window.__hr_modal.setCourses([]);
+
+  // mark modal role for submit logic
+  try { m.dataset.role = 'ojt'; } catch(e) { m.setAttribute('data-role','ojt'); }
+
+  m.style.display = 'flex'; m.dataset.editing = String(userId);
+  const title = document.getElementById('m_modal_title'); if (title) title.textContent = 'Edit OJT Account';
+  const createBtn = document.getElementById('btnCreate'); if (createBtn) createBtn.textContent = 'Save Changes';
+}
+
+function openEditModal(userId){
+  const m = document.getElementById('addModal');
+  if(!m) return;
+  let data = (window._officeHeadData && window._officeHeadData[userId]) ? window._officeHeadData[userId] : null;
+  // try reading basic values from the table row if server data not available
+  if (!data) {
+    const btn = document.querySelector('#panel-office button[data-user="' + userId + '"]');
+    const tr = btn ? btn.closest('tr') : null;
+    const cells = tr ? tr.querySelectorAll('td') : [];
+    const nameCell = cells[0] ? cells[0].textContent.trim() : '';
+    const emailCell = cells[1] ? cells[1].textContent.trim() : '';
+    const officeCell = cells[2] ? cells[2].textContent.trim() : '';
+    data = { first_name: '', last_name: '', email: emailCell === '—' ? '' : emailCell, office_name: officeCell === '—' ? '' : officeCell };
+    if (nameCell) {
+      const parts = nameCell.split(' ');
+      data.first_name = parts.shift() || '';
+      data.last_name = parts.join(' ') || '';
+    }
+  }
+
+  document.getElementById('m_first').value = data.first_name || '';
+  document.getElementById('m_last').value = data.last_name || '';
+  document.getElementById('m_email').value = data.email || '';
+  document.getElementById('m_office').value = data.office_name || '';
+  document.getElementById('m_user_id').value = userId;
+  const initEl = document.getElementById('m_initial_limit');
+  if (initEl) initEl.value = (data.initial_limit !== null && data.initial_limit !== undefined) ? data.initial_limit : '';
+
+  const coursesCsv = data.accept_courses || '';
+  if (window.__hr_modal && typeof window.__hr_modal.setCourses === 'function') {
+    const arr = coursesCsv ? coursesCsv.split(',').map(s=>s.trim()).filter(Boolean) : [];
+    window.__hr_modal.setCourses(arr);
+  } else {
+    document.getElementById('m_accept_courses').value = coursesCsv;
+  }
+
+  // ensure office-related fields are visible for Office Head edit
+  const initEl2 = document.getElementById('m_initial_limit'); if (initEl2) initEl2.style.display = '';
+  const officeEl2 = document.getElementById('m_office'); if (officeEl2) officeEl2.style.display = '';
+  const courseInput2 = document.getElementById('m_course_input'); if (courseInput2) courseInput2.style.display = '';
+  const addCourseBtn2 = document.getElementById('m_add_course_btn'); if (addCourseBtn2) addCourseBtn2.style.display = '';
+  const courseTags2 = document.getElementById('m_course_tags'); if (courseTags2) courseTags2.style.display = '';
+
+  // show modal and set editing state
+  m.style.display = 'flex';
+  m.dataset.editing = String(userId);
+  try { m.dataset.role = 'office_head'; } catch(e) { m.setAttribute('data-role','office_head'); }
+  const title = document.getElementById('m_modal_title'); if (title) title.textContent = 'Edit Office Head Account';
+  const createBtn = document.getElementById('btnCreate'); if (createBtn) createBtn.textContent = 'Save Changes';
+}
+
+async function submitEdit(){
+  const user_id = parseInt(document.getElementById('m_user_id').value || 0, 10);
+  if (!user_id) { alert('Missing user id for update.'); return; }
+  const first_name = (document.getElementById('m_first').value || '').trim();
+  const last_name = (document.getElementById('m_last').value || '').trim();
+  const email = (document.getElementById('m_email').value || '').trim();
+  const office = (document.getElementById('m_office').value || '').trim();
+  const address = (document.getElementById('m_address').value || '').trim();
+  const initial_limit = parseInt(document.getElementById('m_initial_limit').value || '0', 10) || 0;
+  const courses = (window.__hr_modal && window.__hr_modal.getCourses()) ? window.__hr_modal.getCourses() : [];
+  const accept_courses = courses.join(',');
+
+  // allow office to be empty when editing OJT (role marked on modal)
+  const modalEl = document.getElementById('addModal');
+  const role = modalEl ? (modalEl.dataset && modalEl.dataset.role ? modalEl.dataset.role : modalEl.getAttribute('data-role')) : null;
+  if (!first_name || !last_name || !email || (!office && role !== 'ojt')) { alert('Please fill First name, Last name, Email and Office.'); return; }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { alert('Please enter a valid email address.'); return; }
+
+  const statusEl = document.getElementById('addModalStatus');
+  statusEl.style.display = 'block'; statusEl.style.background = '#fffbe6'; statusEl.style.color = '#333'; statusEl.textContent = 'Saving changes...';
+
+  try {
+    const payload = {
+      action: 'update_account',
+      user_id: user_id,
+      first_name: first_name,
+      last_name: last_name,
+      email: email,
+      office: office,
+      address: address,
+      initial_limit: initial_limit,
+      accept_courses: accept_courses
+    };
+
+    let res, j;
+    if (role === 'ojt') {
+      // first update users via hr_actions.php (keeps behaviour consistent with Office Head edits)
+      res = await fetch('../hr_actions.php', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(Object.assign({}, { action: 'update_account' }, payload)) });
+      j = await res.json().catch(()=>null);
+      // if users update succeeded, also update students table via local handler (students_only)
+      if (j && j.success) {
+        try {
+          const studs = await fetch(window.location.href, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ action: 'update_ojt_account', user_id: user_id, first_name: first_name, last_name: last_name, email: email, address: address, students_only: true }) });
+          const sj = await studs.json().catch(()=>null);
+          // ignore sj failure (students update non-fatal)
+        } catch(e) { /* ignore */ }
+      }
+    } else {
+      res = await fetch('../hr_actions.php', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+      j = await res.json().catch(()=>null);
+    }
+    if (!j || !j.success) {
+      statusEl.style.background = '#fff4f4'; statusEl.style.color = '#a00';
+      statusEl.textContent = 'Failed to update: ' + (j && j.message ? j.message : 'Unknown error');
+      return;
+    }
+    statusEl.style.background = '#e6f9ee'; statusEl.style.color = '#0b7a3a';
+    statusEl.textContent = 'Account updated.';
+    setTimeout(()=>{ closeAdd(); location.reload(); }, 900);
+  } catch (err) {
+    console.error('submitEdit error', err);
+    statusEl.style.background = '#fff4f4'; statusEl.style.color = '#a00';
+    statusEl.textContent = 'Request failed: ' + (err.message || 'Unknown');
+  }
+}
+  
+    // Settings modal open/close handlers (iframe overlay)
+    (function(){
+      const openBtn = document.getElementById('btnSettings');
+      if (!openBtn) return;
+      const settingsOverlay = document.createElement('div');
+      settingsOverlay.id = 'settingsOverlay';
+      settingsOverlay.style.position = 'fixed';
+      settingsOverlay.style.top = '0';
+      settingsOverlay.style.left = '0';
+      settingsOverlay.style.right = '0';
+      settingsOverlay.style.bottom = '0';
+      settingsOverlay.style.display = 'none';
+      settingsOverlay.style.alignItems = 'center';
+      settingsOverlay.style.justifyContent = 'center';
+      settingsOverlay.style.background = 'rgba(102, 51, 153, 0.18)';
+      settingsOverlay.style.zIndex = '9999';
+      settingsOverlay.setAttribute('role','dialog');
+      settingsOverlay.setAttribute('aria-hidden','true');
+
+      settingsOverlay.innerHTML = `
+        <div style="width:100%;height:100vh;max-width:100%;max-height:100vh;padding:0;background:transparent;display:flex;align-items:center;justify-content:center;position:relative;">
+          <iframe src="settings.php" title="Settings" style="width:100%;height:100%;border:0;display:block;"></iframe>
+        </div>`;
+
+      document.body.appendChild(settingsOverlay);
+
+      function showSettings(){ settingsOverlay.style.display = 'flex'; settingsOverlay.setAttribute('aria-hidden','false'); try{ openBtn.style.background = '#fff'; openBtn.style.boxShadow = '0 6px 18px rgba(0,0,0,0.06)'; }catch(e){} }
+      function hideSettings(){ settingsOverlay.style.display = 'none'; settingsOverlay.setAttribute('aria-hidden','true'); try{ openBtn.style.background = 'transparent'; openBtn.style.boxShadow = 'none'; }catch(e){} }
+      window.closeSettingsOverlay = hideSettings;
+
+      openBtn.addEventListener('click', function(ev){ ev.preventDefault(); showSettings(); });
+      settingsOverlay.addEventListener('click', function(e){ if (e.target === settingsOverlay) hideSettings(); });
+    })();
+  </script>
+
+<script>
+(function(){
+  const notifBtn = document.getElementById('btnNotif');
+  if (!notifBtn) return;
+  const badge = notifBtn.querySelector('.notif-count');
+
+  let overlay = document.getElementById('notifOverlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'notifOverlay';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-hidden', 'true');
+    overlay.style.position = 'fixed';
+    overlay.style.inset = '0';
+    overlay.style.display = 'none';
+    overlay.style.alignItems = 'flex-start';
+    overlay.style.justifyContent = 'flex-end';
+    overlay.style.padding = '18px';
+    overlay.style.background = 'rgba(15, 23, 42, 0.25)';
+    overlay.style.zIndex = '10050';
+    overlay.innerHTML =
+      '<div style="width:360px;max-width:calc(100% - 32px);height:600px;max-height:calc(100vh - 36px);background:#fff;border-radius:16px;box-shadow:0 18px 45px rgba(15, 23, 42, 0.18);overflow:hidden;">' +
+      '<iframe src="notif.php?embed=1" title="Notifications" style="width:100%;height:100%;border:0;"></iframe>' +
+      '</div>';
+    document.body.appendChild(overlay);
+  }
+
+  notifBtn.setAttribute('aria-haspopup', 'dialog');
+  notifBtn.setAttribute('aria-expanded', 'false');
+
+  function setBadge(count) {
+    if (!badge) return;
+    const num = parseInt(count || 0, 10) || 0;
+    if (num > 0) {
+      badge.textContent = num;
+      badge.style.display = 'inline-flex';
+    } else {
+      badge.textContent = '0';
+      badge.style.display = 'none';
+    }
+  }
+
+  try {
+    const saved = localStorage.getItem('notifUnread');
+    if (saved !== null) setBadge(saved);
+  } catch (e) {
+    // ignore storage errors
+  }
+
+  window.addEventListener('message', function(e){
+    if (e && e.data && e.data.type === 'notif-count') {
+      setBadge(e.data.unread);
+    }
+  });
+
+  function openPanel() {
+    overlay.style.display = 'flex';
+    overlay.setAttribute('aria-hidden', 'false');
+    notifBtn.setAttribute('aria-expanded', 'true');
+  }
+
+  function closePanel() {
+    overlay.style.display = 'none';
+    overlay.setAttribute('aria-hidden', 'true');
     notifBtn.setAttribute('aria-expanded', 'false');
+  }
 
-    function setBadge(count) {
-      if (!badge) return;
-      const num = parseInt(count || 0, 10) || 0;
-      if (num > 0) {
-        badge.textContent = num;
-        badge.style.display = 'inline-flex';
-      } else {
-        badge.textContent = '0';
-        badge.style.display = 'none';
-      }
+  window.closeNotifOverlay = closePanel;
+
+  notifBtn.addEventListener('click', function(e){
+    e.preventDefault();
+    if (overlay.style.display === 'flex') {
+      closePanel();
+    } else {
+      openPanel();
     }
+  });
 
-    try {
-      const saved = localStorage.getItem('notifUnread');
-      if (saved !== null) setBadge(saved);
-    } catch (e) {
-      // ignore storage errors
-    }
+  overlay.addEventListener('click', function(e){
+    if (e.target === overlay) closePanel();
+  });
 
-    window.addEventListener('message', function(e){
-      if (e && e.data && e.data.type === 'notif-count') {
-        setBadge(e.data.unread);
-      }
-    });
-
-    function openPanel() {
-      overlay.style.display = 'flex';
-      overlay.setAttribute('aria-hidden', 'false');
-      notifBtn.setAttribute('aria-expanded', 'true');
-    }
-
-    function closePanel() {
-      overlay.style.display = 'none';
-      overlay.setAttribute('aria-hidden', 'true');
-      notifBtn.setAttribute('aria-expanded', 'false');
-    }
-
-    window.closeNotifOverlay = closePanel;
-
-    notifBtn.addEventListener('click', function(e){
-      e.preventDefault();
-      if (overlay.style.display === 'flex') {
-        closePanel();
-      } else {
-        openPanel();
-      }
-    });
-
-    overlay.addEventListener('click', function(e){
-      if (e.target === overlay) closePanel();
-    });
-
-    document.addEventListener('keydown', function(e){
-      if (e.key === 'Escape') closePanel();
-    });
-  })();
+  document.addEventListener('keydown', function(e){
+    if (e.key === 'Escape') closePanel();
+  });
+})();
 </script>
 
 </body>

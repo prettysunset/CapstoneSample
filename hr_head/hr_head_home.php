@@ -692,8 +692,8 @@ $stmtCompleted = $conn->prepare("
                   <th style="padding:6px;border:1px solid #eee;background:#e6e9fb;text-align:center">Capacity</th>
                   <th style="padding:6px;border:1px solid #eee;background:#e6e9fb;text-align:center">Ongoing OJTs</th>
                   <th style="padding:6px;border:1px solid #eee;background:#e6e9fb;text-align:center">Approved OJTs</th>
-                  <th style="padding:6px;border:1px solid #eee;background:#e6e9fb;text-align:center">Completed OJTs</th>
                   <th style="padding:6px;border:1px solid #eee;background:#e6e9fb;text-align:center">Available Slot</th>
+                  <th style="padding:6px;border:1px solid #eee;background:#e6e9fb;text-align:center">Completed OJTs</th>
                   <th style="padding:6px;border:1px solid #eee;background:#e6e9fb;text-align:center">Status</th>
                 </tr>
               </thead>
@@ -764,13 +764,13 @@ $stmtCompleted = $conn->prepare("
                         }
                     }
                 ?>
-                  <tr data-office="<?= htmlspecialchars(strtolower($o['office_name'] ?? '')) ?>">
+                  <tr data-office="<?= htmlspecialchars(strtolower($o['office_name'] ?? '')) ?>" data-office-id="<?= (int)($o['office_id'] ?? 0) ?>">
                     <td style="padding:6px;border:1px solid #eee;"><?= htmlspecialchars($o['office_name'] ?? '—') ?></td>
                     <td style="text-align:center;padding:6px;border:1px solid #eee"><?= $cap === null ? '—' : $cap ?></td>
                     <td style="text-align:center;padding:6px;border:1px solid #eee"><?= $active ?></td>
                     <td style="text-align:center;padding:6px;border:1px solid #eee"><?= $approved ?></td>
-                    <td style="text-align:center;padding:6px;border:1px solid #eee"><?= $completed ?></td>
                     <td style="text-align:center;padding:6px;border:1px solid #eee"><?= $availableDisplay ?></td>
+                    <td style="text-align:center;padding:6px;border:1px solid #eee"><?= $completed ?></td>
                     <td style="text-align:center;padding:6px;border:1px solid #eee"><span class="<?= $statusClass ?>"><?= htmlspecialchars($statusLabel) ?></span></td>
                   </tr>
                 <?php endforeach; ?>
@@ -834,8 +834,8 @@ $stmtCompleted->close();
   const tbody = document.getElementById('officesBody');
 
   // column indices in the table body (0-based)
-  // updated to include Completed OJTs column (new index)
-  const COL = { capacity:1, active:2, approved:3, completed:4, available:5 };
+  // Updated column indices after swapping Completed and Available columns
+  const COL = { capacity:1, active:2, approved:3, available:4, completed:5 };
 
   function parseNumCell(text){
     if (!text) return null;
@@ -1265,49 +1265,132 @@ async function openApproveModal(btn) {
     document.getElementById('modal_name').textContent = name;
     document.getElementById('modal_email').textContent = email;
 
-    // show assigned office: if applicant provided a second choice, show a dropdown
-    // NOTE: per request, do not call server-side `hr_actions.php` here; this is purely client-side.
+    // show assigned office: render a select containing applicant preferences (1st/2nd)
+    // then list other offices that currently have available slots so HR can reassign.
+    // NOTE: this is purely client-side and reads availability from the offices table above.
     const modalOfficeEl = document.getElementById('modal_office');
     modalOfficeEl.innerHTML = '';
-    // remove the .values background/padding here so assigned-office looks like the other inputs
     modalOfficeEl.style.background = 'transparent';
     modalOfficeEl.style.padding = '0';
     modalOfficeEl.style.border = 'none';
     modalOfficeEl.style.borderRadius = '0';
-    if (opt2Id && opt2Id !== 0) {
-      const sel = document.createElement('select');
-      sel.id = 'modal_office_select';
-      sel.style.width = '100%';
-      sel.style.padding = '8px';
-      sel.style.borderRadius = '6px';
-      sel.style.border = '1px solid #ccc';
 
-      // opt1 option
+    const sel = document.createElement('select');
+    sel.id = 'modal_office_select';
+    sel.style.width = '100%';
+    sel.style.padding = '8px';
+    sel.style.borderRadius = '6px';
+    sel.style.border = '1px solid #ccc';
+
+    // track added office ids to avoid duplicates
+    const added = new Set();
+
+    // add applicant's first preference (mark as 1st)
+    if (opt1Id) {
       const o1 = document.createElement('option');
-      o1.value = String(opt1Id || 0);
-      o1.text = opt1Name || 'Preference 1';
+      o1.value = String(opt1Id);
+      o1.text = (opt1Name || 'Preference 1') + ' — 1st';
       sel.appendChild(o1);
-
-      // opt2 option
-      const o2 = document.createElement('option');
-      o2.value = String(opt2Id || 0);
-      o2.text = opt2Name || 'Preference 2';
-      sel.appendChild(o2);
-
-      modalOfficeEl.appendChild(sel);
+      added.add(String(opt1Id));
     } else {
-      // render a readonly text input to match Location/Time styling
-      const textInput = document.createElement('input');
-      textInput.type = 'text';
-      textInput.id = 'modal_office_input';
-      textInput.value = opt1Name || 'N/A';
-      textInput.readOnly = true;
-      textInput.style.width = '100%';
-      textInput.style.padding = '8px';
-      textInput.style.borderRadius = '6px';
-      textInput.style.border = '1px solid #ccc';
-      modalOfficeEl.appendChild(textInput);
+      const o1 = document.createElement('option');
+      o1.value = '0';
+      o1.text = (opt1Name || 'Preference 1') + ' — 1st';
+      sel.appendChild(o1);
+      added.add('0');
     }
+
+    // add applicant's second preference if available (mark as 2nd)
+    if (opt2Id && opt2Id !== 0) {
+      const o2 = document.createElement('option');
+      o2.value = String(opt2Id);
+      o2.text = (opt2Name || 'Preference 2') + ' — 2nd';
+      sel.appendChild(o2);
+      added.add(String(opt2Id));
+    }
+
+    // separator option (disabled) - simple line only (no label)
+    const sep = document.createElement('option');
+    sep.disabled = true;
+    sep.text = '──────────────';
+    sel.appendChild(sep);
+
+    // create a readonly display input that shows only the office name (no suffix)
+    const displayInput = document.createElement('input');
+    displayInput.type = 'text';
+    displayInput.id = 'modal_office_display';
+    displayInput.readOnly = true;
+    displayInput.style.width = '100%';
+    displayInput.style.padding = '8px';
+    displayInput.style.borderRadius = '6px';
+    displayInput.style.border = '1px solid #ccc';
+    displayInput.style.marginBottom = '8px';
+    // helper to get name-only from an option text (split on ' — ')
+    const nameOnly = txt => (txt || '').split(' — ')[0] || txt || '';
+
+    // gather available offices from the offices table (column for Available Slot is index 4)
+    try {
+      document.querySelectorAll('#officesBody tr').forEach(tr => {
+        const officeId = tr.getAttribute('data-office-id') || tr.getAttribute('data-office');
+        if (!officeId) return;
+        if (added.has(String(officeId))) return; // don't duplicate pref options
+        const cols = tr.cells;
+        // available column index is 4 (after swap)
+        const availRaw = (cols[4] && cols[4].textContent) ? cols[4].textContent.trim() : '';
+        let include = false;
+        let labelSuffix = '';
+        if (availRaw === '—' || availRaw === '') {
+          // unlimited capacity -> treat as available
+          include = true;
+          labelSuffix = 'Available';
+        } else {
+          const n = parseInt(availRaw.replace(/[^\d-]/g,''), 10);
+          if (!isNaN(n) && n > 0) { include = true; labelSuffix = n + ' slot' + (n>1? 's':''); }
+        }
+        if (include) {
+          const name = (cols[0] && cols[0].textContent) ? cols[0].textContent.trim() : ('Office ' + officeId);
+          const opt = document.createElement('option');
+          opt.value = String(officeId);
+          opt.text = name + ' — ' + labelSuffix;
+          sel.appendChild(opt);
+          added.add(String(officeId));
+        }
+      });
+    } catch (e) {
+      console.warn('Could not build available offices list', e);
+    }
+
+    // default selection: prefer applicant first preference
+    try { sel.value = String(opt1Id || (sel.options[0] && sel.options[0].value) || '0'); } catch(e){}
+
+    // single textbox visible by default; select is hidden until textbox clicked
+    sel.style.display = 'none';
+
+    // set initial display input value from selected option (name only)
+    try {
+      displayInput.value = nameOnly((sel.options[sel.selectedIndex] && sel.options[sel.selectedIndex].text) || opt1Name || '');
+    } catch(e) {}
+
+    // when textbox clicked, show the select under it for choice
+    displayInput.addEventListener('click', function(){
+      try {
+        sel.style.display = 'block';
+        sel.size = Math.min(10, sel.options.length);
+        sel.focus();
+      } catch(e){}
+    });
+
+    // when select changes, update textbox and hide select
+    sel.addEventListener('change', function(){
+      try { displayInput.value = nameOnly((this.options[this.selectedIndex] && this.options[this.selectedIndex].text) || ''); } catch(e){}
+      try { sel.size = 0; sel.style.display = 'none'; sel.blur(); } catch(e){}
+    });
+
+    // hide select when it loses focus
+    sel.addEventListener('blur', function(){ try{ sel.size = 0; sel.style.display = 'none'; }catch(e){} });
+
+    modalOfficeEl.appendChild(displayInput);
+    modalOfficeEl.appendChild(sel);
 
     const dateInput = document.getElementById('modal_date');
 

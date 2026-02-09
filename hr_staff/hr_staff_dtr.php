@@ -118,8 +118,8 @@ $stmtOff->close();
       </a>
       <a href="hr_staff_moa.php">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px">
-          <circle cx="12" cy="12" r="8"></circle>
-          <path d="M12 8v5l3 2"></path>
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+          <polyline points="14 2 14 8 20 8"></polyline>
         </svg>
         MOA
       </a>
@@ -136,7 +136,7 @@ $stmtOff->close();
           <rect x="10" y="6" width="4" height="14"></rect>
           <rect x="17" y="2" width="4" height="18"></rect>
         </svg>
-        Reports
+        Records
       </a>
     </div>
     <div style="margin-top:auto;padding:18px 0;width:100%;text-align:center;">
@@ -182,22 +182,7 @@ $stmtOff->close();
           <!-- Only Daily Logs retained -->
           <div style="font-size:18px;font-weight:700;color:#2f3850">Daily Logs</div>
 
-          <!-- sort controls moved here -->
-          <div style="display:flex;gap:6px;align-items:center;">
-            <label for="sortBy" style="font-weight:600">Sort by</label>
-            <select id="sortBy" style="padding:8px;border:1px solid #ddd;border-radius:8px">
-              <option value="none">None</option>
-              <option value="am_in">A.M. Arrival</option>
-              <option value="am_out">A.M. Departure</option>
-              <option value="pm_in">P.M. Arrival</option>
-              <option value="pm_out">P.M. Departure</option>
-            </select>
-
-            <select id="sortDir" style="padding:8px;border:1px solid #ddd;border-radius:8px">
-              <option value="asc">Asc</option>
-              <option value="desc">Desc</option>
-            </select>
-          </div>
+          <!-- sort controls removed -->
         </div>
       </div>
 
