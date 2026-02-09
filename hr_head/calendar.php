@@ -1,4 +1,6 @@
 <?php
+// Ensure server uses Manila timezone for calendar calculations
+date_default_timezone_set('Asia/Manila');
 // Ensure AJAX JSON POSTs are handled before any HTML is output so responses are clean
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && strpos($_SERVER['CONTENT_TYPE'] ?? '', 'application/json') !== false) {
   // capture any stray output and make responses robust for the JS client

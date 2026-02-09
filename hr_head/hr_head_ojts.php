@@ -422,10 +422,10 @@ if ($moa_q) {
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
         </button>
 
-      <a href="settings.php" title="Settings" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06A2 2 0 1 1 2.28 16.8l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09c.7 0 1.3-.4 1.51-1A1.65 1.65 0 0 0 4.27 6.3L4.2 6.23A2 2 0 1 1 6 3.4l.06.06c.5.5 1.2.7 1.82.33.7-.4 1.51-.4 2.21 0 .62.37 1.32.17 1.82-.33L12.6 3.4a2 2 0 1 1 1.72 3.82l-.06.06c-.5.5-.7 1.2-.33 1.82.4.7.4 1.51 0 2.21-.37.62-.17 1.32.33 1.82l.06.06A2 2 0 1 1 19.4 15z"></path>
+      <button id="btnSettings" type="button" title="Settings" aria-label="Settings" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;background:transparent;border:0;box-shadow:none;cursor:pointer;">
+           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06A2 2 0 1 1 2.28 16.8l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09c.7 0 1.3-.4 1.51-1A1.65 1.65 0 0 0 4.27 6.3L4.2 6.23A2 2 0 1 1 6 3.4l.06.06c.5.5 1.2.7 1.82.33.7-.4 1.51-.4 2.21 0 .62.37 1.32.17 1.82-.33L12.6 3.4a2 2 0 1 1 1.72 3.82l-.06.06c-.5.5-.7 1.2-.33 1.82.4.7.4 1.51 0 2.21-.37.62-.17 1.32.33 1.82l.06.06A2 2 0 1 1 19.4 15z"></path>
         </svg>
-      </a>
+      </button>
       <a id="top-logout" href="../logout.php" title="Logout" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
       </a>
@@ -544,7 +544,7 @@ if ($moa_q) {
                      <td><?= htmlspecialchars($hours) ?></td>
                      <td class="<?= $statusClass ?>"><?= ucfirst($status) ?></td>
                      <td>
-                         <button class="view-btn" title="View" onclick="openViewModal(<?= $appId ?>, <?= $userId ?>)" aria-label="View">
+                         <button class="view-btn" title="View" onclick="openViewModal(<?= $appId ?>, <?= $userId ?>, <?= json_encode(round((float)$rendered,2)) ?>, <?= json_encode($reqVal === null ? null : (int)$reqVal) ?>)" aria-label="View">
                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true">
                              <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/>
                              <circle cx="12" cy="12" r="3"/>
@@ -578,7 +578,6 @@ if ($moa_q) {
           </div>
 
           <div class="view-tools" aria-hidden="true">
-            <button class="tool-link" id="printEndorse">Print Endorsement</button>
             <button class="tool-link" id="printDTR">Print DTR</button>
           </div>
         </div>
@@ -908,7 +907,9 @@ if ($moa_q) {
       t.addEventListener('click', switchViewTab);
     });
     // openViewModal: fetch application details and populate modal
-    window.openViewModal = async function(appId, userId){
+    // accepts optional precomputed values from the table row to display immediately:
+    // openViewModal(appId, userId, preRenderedHours:number|null, preRequiredHours:number|null)
+    window.openViewModal = async function(appId, userId, preRendered, preRequired){
        showViewOverlay();
        // reset
        ['view_name','view_age','view_birthday','view_address','view_phone','view_email','view_college','view_course','view_year','view_school_address','view_adviser','view_emg_name','view_emg_rel','view_emg_contact','view_hours_text','view_dates','view_assigned_office','view_office_head','view_office_contact','view_attachments_list'].forEach(id=>{
@@ -999,11 +1000,22 @@ if ($moa_q) {
         const requiredRaw = (s.total_hours_required !== undefined && s.total_hours_required !== null) ? s.total_hours_required : (d.total_hours_required !== undefined && d.total_hours_required !== null ? d.total_hours_required : null);
         const required = Number(requiredRaw || 0);
         const requiredDisplay = requiredRaw === null ? '—' : String(required);
-        document.getElementById('view_hours_text').textContent = `${rendered} out of ${requiredDisplay} hours`;
-        // Date Started / Expected End will be computed after fetching DTR rows below
-        document.getElementById('view_dates').textContent = `Date Started: —\nExpected End Date: —`;
-        const pct = (requiredRaw !== null && required > 0) ? (rendered / required * 100) : 0;
-        setDonut(pct);
+        // If the caller provided precomputed values (table already had DTR-summed hours),
+        // show them immediately while the modal fetches detailed DTR rows. These will
+        // still be overridden later when computeAndUpdateDates runs.
+        if (typeof preRendered !== 'undefined' && preRendered !== null) {
+          const hoursElImmediate = document.getElementById('view_hours_text');
+          const reqDispImmediate = (preRequired === null || preRequired === undefined) ? requiredDisplay : String(preRequired);
+          if (hoursElImmediate) hoursElImmediate.textContent = `${preRendered} out of ${reqDispImmediate} hours`;
+          const pctImmediate = (preRequired !== null && preRequired !== undefined && preRequired > 0) ? (Number(preRendered) / Number(preRequired) * 100) : 0;
+          setDonut(pctImmediate);
+        } else {
+          document.getElementById('view_hours_text').textContent = `${rendered} out of ${requiredDisplay} hours`;
+          // Date Started / Expected End will be computed after fetching DTR rows below
+          document.getElementById('view_dates').textContent = `Date Started: —\nExpected End Date: —`;
+          const pct = (requiredRaw !== null && required > 0) ? (rendered / required * 100) : 0;
+          setDonut(pct);
+        }
 
         // assigned office block
         document.getElementById('view_assigned_office').textContent = d.office1 || d.office || '—';
@@ -1198,6 +1210,20 @@ if ($moa_q) {
                 hrsRendered = sum;
               }
 
+              // Update the displayed hours text and progress donut using the
+              // (possibly recomputed) hrsRendered value so the modal reflects
+              // actual DTR sums instead of stale values from the application record.
+              try {
+                const requiredDisplayLocal = (totalRequired === null || totalRequired === undefined) ? '—' : String(totalRequired);
+                const rounded = Math.round(hrsRendered * 100) / 100;
+                const hoursEl = document.getElementById('view_hours_text');
+                if (hoursEl) hoursEl.textContent = `${rounded} out of ${requiredDisplayLocal} hours`;
+                const pctLocal = (totalRequired !== null && totalRequired > 0) ? (hrsRendered / totalRequired * 100) : 0;
+                setDonut(pctLocal);
+              } catch (e) {
+                console.warn('Failed to update hours/progress in view modal', e);
+              }
+
               // helper to count weekdays (Mon-Fri) inclusive of start if weekday
               function addBusinessDays(startDateStr, daysNeeded){
                 let dt = new Date(startDateStr + 'T00:00:00');
@@ -1291,7 +1317,6 @@ if ($moa_q) {
         })();
 
         // wire print buttons (simple open new window to printable endpoint)
-        document.getElementById('printEndorse').onclick = function(){ window.open('print_endorsement.php?id=' + encodeURIComponent(appId),'_blank'); };
         document.getElementById('printDTR').onclick = function(){ window.open('print_dtr.php?id=' + encodeURIComponent(appId),'_blank'); };
 
       }catch(err){
@@ -1424,6 +1449,44 @@ if ($moa_q) {
     openBtn.addEventListener('click', function(){ showCalendar(); });
     calendarOverlay.addEventListener('click', function(e){ if (e.target === calendarOverlay) hideCalendar(); });
     // close button is placed inside the iframe; iframe can call parent.closeCalendarOverlay()
+  })();
+</script>
+<script>
+  // Settings modal (iframe overlay) - reuse calendar/view-overlay pattern
+  (function(){
+    const openBtn = document.getElementById('btnSettings');
+    if (!openBtn) return;
+    const settingsOverlay = document.createElement('div');
+    settingsOverlay.id = 'settingsOverlay';
+    // use existing view-overlay styles in this file
+    settingsOverlay.className = 'view-overlay';
+    settingsOverlay.setAttribute('role','dialog');
+    settingsOverlay.setAttribute('aria-hidden','true');
+    settingsOverlay.style.display = 'none';
+    settingsOverlay.style.alignItems = 'center';
+    settingsOverlay.style.justifyContent = 'center';
+    settingsOverlay.innerHTML = `
+      <div class="modal" style="width:100%;height:100vh;max-width:100%;max-height:100vh;padding:0;background:transparent;display:flex;align-items:center;justify-content:center;position:relative;">
+        <iframe src="settings.php" title="Settings" style="width:100%;height:100%;border:0;display:block;"></iframe>
+      </div>`;
+
+    document.body.appendChild(settingsOverlay);
+
+    function showSettings(){
+      settingsOverlay.style.display = 'flex';
+      settingsOverlay.setAttribute('aria-hidden','false');
+      try { openBtn.style.background = '#fff'; openBtn.style.boxShadow = '0 6px 18px rgba(0,0,0,0.06)'; } catch(e){}
+    }
+    function hideSettings(){
+      settingsOverlay.style.display = 'none';
+      settingsOverlay.setAttribute('aria-hidden','true');
+      try { openBtn.style.background = 'transparent'; openBtn.style.boxShadow = 'none'; } catch(e){}
+    }
+    // expose a close function so iframe can call parent.closeSettingsOverlay()
+    window.closeSettingsOverlay = hideSettings;
+
+    openBtn.addEventListener('click', function(ev){ ev.preventDefault(); showSettings(); });
+    settingsOverlay.addEventListener('click', function(e){ if (e.target === settingsOverlay) hideSettings(); });
   })();
 </script>
 <script>

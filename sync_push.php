@@ -29,6 +29,12 @@ try {
     $c = $remote->query("SHOW COLUMNS FROM `dtr` LIKE 'office_id'");
     if ($c && $c->num_rows) $remoteHasOffice = true;
 } catch (Exception $e) { /* ignore */ }
+// detect if remote `dtr` has `hours` and `minutes` columns
+$remoteHasHours = false; $remoteHasMinutes = false;
+try {
+    $c = $remote->query("SHOW COLUMNS FROM `dtr` LIKE 'hours'"); if ($c && $c->num_rows) $remoteHasHours = true;
+    $c2 = $remote->query("SHOW COLUMNS FROM `dtr` LIKE 'minutes'"); if ($c2 && $c2->num_rows) $remoteHasMinutes = true;
+} catch (Exception $e) { /* ignore */ }
 
 // ensure local dtr has lightweight sync columns (best-effort)
 try {
@@ -58,6 +64,8 @@ while ($row = $res->fetch_assoc()) {
     $pm_in = isset($row['pm_in']) && $row['pm_in'] !== '' ? $row['pm_in'] : null;
     $pm_out = isset($row['pm_out']) && $row['pm_out'] !== '' ? $row['pm_out'] : null;
     $office_id = isset($row['office_id']) ? $row['office_id'] : null;
+    $hours = isset($row['hours']) ? (int)$row['hours'] : null;
+    $minutes = isset($row['minutes']) ? (int)$row['minutes'] : null;
 
     try {
         $remote->begin_transaction();
@@ -73,16 +81,28 @@ while ($row = $res->fetch_assoc()) {
         $chk->close();
 
         if (!$rrow) {
-            // insert with whatever fields available
+            // insert with whatever fields available (include hours/minutes when remote supports them)
             if ($remoteHasOffice) {
-                $ins = $remote->prepare('INSERT INTO dtr (student_id, log_date, am_in, am_out, pm_in, pm_out, office_id) VALUES (?, ?, ?, ?, ?, ?, ?)');
-                if (!$ins) throw new Exception('Remote prepare failed (insert): ' . $remote->error);
-                $ins->bind_param('isssssi', $student_id, $log_date, $am_in, $am_out, $pm_in, $pm_out, $office_id);
+                $cols = 'student_id, log_date, am_in, am_out, pm_in, pm_out, office_id';
+                $placeholders = '?, ?, ?, ?, ?, ?, ?';
+                $types = 'isssssi';
+                $params = [$student_id, $log_date, $am_in, $am_out, $pm_in, $pm_out, $office_id];
             } else {
-                $ins = $remote->prepare('INSERT INTO dtr (student_id, log_date, am_in, am_out, pm_in, pm_out) VALUES (?, ?, ?, ?, ?, ?)');
-                if (!$ins) throw new Exception('Remote prepare failed (insert): ' . $remote->error);
-                $ins->bind_param('isssss', $student_id, $log_date, $am_in, $am_out, $pm_in, $pm_out);
+                $cols = 'student_id, log_date, am_in, am_out, pm_in, pm_out';
+                $placeholders = '?, ?, ?, ?, ?, ?';
+                $types = 'isssss';
+                $params = [$student_id, $log_date, $am_in, $am_out, $pm_in, $pm_out];
             }
+            if ($remoteHasHours) { $cols .= ', hours'; $placeholders .= ', ?'; $types .= 'i'; $params[] = $hours ?? 0; }
+            if ($remoteHasMinutes) { $cols .= ', minutes'; $placeholders .= ', ?'; $types .= 'i'; $params[] = $minutes ?? 0; }
+            $sql = 'INSERT INTO dtr (' . $cols . ') VALUES (' . $placeholders . ')';
+            $ins = $remote->prepare($sql);
+            if (!$ins) throw new Exception('Remote prepare failed (insert): ' . $remote->error);
+            // bind params dynamically
+            $bind = [];
+            $bind[] = & $types;
+            foreach ($params as $k => $v) $bind[] = & $params[$k];
+            call_user_func_array([$ins, 'bind_param'], $bind);
             $ok = $ins->execute();
             $ins->close();
             if (!$ok) throw new Exception('Insert failed: ' . $remote->error);
@@ -96,6 +116,8 @@ while ($row = $res->fetch_assoc()) {
             if ($pm_in && empty($rrow['pm_in'])) { $sets[] = 'pm_in = ?'; $params[] = $pm_in; }
             if ($pm_out && empty($rrow['pm_out'])) { $sets[] = 'pm_out = ?'; $params[] = $pm_out; }
             if ($remoteHasOffice && !empty($office_id) && empty($rrow['office_id'] ?? null)) { $sets[] = 'office_id = ?'; $params[] = $office_id; }
+            if ($remoteHasHours && $hours !== null && (empty($rrow['hours']) || $rrow['hours'] === null)) { $sets[] = 'hours = ?'; $params[] = $hours; }
+            if ($remoteHasMinutes && $minutes !== null && (empty($rrow['minutes']) || $rrow['minutes'] === null)) { $sets[] = 'minutes = ?'; $params[] = $minutes; }
 
             if (count($sets) > 0) {
                 $sql = 'UPDATE dtr SET ' . implode(', ', $sets) . ' WHERE dtr_id = ?';
@@ -135,6 +157,71 @@ while ($row = $res->fetch_assoc()) {
 }
 
 echo "Push complete: {$pushed} pushed, {$failed} failed\n";
+
+// --- Push unsynced users and students using the same connections (run together) ---
+try {
+    // ensure synced columns exist on users/students (best-effort)
+    try {
+        $c = $local->query("SHOW COLUMNS FROM `users` LIKE 'synced'"); if (!$c || $c->num_rows === 0) $local->query("ALTER TABLE users ADD COLUMN synced TINYINT(1) DEFAULT 1");
+        $c = $local->query("SHOW COLUMNS FROM `students` LIKE 'synced'"); if (!$c || $c->num_rows === 0) $local->query("ALTER TABLE students ADD COLUMN synced TINYINT(1) DEFAULT 1");
+    } catch (Exception $e) { /* ignore */ }
+
+    // push users (status only)
+    $pushedUsers = 0; $failedUsers = 0;
+    $ru = $local->query("SELECT user_id, status FROM users WHERE COALESCE(synced,0) = 0 LIMIT 500");
+    if ($ru && $ru->num_rows) {
+        error_log('sync_push: found unsynced users: ' . $ru->num_rows);
+        while ($rowU = $ru->fetch_assoc()) {
+            $uid = (int)$rowU['user_id'];
+            try {
+                $remote->begin_transaction();
+                $chk = $remote->prepare('SELECT user_id FROM users WHERE user_id = ? LIMIT 1');
+                $chk->bind_param('i', $uid); $chk->execute(); $rchk = $chk->get_result()->fetch_assoc(); $chk->close();
+                if ($rchk) {
+                    $stmt = $remote->prepare('UPDATE users SET status = ? WHERE user_id = ?');
+                    $stmt->bind_param('si', $rowU['status'], $uid); $stmt->execute(); $stmt->close();
+                } else {
+                    $stmt = $remote->prepare('INSERT INTO users (user_id, status) VALUES (?, ?)');
+                    $stmt->bind_param('is', $uid, $rowU['status']); $stmt->execute(); $stmt->close();
+                }
+                $remote->commit();
+                $u = $local->prepare('UPDATE users SET synced = 1 WHERE user_id = ?'); $u->bind_param('i', $uid); $u->execute(); $u->close();
+                $pushedUsers++;
+            } catch (Exception $e) {
+                $remote->rollback(); $failedUsers++; error_log('sync_push: user push failed user_id=' . $uid . ' err=' . $e->getMessage());
+            }
+        }
+    }
+    error_log('sync_push: users pushed=' . $pushedUsers . ' failed=' . $failedUsers);
+
+    // push students (status only)
+    $pushedStudents = 0; $failedStudents = 0;
+    $rs = $local->query("SELECT student_id, status FROM students WHERE COALESCE(synced,0) = 0 LIMIT 500");
+    if ($rs && $rs->num_rows) {
+        error_log('sync_push: found unsynced students: ' . $rs->num_rows);
+        while ($rowS = $rs->fetch_assoc()) {
+            $sid = (int)$rowS['student_id'];
+            try {
+                $remote->begin_transaction();
+                $chk = $remote->prepare('SELECT student_id FROM students WHERE student_id = ? LIMIT 1');
+                $chk->bind_param('i', $sid); $chk->execute(); $rchk = $chk->get_result()->fetch_assoc(); $chk->close();
+                if ($rchk) {
+                    $stmt = $remote->prepare('UPDATE students SET status = ? WHERE student_id = ?');
+                    $stmt->bind_param('si', $rowS['status'], $sid); $stmt->execute(); $stmt->close();
+                } else {
+                    $stmt = $remote->prepare('INSERT INTO students (student_id, status) VALUES (?, ?)');
+                    $stmt->bind_param('is', $sid, $rowS['status']); $stmt->execute(); $stmt->close();
+                }
+                $remote->commit();
+                $u = $local->prepare('UPDATE students SET synced = 1 WHERE student_id = ?'); $u->bind_param('i', $sid); $u->execute(); $u->close();
+                $pushedStudents++;
+            } catch (Exception $e) {
+                $remote->rollback(); $failedStudents++; error_log('sync_push: student push failed student_id=' . $sid . ' err=' . $e->getMessage());
+            }
+        }
+    }
+    error_log('sync_push: students pushed=' . $pushedStudents . ' failed=' . $failedStudents);
+} catch (Exception $e) { error_log('sync_push: users/students push error: ' . $e->getMessage()); }
 
 $local->close();
 $remote->close();
