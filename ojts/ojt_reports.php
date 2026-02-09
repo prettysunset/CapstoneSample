@@ -329,7 +329,7 @@ if (empty($weeks)) {
 ?>
 <html>
 <head>
-    <title>OJT Reports</title>
+    <title>DTR</title>
     <link rel="stylesheet" type="text/css" href="../styles/main.css">
     <script src="../scripts/main.js"></script>
     <style>
@@ -433,7 +433,7 @@ if (empty($weeks)) {
           <rect x="10" y="8" width="4" height="13"></rect>
           <rect x="17" y="13" width="4" height="8"></rect>
         </svg>
-        <span style="font-weight:600;">Reports</span>
+        <span style="font-weight:600;">DTR</span>
         </a>
       </nav>
     </div>
@@ -484,9 +484,8 @@ if (empty($weeks)) {
     <div class="reports-card">
       <div class="reports-header" role="tablist" aria-label="Reports tabs">
         <div style="display:flex;gap:8px">
-          <!-- reduced tabs: only Daily Time Record and Journals -->
+          <!-- single tab: Daily Time Record -->
           <button class="tab-btn active" data-panel="dtr" type="button">Daily Time Record</button>
-          <button class="tab-btn" data-panel="journals" type="button">Journals</button>
         </div>
 
         <!-- DTR controls (same line as tabs). Sort dropdown removed per request -->
@@ -589,21 +588,18 @@ if (!empty($dtrUserId)) {
                     if (!empty($row['attachment'])) {
                         $url = '../' . ltrim($row['attachment'], "/\\");
                         $eye = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8S1 12 1 12z"></path><circle cx="12" cy="12" r="3"></circle></svg>';
-                        $att = '<a href="'.htmlspecialchars($url).'" target="_blank" rel="noopener noreferrer" title="Open attachment" style="display:inline-flex;align-items:center;justify-content:center;width:36px;height:32px;text-decoration:none;color:#2f3459">';
-                        $att .= $eye;
-                        $att .= '</a>';
+                        $att = '<a href="'.htmlspecialchars($url).'" target="_blank" rel="noopener noreferrer" title="Open attachment" style="display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:8px;background:#f0f0f5;color:#2f3459;text-decoration:none;margin-left:8px">'.$eye.'</a>';
                     } else {
                         $att = '—';
                     }
-                    echo '<td style="padding:10px 14px">'.$att.'</td>';
+                    echo '<td style="padding:10px 14px;text-align:center">'.htmlspecialchars($att).'</td>';
                     echo '</tr>';
                   }
                 } else {
-                  echo '<tr><td colspan="3" style="padding:12px;color:#666">No journals uploaded.</td></tr>';
+                  echo '<tr><td colspan="3" style="padding:12px;color:#666">No records found.</td></tr>';
                 }
-                $qj->close();
               } else {
-                echo '<tr><td colspan="3" style="padding:12px;color:#666">No data.</td></tr>';
+                echo '<tr><td colspan="3" style="padding:12px;color:#666">No records available.</td></tr>';
               }
               ?>
             </tbody>
@@ -612,105 +608,5 @@ if (!empty($dtrUserId)) {
       </div>
     </div>
   </main>
-
-  <script>
-    // simple tab switching — only treat panels inside .reports-body so header buttons are never hidden
-    (function(){
-      const tabs = document.querySelectorAll('.tab-btn');
-      const panels = document.querySelectorAll('.reports-body [data-panel]');
-      tabs.forEach(b=>{
-        b.addEventListener('click', ()=>{
-          tabs.forEach(x=>x.classList.remove('active'));
-          b.classList.add('active');
-          const target = b.getAttribute('data-panel');
-          panels.forEach(p=> p.style.display = p.getAttribute('data-panel') === target ? 'block' : 'none');
-          // show/hide DTR controls when DTR tab active
-          const dtrControls = document.getElementById('dtrControls');
-          if (dtrControls) dtrControls.style.display = (target === 'dtr') ? 'flex' : 'none';
-        });
-      });
-      // initialize controls visibility
-      (function(){ const active = document.querySelector('.tab-btn.active'); if (active) {
-        document.getElementById('dtrControls').style.display = active.getAttribute('data-panel') === 'dtr' ? 'flex' : 'none';
-      }})();
-
-      // date-range filtering (applies immediately on change)
-      const fromInp = document.getElementById('dtr_from');
-      const toInp = document.getElementById('dtr_to');
-      function filterDtrRows(){
-        const from = fromInp && fromInp.value ? new Date(fromInp.value) : null;
-        const to = toInp && toInp.value ? new Date(toInp.value) : null;
-        const tbody = document.querySelector('.reports-body [data-panel="dtr"] tbody');
-        if (!tbody) return;
-        Array.from(tbody.querySelectorAll('tr')).forEach(tr=>{
-          const iso = tr.getAttribute('data-log-date') || '';
-          if (!iso) { tr.style.display = ''; return; }
-          const d = new Date(iso);
-          let show = true;
-          if (from && d < from) show = false;
-          if (to) {
-            // include end date (set to end of day)
-            const endOfTo = new Date(to);
-            endOfTo.setHours(23,59,59,999);
-            if (d > endOfTo) show = false;
-          }
-          tr.style.display = show ? '' : 'none';
-        });
-      }
-      if (fromInp) fromInp.addEventListener('change', filterDtrRows);
-      if (toInp) toInp.addEventListener('change', filterDtrRows);
-
-      const logout = document.getElementById('top-logout');
-      if (logout) logout.addEventListener('click', function(e){ e.preventDefault(); if (confirm('Logout?')) location.href = this.getAttribute('href'); });
-    })();
-  </script>
-
-<script>
-    (function(){
-      function attachConfirm(id){
-        var el = document.getElementById(id);
-        if (!el) return;
-        el.addEventListener('click', function(e){
-          e.preventDefault();
-          if (confirm('Log out?')) {
-            // replace history entry so back button won't return to protected page
-            window.location.replace(el.getAttribute('href') || '../logout.php');
-          }
-        });
-      }
-      attachConfirm('btnLogout');
-      attachConfirm('sidebar-logout');
-      // keep small handlers for notif/settings
-      var n = document.getElementById('btnNotif');
-      if (n) n.addEventListener('click', function(e){ e.preventDefault(); alert('Walang bagong notification ngayon.'); });
-      var s = document.getElementById('btnSettings');
-      if (s) s.addEventListener('click', function(e){ e.preventDefault(); window.location.href = 'settings.php'; });
-    })();
-  
-    </script>
-   <script>
-    // confirm logout (both top icon and sidebar) — use replace so back can't restore protected pages
-    (function(){
-      function attachConfirm(id){
-        var el = document.getElementById(id);
-        if (!el) return;
-        el.addEventListener('click', function(e){
-          e.preventDefault();
-          if (confirm('Log out?')) {
-            // replace history entry so back button won't return to protected page
-            window.location.replace(el.getAttribute('href') || '../logout.php');
-          }
-        });
-      }
-      attachConfirm('btnLogout');
-      attachConfirm('sidebar-logout');
-      // keep small handlers for notif/settings
-      var n = document.getElementById('btnNotif');
-      if (n) n.addEventListener('click', function(e){ e.preventDefault(); alert('Walang bagong notification ngayon.'); });
-      var s = document.getElementById('btnSettings');
-      if (s) s.addEventListener('click', function(e){ e.preventDefault(); window.location.href = 'settings.php'; });
-    })();
-  </script>
-
- </body>
- </html>
+</body>
+</html>

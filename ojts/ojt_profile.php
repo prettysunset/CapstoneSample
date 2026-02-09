@@ -277,7 +277,7 @@ if ($user_id) {
               <rect x="10" y="8" width="4" height="13"></rect>
               <rect x="17" y="13" width="4" height="8"></rect>
             </svg>
-            <span>Reports</span>
+            <span>DTR</span>
           </a>
         </nav>
       </div>
@@ -1126,6 +1126,7 @@ if ($user_id) {
                                     });
                                  })();
                                 </script>
+
                             </section>
 
                             <section id="tab-attachments" class="tab-panel" style="display:none;">
