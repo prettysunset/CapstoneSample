@@ -347,9 +347,11 @@ $current_date = date("l, F j, Y");
        NOTE: removed position:fixed to prevent overlapping; icons now flow with page
        and stay visible. -->
   <div id="top-icons" style="display:flex;justify-content:flex-end;gap:14px;align-items:center;margin:8px 0 12px 0;z-index:50;">
-      <a id="btnNotif" href="notifications.php" title="Notifications" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 17h5l-1.405-1.405A2.032 2.032 0 0 1 18 14.158V11a6 6 0 1 0-12 0v3.159c0 .538-.214 1.055-.595 1.436L4 17h5"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
-      </a>
+      <a id="btnNotif" href="#" title="Notifications" aria-haspopup="dialog" aria-expanded="false" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;position:relative;">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 17h5l-1.405-1.405A2.032 2.032 0 0 1 18 14.158V11a6 6 0 1 0-12 0v3.159c0 .538-.214 1.055-.595 1.436L4 17h5"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
+          <span class="notif-count" aria-hidden="true" style="position:absolute;top:-4px;right:-4px;min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:#ef4444;color:#fff;font-size:11px;line-height:18px;text-align:center;display:none;">0</span>
+        </a>
+
       <!-- calendar icon (clickable) -->
       <button id="openCalendarBtn" title="Calendar" aria-label="Open calendar" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;background:transparent;border:0;cursor:pointer;">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
@@ -1436,14 +1438,92 @@ function closeViewModal() {
   overlay.setAttribute('aria-hidden', 'true');
 }
 
-// notifications temporarily disabled (no action)
-const notifBtn = document.getElementById('btnNotif');
-if (notifBtn) {
+// Notification overlay (iframe to notif.php)
+(function(){
+  const notifBtn = document.getElementById('btnNotif');
+  if (!notifBtn) return;
+  const badge = notifBtn.querySelector('.notif-count');
+
+  let overlay = document.getElementById('notifOverlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'notifOverlay';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-hidden', 'true');
+    overlay.style.position = 'fixed';
+    overlay.style.inset = '0';
+    overlay.style.display = 'none';
+    overlay.style.alignItems = 'flex-start';
+    overlay.style.justifyContent = 'flex-end';
+    overlay.style.padding = '18px';
+    overlay.style.background = 'rgba(15, 23, 42, 0.25)';
+    overlay.style.zIndex = '10050';
+    overlay.innerHTML =
+      '<div style="width:360px;max-width:calc(100% - 32px);height:600px;max-height:calc(100vh - 36px);background:#fff;border-radius:16px;box-shadow:0 18px 45px rgba(15, 23, 42, 0.18);overflow:hidden;">' +
+      '<iframe src="notif.php?embed=1" title="Notifications" style="width:100%;height:100%;border:0;"></iframe>' +
+      '</div>';
+    document.body.appendChild(overlay);
+  }
+
+  notifBtn.setAttribute('aria-haspopup', 'dialog');
+  notifBtn.setAttribute('aria-expanded', 'false');
+
+  function setBadge(count) {
+    if (!badge) return;
+    const num = parseInt(count || 0, 10) || 0;
+    if (num > 0) {
+      badge.textContent = num;
+      badge.style.display = 'inline-flex';
+    } else {
+      badge.textContent = '0';
+      badge.style.display = 'none';
+    }
+  }
+
+  try {
+    const saved = localStorage.getItem('notifUnread');
+    if (saved !== null) setBadge(saved);
+  } catch (e) {
+    // ignore storage errors
+  }
+
+  window.addEventListener('message', function(e){
+    if (e && e.data && e.data.type === 'notif-count') {
+      setBadge(e.data.unread);
+    }
+  });
+
+  function openPanel() {
+    overlay.style.display = 'flex';
+    overlay.setAttribute('aria-hidden', 'false');
+    notifBtn.setAttribute('aria-expanded', 'true');
+  }
+
+  function closePanel() {
+    overlay.style.display = 'none';
+    overlay.setAttribute('aria-hidden', 'true');
+    notifBtn.setAttribute('aria-expanded', 'false');
+  }
+
+  window.closeNotifOverlay = closePanel;
+
   notifBtn.addEventListener('click', function(e){
     e.preventDefault();
-    // intentionally left blank — notifications disabled for now
+    if (overlay.style.display === 'flex') {
+      closePanel();
+    } else {
+      openPanel();
+    }
   });
-}
+
+  overlay.addEventListener('click', function(e){
+    if (e.target === overlay) closePanel();
+  });
+
+  document.addEventListener('keydown', function(e){
+    if (e.key === 'Escape') closePanel();
+  });
+})();
 
 // confirm before logout
 const logoutBtn = document.getElementById('btnLogout');

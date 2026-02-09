@@ -148,8 +148,9 @@ $stmtOff->close();
   <main class="main" role="main">
     <!-- top-right outline icons: notifications, calendar (display only), settings, logout -->
     <div id="top-icons" style="display:flex;justify-content:flex-end;gap:14px;align-items:center;margin:8px 0 12px 0;z-index:50;">
-        <a href="notifications.php" title="Notifications" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;">
+        <a id="btnNotif" href="#" title="Notifications" aria-haspopup="dialog" aria-expanded="false" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;position:relative;">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 17h5l-1.405-1.405A2.032 2.032 0 0 1 18 14.158V11a6 6 0 1 0-12 0v3.159c0 .538-.214 1.055-.595 1.436L4 17h5"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
+          <span class="notif-count" aria-hidden="true" style="position:absolute;top:-4px;right:-4px;min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:#ef4444;color:#fff;font-size:11px;line-height:18px;text-align:center;display:none;">0</span>
         </a>
 
         <!-- calendar icon (clickable: opens calendar overlay) -->
@@ -476,6 +477,93 @@ $stmtOff->close();
 
       openBtn.addEventListener('click', function(){ showCalendar(); });
       calendarOverlay.addEventListener('click', function(e){ if (e.target === calendarOverlay) hideCalendar(); });
+    })();
+  </script>
+  <script>
+    (function(){
+      const notifBtn = document.getElementById('btnNotif');
+      if (!notifBtn) return;
+      const badge = notifBtn.querySelector('.notif-count');
+
+      let overlay = document.getElementById('notifOverlay');
+      if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.id = 'notifOverlay';
+        overlay.setAttribute('role', 'dialog');
+        overlay.setAttribute('aria-hidden', 'true');
+        overlay.style.position = 'fixed';
+        overlay.style.inset = '0';
+        overlay.style.display = 'none';
+        overlay.style.alignItems = 'flex-start';
+        overlay.style.justifyContent = 'flex-end';
+        overlay.style.padding = '18px';
+        overlay.style.background = 'rgba(15, 23, 42, 0.25)';
+        overlay.style.zIndex = '10050';
+        overlay.innerHTML =
+          '<div style="width:360px;max-width:calc(100% - 32px);height:600px;max-height:calc(100vh - 36px);background:#fff;border-radius:16px;box-shadow:0 18px 45px rgba(15, 23, 42, 0.18);overflow:hidden;">' +
+          '<iframe src="notif.php?embed=1" title="Notifications" style="width:100%;height:100%;border:0;"></iframe>' +
+          '</div>';
+        document.body.appendChild(overlay);
+      }
+
+      notifBtn.setAttribute('aria-haspopup', 'dialog');
+      notifBtn.setAttribute('aria-expanded', 'false');
+
+      function setBadge(count) {
+        if (!badge) return;
+        const num = parseInt(count || 0, 10) || 0;
+        if (num > 0) {
+          badge.textContent = num;
+          badge.style.display = 'inline-flex';
+        } else {
+          badge.textContent = '0';
+          badge.style.display = 'none';
+        }
+      }
+
+      try {
+        const saved = localStorage.getItem('notifUnread');
+        if (saved !== null) setBadge(saved);
+      } catch (e) {
+        // ignore storage errors
+      }
+
+      window.addEventListener('message', function(e){
+        if (e && e.data && e.data.type === 'notif-count') {
+          setBadge(e.data.unread);
+        }
+      });
+
+      function openPanel() {
+        overlay.style.display = 'flex';
+        overlay.setAttribute('aria-hidden', 'false');
+        notifBtn.setAttribute('aria-expanded', 'true');
+      }
+
+      function closePanel() {
+        overlay.style.display = 'none';
+        overlay.setAttribute('aria-hidden', 'true');
+        notifBtn.setAttribute('aria-expanded', 'false');
+      }
+
+      window.closeNotifOverlay = closePanel;
+
+      notifBtn.addEventListener('click', function(e){
+        e.preventDefault();
+        if (overlay.style.display === 'flex') {
+          closePanel();
+        } else {
+          openPanel();
+        }
+      });
+
+      overlay.addEventListener('click', function(e){
+        if (e.target === overlay) closePanel();
+      });
+
+      document.addEventListener('keydown', function(e){
+        if (e.key === 'Escape') closePanel();
+      });
     })();
   </script>
 </body>
