@@ -128,6 +128,63 @@ while ($row = $res->fetch_assoc()) {
     }
 }
 
+// --- local -> remote users/students push (status only) -----------------
+// Ensure synced columns exist on users/students (best-effort)
+try {
+    $c = $local->query("SHOW COLUMNS FROM `users` LIKE 'synced'"); if (!$c || $c->num_rows === 0) $local->query("ALTER TABLE users ADD COLUMN synced TINYINT(1) DEFAULT 1");
+    $c = $local->query("SHOW COLUMNS FROM `students` LIKE 'synced'"); if (!$c || $c->num_rows === 0) $local->query("ALTER TABLE students ADD COLUMN synced TINYINT(1) DEFAULT 1");
+} catch (Exception $e) { /* ignore */ }
+
+$usersPushed = 0; $usersFailed = 0;
+$ru = $local->query("SELECT user_id, status FROM users WHERE COALESCE(synced,0) = 0 LIMIT 500");
+if ($ru && $ru->num_rows) {
+    while ($rowU = $ru->fetch_assoc()) {
+        $uid = (int)$rowU['user_id'];
+        try {
+            $remote->begin_transaction();
+            $chk = $remote->prepare('SELECT user_id FROM users WHERE user_id = ? LIMIT 1');
+            $chk->bind_param('i', $uid); $chk->execute(); $rchk = $chk->get_result()->fetch_assoc(); $chk->close();
+            if ($rchk) {
+                $stmt = $remote->prepare('UPDATE users SET status = ? WHERE user_id = ?');
+                $stmt->bind_param('si', $rowU['status'], $uid); $stmt->execute(); $stmt->close();
+            } else {
+                $stmt = $remote->prepare('INSERT INTO users (user_id, status) VALUES (?, ?)');
+                $stmt->bind_param('is', $uid, $rowU['status']); $stmt->execute(); $stmt->close();
+            }
+            $remote->commit();
+            $u = $local->prepare('UPDATE users SET synced = 1 WHERE user_id = ?'); $u->bind_param('i', $uid); $u->execute(); $u->close();
+            $usersPushed++;
+        } catch (Exception $e) {
+            $remote->rollback(); $usersFailed++; error_log('sync_push_http: user push failed user_id=' . $uid . ' err=' . $e->getMessage());
+        }
+    }
+}
+
+$studentsPushed = 0; $studentsFailed = 0;
+$rs = $local->query("SELECT student_id, status FROM students WHERE COALESCE(synced,0) = 0 LIMIT 500");
+if ($rs && $rs->num_rows) {
+    while ($rowS = $rs->fetch_assoc()) {
+        $sid = (int)$rowS['student_id'];
+        try {
+            $remote->begin_transaction();
+            $chk = $remote->prepare('SELECT student_id FROM students WHERE student_id = ? LIMIT 1');
+            $chk->bind_param('i', $sid); $chk->execute(); $rchk = $chk->get_result()->fetch_assoc(); $chk->close();
+            if ($rchk) {
+                $stmt = $remote->prepare('UPDATE students SET status = ? WHERE student_id = ?');
+                $stmt->bind_param('si', $rowS['status'], $sid); $stmt->execute(); $stmt->close();
+            } else {
+                $stmt = $remote->prepare('INSERT INTO students (student_id, status) VALUES (?, ?)');
+                $stmt->bind_param('is', $sid, $rowS['status']); $stmt->execute(); $stmt->close();
+            }
+            $remote->commit();
+            $u = $local->prepare('UPDATE students SET synced = 1 WHERE student_id = ?'); $u->bind_param('i', $sid); $u->execute(); $u->close();
+            $studentsPushed++;
+        } catch (Exception $e) {
+            $remote->rollback(); $studentsFailed++; error_log('sync_push_http: student push failed student_id=' . $sid . ' err=' . $e->getMessage());
+        }
+    }
+}
+
 // --- remote -> local users sync (pull) -------------------------------
 // Purpose: copy new users and endorsement_printed flag from remote to local
 // Best-effort: add endorsement_printed column locally if missing, insert new users,
