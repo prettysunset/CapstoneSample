@@ -57,6 +57,21 @@ function json_resp($arr){
     exit;
 }
 
+// Helper: produce a 12-hour display string for UI from a stored time or datetime
+function friendly_time_for_display($ts) {
+    if (!$ts) return '';
+    $s = (string)$ts;
+    // match optional leading date then HH:MM[:SS]
+    if (preg_match('/(?:\d{4}-\d{2}-\d{2}\s+)?(\d{1,2}):(\d{2})(?::\d{2})?$/', $s, $m)) {
+        $h = (int)$m[1];
+        $min = $m[2];
+        $hh = $h % 12;
+        if ($hh === 0) $hh = 12;
+        return $hh . ':' . $min;
+    }
+    return $s;
+}
+
 // Helper: compute total rendered minutes for a user (dtr.student_id references users.user_id)
 function get_total_rendered_minutes($conn, $dtr_owner) {
     $sql = "SELECT COALESCE(SUM((CASE WHEN am_in IS NOT NULL AND am_out IS NOT NULL THEN TIMESTAMPDIFF(MINUTE, CONCAT(log_date,' ',am_in), CONCAT(log_date,' ',am_out)) ELSE 0 END) + (CASE WHEN pm_in IS NOT NULL AND pm_out IS NOT NULL THEN TIMESTAMPDIFF(MINUTE, CONCAT(log_date,' ',pm_in), CONCAT(log_date,' ',pm_out)) ELSE 0 END)),0) AS totalMin FROM dtr WHERE student_id = ?";
@@ -1151,7 +1166,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             }
 
             $conn->commit();
-            json_resp(['success'=>true,'message'=>'Time in recorded. Have a good day, ' . $display_name,'time'=>$now,'display_name'=>$display_name]);
+            json_resp(['success'=>true,'message'=>'Time in recorded. Have a good day, ' . $display_name,'time'=>$now,'display_time'=>friendly_time_for_display($now),'display_name'=>$display_name]);
         }
 
         if ($action === 'time_out') {
@@ -1209,7 +1224,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             }
 
             $conn->commit();
-            json_resp(['success'=>true,'message'=>'Time out recorded. Thank you for today, ' . $display_name,'time'=>$now,'hours'=>$hours,'minutes'=>$minutes,'display_name'=>$display_name]);
+            json_resp(['success'=>true,'message'=>'Time out recorded. Thank you for today, ' . $display_name,'time'=>$now,'display_time'=>friendly_time_for_display($now),'hours'=>$hours,'minutes'=>$minutes,'display_name'=>$display_name]);
         }
 
         $conn->rollback();
