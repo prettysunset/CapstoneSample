@@ -308,7 +308,103 @@ try {
     // ignore students pull errors
 }
 
-echo json_encode(['ok'=>true,'pushed'=>$pushed,'failed'=>$failed,'users_pulled'=>$usersPulled,'users_created'=>$usersCreated,'users_updated'=>$usersUpdated,'students_pulled'=>$studentsPulled,'students_created'=>$studentsCreated,'students_updated'=>$studentsUpdated]);
+// --- remote -> local ojt_applications sync (pull new rows only) ---------
+$appsPulled = 0; $appsCreated = 0; $appsErrors = [];
+try {
+    $c = $local->query("SHOW TABLES LIKE 'ojt_applications'");
+    if ($c && $c->num_rows > 0) {
+        $ars = $remote->query("SELECT application_id, student_id, office_preference1, office_preference2, letter_of_intent, endorsement_letter, resume, moa_file, picture, status, remarks, date_submitted, date_updated FROM ojt_applications");
+        if ($ars) {
+            while ($ar = $ars->fetch_assoc()) {
+                // disable FK checks to avoid insert failures when related rows (e.g. offices)
+                // are not yet present locally; we'll re-enable after attempting inserts
+                $local->query('SET SESSION FOREIGN_KEY_CHECKS=0');
+                $appsPulled++;
+                $aid = isset($ar['application_id']) ? (int)$ar['application_id'] : null;
+                $sid = isset($ar['student_id']) ? (int)$ar['student_id'] : null;
+
+                $exists = null;
+                if ($aid !== null) {
+                    $chk = $local->prepare('SELECT application_id FROM ojt_applications WHERE application_id = ? LIMIT 1');
+                    if ($chk) { $chk->bind_param('i', $aid); $chk->execute(); $exists = $chk->get_result()->fetch_assoc(); $chk->close(); }
+                }
+
+                if (!$exists) {
+                    try {
+                        // insert minimal/full row using remote application_id if available
+                        if ($aid !== null) {
+                            $ins = $local->prepare('INSERT INTO ojt_applications (application_id, student_id, office_preference1, office_preference2, letter_of_intent, endorsement_letter, resume, moa_file, picture, status, remarks, date_submitted, date_updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+                            if ($ins) {
+                                $ap_id = $aid;
+                                $op1 = isset($ar['office_preference1']) ? $ar['office_preference1'] : null;
+                                $op2 = isset($ar['office_preference2']) ? $ar['office_preference2'] : null;
+                                $loi = $ar['letter_of_intent'] ?? '';
+                                $el = $ar['endorsement_letter'] ?? '';
+                                $resu = $ar['resume'] ?? '';
+                                $moa = $ar['moa_file'] ?? '';
+                                $pic = $ar['picture'] ?? '';
+                                $st = $ar['status'] ?? '';
+                                $rem = $ar['remarks'] ?? '';
+                                $ds = $ar['date_submitted'] ?? null;
+                                $du = $ar['date_updated'] ?? null;
+                                $ins->bind_param('iiissssssssss', $ap_id, $sid, $op1, $op2, $loi, $el, $resu, $moa, $pic, $st, $rem, $ds, $du);
+                                $ok = $ins->execute();
+                                if ($ok) {
+                                    $appsCreated++;
+                                } else {
+                                    $err = $ins->error;
+                                    $msg = 'ojt insert failed application_id=' . var_export($aid, true) . ' err=' . $err;
+                                    error_log('sync_push_http: ' . $msg);
+                                    $appsErrors[] = $msg;
+                                }
+                                $ins->close();
+                            }
+                        } else {
+                            // no remote id provided — insert without application_id
+                            $ins = $local->prepare('INSERT INTO ojt_applications (student_id, office_preference1, office_preference2, letter_of_intent, endorsement_letter, resume, moa_file, picture, status, remarks, date_submitted, date_updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+                            if ($ins) {
+                                $op1 = isset($ar['office_preference1']) ? $ar['office_preference1'] : null;
+                                $op2 = isset($ar['office_preference2']) ? $ar['office_preference2'] : null;
+                                $loi = $ar['letter_of_intent'] ?? '';
+                                $el = $ar['endorsement_letter'] ?? '';
+                                $resu = $ar['resume'] ?? '';
+                                $moa = $ar['moa_file'] ?? '';
+                                $pic = $ar['picture'] ?? '';
+                                $st = $ar['status'] ?? '';
+                                $rem = $ar['remarks'] ?? '';
+                                $ds = $ar['date_submitted'] ?? null;
+                                $du = $ar['date_updated'] ?? null;
+                                $ins->bind_param('iiisssssssss', $sid, $op1, $op2, $loi, $el, $resu, $moa, $pic, $st, $rem, $ds, $du);
+                                $ok = $ins->execute();
+                                if ($ok) {
+                                    $appsCreated++;
+                                } else {
+                                    $err = $ins->error;
+                                    $msg = 'ojt insert failed (no id) student_id=' . var_export($sid, true) . ' err=' . $err;
+                                    error_log('sync_push_http: ' . $msg);
+                                    $appsErrors[] = $msg;
+                                }
+                                $ins->close();
+                            }
+                        }
+                    } catch (Exception $ex) {
+                        $msg = 'ojt insert exception application_id=' . var_export($aid, true) . ' err=' . $ex->getMessage();
+                        error_log('sync_push_http: ' . $msg);
+                        $appsErrors[] = $msg;
+                        // ignore insert errors for individual rows
+                    }
+                }
+            }
+            $ars->close();
+            // re-enable FK checks
+            $local->query('SET SESSION FOREIGN_KEY_CHECKS=1');
+        }
+    }
+} catch (Exception $e) {
+    // ignore ojt_applications pull errors
+}
+
+echo json_encode(['ok'=>true,'pushed'=>$pushed,'failed'=>$failed,'users_pulled'=>$usersPulled,'users_created'=>$usersCreated,'users_updated'=>$usersUpdated,'students_pulled'=>$studentsPulled,'students_created'=>$studentsCreated,'students_updated'=>$studentsUpdated,'apps_pulled'=>$appsPulled,'apps_created'=>$appsCreated,'apps_errors'=>$appsErrors]);
 $local->close(); $remote->close();
 exit;
 
