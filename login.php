@@ -56,7 +56,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                     break;
                 case 'student':
                 case 'ojt':
-                    header("Location: ojts/ojt_profile.php");
+                    header("Location: ojts/ojt_reports.php");
                     break;
                 default:
                     header("Location: login.php");
