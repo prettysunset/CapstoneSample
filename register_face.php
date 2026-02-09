@@ -270,6 +270,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             if (j.has_face) { show('User already has a registered face; camera will not open.', false); return; }
             await ensureModels();
             await startCamera();
+            // show a short countdown so the user can prepare before detection
+            try {
+              await startCountdown(5);
+            } catch(e) { /* ignore countdown errors */ }
             startDetectionLoop();
           }catch(e){ console.error(e); }
         }, 200);
@@ -321,6 +325,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
       }
     }
 
+    // Countdown helper: shows "Please look at the camera in X" each second
+    async function startCountdown(seconds) {
+      if (!seconds || seconds <= 0) return;
+      for (let i = seconds; i > 0; i--) {
+        show('Please look at the camera in ' + i + '...', true);
+        await new Promise(r => setTimeout(r, 1000));
+      }
+      show('Capturing now...', true);
+      await new Promise(r => setTimeout(r, 250));
+    }
+
     function showConfirmOverlay(dataUrl, descriptor){
       let overlay = document.getElementById('confirmOverlay');
       if (!overlay){
@@ -338,7 +353,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         card.appendChild(img); card.appendChild(p); card.appendChild(row); overlay.appendChild(card); document.body.appendChild(overlay);
 
         yes.addEventListener('click', ()=>{ overlay.style.display='none'; checkAndUpload(descriptor, dataUrl); });
-        no.addEventListener('click', ()=>{ overlay.style.display='none'; if (!detecting) { detecting = false; startDetectionLoop(); } });
+        no.addEventListener('click', ()=>{ 
+          overlay.style.display='none';
+          // user cancelled — stop camera and clear credentials so they must re-enter
+          try { stopCamera(); } catch(e){}
+          detecting = false;
+          username.value = '';
+          password.value = '';
+          show('Enter username and password to start camera.', true);
+        });
       }
       document.getElementById('confirmImg').src = dataUrl;
       overlay.style.display = 'flex';
