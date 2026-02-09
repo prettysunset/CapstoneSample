@@ -29,6 +29,12 @@ try {
     $c = $remote->query("SHOW COLUMNS FROM `dtr` LIKE 'office_id'");
     if ($c && $c->num_rows) $remoteHasOffice = true;
 } catch (Exception $e) { /* ignore */ }
+// detect if remote `dtr` has `hours` and `minutes` columns
+$remoteHasHours = false; $remoteHasMinutes = false;
+try {
+    $c = $remote->query("SHOW COLUMNS FROM `dtr` LIKE 'hours'"); if ($c && $c->num_rows) $remoteHasHours = true;
+    $c2 = $remote->query("SHOW COLUMNS FROM `dtr` LIKE 'minutes'"); if ($c2 && $c2->num_rows) $remoteHasMinutes = true;
+} catch (Exception $e) { /* ignore */ }
 
 // ensure local dtr has lightweight sync columns (best-effort)
 try {
@@ -58,6 +64,8 @@ while ($row = $res->fetch_assoc()) {
     $pm_in = isset($row['pm_in']) && $row['pm_in'] !== '' ? $row['pm_in'] : null;
     $pm_out = isset($row['pm_out']) && $row['pm_out'] !== '' ? $row['pm_out'] : null;
     $office_id = isset($row['office_id']) ? $row['office_id'] : null;
+    $hours = isset($row['hours']) ? (int)$row['hours'] : null;
+    $minutes = isset($row['minutes']) ? (int)$row['minutes'] : null;
 
     try {
         $remote->begin_transaction();
@@ -73,16 +81,28 @@ while ($row = $res->fetch_assoc()) {
         $chk->close();
 
         if (!$rrow) {
-            // insert with whatever fields available
+            // insert with whatever fields available (include hours/minutes when remote supports them)
             if ($remoteHasOffice) {
-                $ins = $remote->prepare('INSERT INTO dtr (student_id, log_date, am_in, am_out, pm_in, pm_out, office_id) VALUES (?, ?, ?, ?, ?, ?, ?)');
-                if (!$ins) throw new Exception('Remote prepare failed (insert): ' . $remote->error);
-                $ins->bind_param('isssssi', $student_id, $log_date, $am_in, $am_out, $pm_in, $pm_out, $office_id);
+                $cols = 'student_id, log_date, am_in, am_out, pm_in, pm_out, office_id';
+                $placeholders = '?, ?, ?, ?, ?, ?, ?';
+                $types = 'isssssi';
+                $params = [$student_id, $log_date, $am_in, $am_out, $pm_in, $pm_out, $office_id];
             } else {
-                $ins = $remote->prepare('INSERT INTO dtr (student_id, log_date, am_in, am_out, pm_in, pm_out) VALUES (?, ?, ?, ?, ?, ?)');
-                if (!$ins) throw new Exception('Remote prepare failed (insert): ' . $remote->error);
-                $ins->bind_param('isssss', $student_id, $log_date, $am_in, $am_out, $pm_in, $pm_out);
+                $cols = 'student_id, log_date, am_in, am_out, pm_in, pm_out';
+                $placeholders = '?, ?, ?, ?, ?, ?';
+                $types = 'isssss';
+                $params = [$student_id, $log_date, $am_in, $am_out, $pm_in, $pm_out];
             }
+            if ($remoteHasHours) { $cols .= ', hours'; $placeholders .= ', ?'; $types .= 'i'; $params[] = $hours ?? 0; }
+            if ($remoteHasMinutes) { $cols .= ', minutes'; $placeholders .= ', ?'; $types .= 'i'; $params[] = $minutes ?? 0; }
+            $sql = 'INSERT INTO dtr (' . $cols . ') VALUES (' . $placeholders . ')';
+            $ins = $remote->prepare($sql);
+            if (!$ins) throw new Exception('Remote prepare failed (insert): ' . $remote->error);
+            // bind params dynamically
+            $bind = [];
+            $bind[] = & $types;
+            foreach ($params as $k => $v) $bind[] = & $params[$k];
+            call_user_func_array([$ins, 'bind_param'], $bind);
             $ok = $ins->execute();
             $ins->close();
             if (!$ok) throw new Exception('Insert failed: ' . $remote->error);
@@ -96,6 +116,8 @@ while ($row = $res->fetch_assoc()) {
             if ($pm_in && empty($rrow['pm_in'])) { $sets[] = 'pm_in = ?'; $params[] = $pm_in; }
             if ($pm_out && empty($rrow['pm_out'])) { $sets[] = 'pm_out = ?'; $params[] = $pm_out; }
             if ($remoteHasOffice && !empty($office_id) && empty($rrow['office_id'] ?? null)) { $sets[] = 'office_id = ?'; $params[] = $office_id; }
+            if ($remoteHasHours && $hours !== null && (empty($rrow['hours']) || $rrow['hours'] === null)) { $sets[] = 'hours = ?'; $params[] = $hours; }
+            if ($remoteHasMinutes && $minutes !== null && (empty($rrow['minutes']) || $rrow['minutes'] === null)) { $sets[] = 'minutes = ?'; $params[] = $minutes; }
 
             if (count($sets) > 0) {
                 $sql = 'UPDATE dtr SET ' . implode(', ', $sets) . ' WHERE dtr_id = ?';
