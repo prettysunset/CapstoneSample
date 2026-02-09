@@ -124,6 +124,190 @@ $current_date = date("l, F j, Y");
     .top-icons button{background:none;border:none;cursor:pointer;font-size:18px;padding:8px;border-radius:8px}
     .top-icons button:hover{background:#f0f0f0}
 
+    /* Notifications overlay panel */
+    .notif-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.25);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 200ms ease;
+      z-index: 9998;
+    }
+    .notif-overlay.is-visible {
+      opacity: 1;
+      pointer-events: auto;
+    }
+    .notif-panel {
+      position: fixed;
+      top: 18px;
+      right: 18px;
+      width: min(360px, calc(100vw - 32px));
+      max-height: min(620px, calc(100vh - 36px));
+      background: #ffffff;
+      border-radius: 16px;
+      box-shadow: 0 18px 45px rgba(15, 23, 42, 0.18);
+      opacity: 0;
+      transform: translateY(-12px);
+      transition: opacity 220ms ease, transform 220ms ease;
+      pointer-events: none;
+      display: flex;
+      flex-direction: column;
+      z-index: 10000;
+    }
+    .notif-panel.is-visible {
+      opacity: 1;
+      transform: translateY(0);
+      pointer-events: auto;
+    }
+    .notif-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 16px 10px;
+      border-bottom: 1px solid #e5e7eb;
+    }
+    .notif-title {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 600;
+      color: #2f3850;
+    }
+    .notif-close {
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      border: 1px solid transparent;
+      background: #f3f4f6;
+      cursor: pointer;
+    }
+    .notif-controls {
+      padding: 10px 16px 14px;
+      border-bottom: 1px solid #e5e7eb;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .notif-tabs {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .notif-tab {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      border-radius: 999px;
+      border: 1px solid transparent;
+      background: #f3f4f6;
+      color: #111827;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    .notif-tab[aria-selected="true"] {
+      background: rgba(37, 99, 235, 0.12);
+      border-color: rgba(37, 99, 235, 0.25);
+      color: #2563eb;
+      font-weight: 600;
+    }
+    .notif-badge {
+      min-width: 18px;
+      padding: 1px 6px;
+      border-radius: 999px;
+      font-size: 12px;
+      background: #111827;
+      color: #ffffff;
+      text-align: center;
+    }
+    .notif-mark {
+      align-self: flex-start;
+      border: none;
+      background: none;
+      color: #2563eb;
+      font-size: 13px;
+      cursor: pointer;
+      padding: 0;
+    }
+    .notif-list {
+      overflow-y: auto;
+      padding: 6px 8px 12px;
+    }
+    .notif-item {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      padding: 12px 14px;
+      margin: 6px 8px;
+      border-radius: 12px;
+      background: #f9fafb;
+      border: 1px solid transparent;
+      cursor: pointer;
+      transition: background 150ms ease, border 150ms ease;
+    }
+    .notif-item:hover {
+      background: #ffffff;
+      border-color: #e5e7eb;
+    }
+    .notif-item.unread {
+      background: #eff6ff;
+    }
+    .notif-item-title {
+      font-weight: 600;
+    }
+    .notif-item-text {
+      font-size: 13px;
+      color: #6b7280;
+    }
+    .notif-meta {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 12px;
+      color: #6b7280;
+    }
+    .notif-category {
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: #e2e8f0;
+      color: #1f2937;
+      font-size: 11px;
+    }
+    .notif-dot {
+      position: absolute;
+      top: 14px;
+      right: 16px;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #2563eb;
+    }
+    .notif-empty {
+      padding: 20px;
+      text-align: center;
+      color: #6b7280;
+      font-size: 14px;
+    }
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+    @media (max-width: 600px) {
+      .notif-panel {
+        right: 12px;
+        left: 12px;
+        width: auto;
+      }
+    }
+
     /* Modal / overlay */
     .overlay {
       position: fixed;
@@ -353,8 +537,10 @@ $current_date = date("l, F j, Y");
        NOTE: removed position:fixed to prevent overlapping; icons now flow with page
        and stay visible. -->
   <div id="top-icons" style="display:flex;justify-content:flex-end;gap:14px;align-items:center;margin:8px 0 12px 0;z-index:50;">
-      <a id="btnNotif" href="notifications.php" title="Notifications" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;">
+        <a id="btnNotif" href="#" title="Notifications" aria-haspopup="dialog" aria-expanded="false" aria-controls="notifOverlay" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;position:relative;">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 17h5l-1.405-1.405A2.032 2.032 0 0 1 18 14.158V11a6 6 0 1 0-12 0v3.159c0 .538-.214 1.055-.595 1.436L4 17h5"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
+          <span class="notif-count" aria-hidden="true" style="position:absolute;top:-4px;right:-4px;min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:#ef4444;color:#fff;font-size:11px;line-height:18px;text-align:center;display:none;">0</span>
+          <span class="sr-only">Open notifications</span>
       </a>
         <!-- calendar icon (clickable to open modal overlay) -->
         <button id="openCalendarBtn" title="Calendar" aria-label="Open calendar" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;background:transparent;border:0;cursor:pointer;">
@@ -368,6 +554,7 @@ $current_date = date("l, F j, Y");
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
         </a>
    </div>
+
    <div style="display:flex;gap:18px;align-items:stretch;margin-bottom:12px;">
     <!-- Left column: date on top, counters below (slightly narrower & lower height) -->
     <div style="flex:0 0 240px;min-width:200px;display:flex;flex-direction:column;">
@@ -1626,14 +1813,92 @@ function closeViewModal() {
   overlay.setAttribute('aria-hidden', 'true');
 }
 
-// notifications temporarily disabled (no action)
-const notifBtn = document.getElementById('btnNotif');
-if (notifBtn) {
+// Notification overlay (iframe to notif.php)
+(function(){
+  const notifBtn = document.getElementById('btnNotif');
+  if (!notifBtn) return;
+  const badge = notifBtn.querySelector('.notif-count');
+
+  let overlay = document.getElementById('notifOverlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'notifOverlay';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-hidden', 'true');
+    overlay.style.position = 'fixed';
+    overlay.style.inset = '0';
+    overlay.style.display = 'none';
+    overlay.style.alignItems = 'flex-start';
+    overlay.style.justifyContent = 'flex-end';
+    overlay.style.padding = '18px';
+    overlay.style.background = 'rgba(15, 23, 42, 0.25)';
+    overlay.style.zIndex = '10050';
+    overlay.innerHTML =
+      '<div style="width:360px;max-width:calc(100% - 32px);height:600px;max-height:calc(100vh - 36px);background:#fff;border-radius:16px;box-shadow:0 18px 45px rgba(15, 23, 42, 0.18);overflow:hidden;">' +
+      '<iframe src="notif.php?embed=1" title="Notifications" style="width:100%;height:100%;border:0;"></iframe>' +
+      '</div>';
+    document.body.appendChild(overlay);
+  }
+
+  notifBtn.setAttribute('aria-haspopup', 'dialog');
+  notifBtn.setAttribute('aria-expanded', 'false');
+
+  function setBadge(count) {
+    if (!badge) return;
+    const num = parseInt(count || 0, 10) || 0;
+    if (num > 0) {
+      badge.textContent = num;
+      badge.style.display = 'inline-flex';
+    } else {
+      badge.textContent = '0';
+      badge.style.display = 'none';
+    }
+  }
+
+  try {
+    const saved = localStorage.getItem('notifUnread');
+    if (saved !== null) setBadge(saved);
+  } catch (e) {
+    // ignore storage errors
+  }
+
+  window.addEventListener('message', function(e){
+    if (e && e.data && e.data.type === 'notif-count') {
+      setBadge(e.data.unread);
+    }
+  });
+
+  function openPanel() {
+    overlay.style.display = 'flex';
+    overlay.setAttribute('aria-hidden', 'false');
+    notifBtn.setAttribute('aria-expanded', 'true');
+  }
+
+  function closePanel() {
+    overlay.style.display = 'none';
+    overlay.setAttribute('aria-hidden', 'true');
+    notifBtn.setAttribute('aria-expanded', 'false');
+  }
+
+  window.closeNotifOverlay = closePanel;
+
   notifBtn.addEventListener('click', function(e){
     e.preventDefault();
-    // intentionally left blank — notifications disabled for now
+    if (overlay.style.display === 'flex') {
+      closePanel();
+    } else {
+      openPanel();
+    }
   });
-}
+
+  overlay.addEventListener('click', function(e){
+    if (e.target === overlay) closePanel();
+  });
+
+  document.addEventListener('keydown', function(e){
+    if (e.key === 'Escape') closePanel();
+  });
+})();
 
 // confirm before logout
 const logoutBtn = document.getElementById('btnLogout');

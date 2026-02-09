@@ -12,7 +12,7 @@ if (!isset($_SESSION['user_id'])) {
 $user_id = (int) $_SESSION['user_id'];
 
 // fetch user info
-$stmtUser = $conn->prepare("SELECT first_name, middle_name, last_name, role, office_name, avatar FROM users WHERE user_id = ?");
+$stmtUser = $conn->prepare("SELECT first_name, middle_name, last_name, role, office_name FROM users WHERE user_id = ?");
 $stmtUser->bind_param("i", $user_id);
 $stmtUser->execute();
 $user = $stmtUser->get_result()->fetch_assoc() ?: [];
@@ -91,7 +91,7 @@ $current_date = date("l, F j, Y");
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>OJT-MS | HR Head Dashboard</title>
+<title>OJT-MS | HR Staff Dashboard</title>
 <style>
     *{box-sizing:border-box;font-family:'Poppins',sans-serif}
     body{background:#f7f8fc;display:flex;min-height:100vh;margin:0}
@@ -257,8 +257,6 @@ $current_date = date("l, F j, Y");
 
     /* Keep head table layout consistent */
     #officeHeadTable thead th { line-height: normal; padding:6px; box-sizing:border-box; }
-    /* Prevent the three OJTs header labels from wrapping onto two lines */
-    #officeHeadTable thead th.nowrap { white-space: nowrap; }
 
     /* The body wrapper will scroll only when content is taller than max-height.
        Use a viewport-relative max so it fits various screen sizes. */
@@ -281,21 +279,17 @@ $current_date = date("l, F j, Y");
     .status-open{ color:#0b7a3a; font-weight:700; background:#e6f9ee; padding:6px 10px; border-radius:12px; display:inline-block; }
     .status-full{ color:#b22222; font-weight:700; background:#fff4f4; padding:6px 10px; border-radius:12px; display:inline-block; }
 </style>
-<!-- flatpickr (lightweight datepicker) -->
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
-<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
 </head>
 <body>
 
 <div class="sidebar">
     <div class="profile">
-      <?php $profileImg = !empty($user['avatar']) ? $user['avatar'] : 'https://cdn-icons-png.flaticon.com/512/149/149071.png'; ?>
-      <img src="<?php echo htmlspecialchars($profileImg); ?>" alt="Profile">
-      <h3><?php echo htmlspecialchars($full_name ?: ($_SESSION['username'] ?? '')); ?></h3>
-      <p><?php echo htmlspecialchars($role_label); ?></p>
-      <?php if(!empty($user['office_name'])): ?>
-        <p style="font-size:12px;color:#bfc4d1"><?php echo htmlspecialchars($user['office_name']); ?></p>
-      <?php endif; ?>
+        <img src="https://cdn-icons-png.flaticon.com/512/149/149071.png" alt="Profile">
+        <h3><?php echo htmlspecialchars($full_name ?: ($_SESSION['username'] ?? '')); ?></h3>
+        <p><?php echo htmlspecialchars($role_label); ?></p>
+        <?php if(!empty($user['office_name'])): ?>
+            <p style="font-size:12px;color:#bfc4d1"><?php echo htmlspecialchars($user['office_name']); ?></p>
+        <?php endif; ?>
     </div>
 
     <div class="nav">
@@ -322,8 +316,8 @@ $current_date = date("l, F j, Y");
       </a>
       <a href="hr_staff_moa.php">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px">
-          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-          <polyline points="14 2 14 8 20 8"></polyline>
+          <circle cx="12" cy="12" r="8"></circle>
+          <path d="M12 8v5l3 2"></path>
         </svg>
         MOA
       </a>
@@ -340,7 +334,7 @@ $current_date = date("l, F j, Y");
           <rect x="10" y="6" width="4" height="14"></rect>
           <rect x="17" y="2" width="4" height="18"></rect>
         </svg>
-        Records
+        Reports
       </a>
       </div>
     <div style="margin-top:auto;padding:18px 0;width:100%;text-align:center;">
@@ -353,17 +347,19 @@ $current_date = date("l, F j, Y");
        NOTE: removed position:fixed to prevent overlapping; icons now flow with page
        and stay visible. -->
   <div id="top-icons" style="display:flex;justify-content:flex-end;gap:14px;align-items:center;margin:8px 0 12px 0;z-index:50;">
-      <a id="btnNotif" href="notifications.php" title="Notifications" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 17h5l-1.405-1.405A2.032 2.032 0 0 1 18 14.158V11a6 6 0 1 0-12 0v3.159c0 .538-.214 1.055-.595 1.436L4 17h5"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
-      </a>
-        <!-- calendar icon (clickable to open modal overlay) -->
-        <button id="openCalendarBtn" title="Calendar" aria-label="Open calendar" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;background:transparent;border:0;cursor:pointer;">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-        </button>
-      <button id="btnSettings" type="button" title="Settings" aria-label="Settings" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;background:transparent;border:0;box-shadow:none;cursor:pointer;">
+      <a id="btnNotif" href="#" title="Notifications" aria-haspopup="dialog" aria-expanded="false" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;position:relative;">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 17h5l-1.405-1.405A2.032 2.032 0 0 1 18 14.158V11a6 6 0 1 0-12 0v3.159c0 .538-.214 1.055-.595 1.436L4 17h5"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
+          <span class="notif-count" aria-hidden="true" style="position:absolute;top:-4px;right:-4px;min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:#ef4444;color:#fff;font-size:11px;line-height:18px;text-align:center;display:none;">0</span>
+        </a>
+
+      <!-- calendar icon (clickable) -->
+      <button id="openCalendarBtn" title="Calendar" aria-label="Open calendar" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;background:transparent;border:0;cursor:pointer;">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+      </button>
+       <a id="btnSettings" href="settings.php" title="Settings" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;">
            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06A2 2 0 1 1 2.28 16.8l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09c.7 0 1.3-.4 1.51-1A1.65 1.65 0 0 0 4.27 6.3L4.2 6.23A2 2 0 1 1 6 3.4l.06.06c.5.5 1.2.7 1.82.33.7-.4 1.51-.4 2.21 0 .62.37 1.32.17 1.82-.33L12.6 3.4a2 2 0 1 1 1.72 3.82l-.06.06c-.5.5-.7 1.2-.33 1.82.4.7.4 1.51 0 2.21-.37.62-.17 1.32.33 1.82l.06.06A2 2 0 1 1 19.4 15z"></path>
         </svg>
-      </button>
+       </a>
        <a id="btnLogout" href="../logout.php" title="Logout" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
         </a>
@@ -378,11 +374,11 @@ $current_date = date("l, F j, Y");
       </div>
 
       <!-- Counters: two rows
-         Row 1: Completed (full width, prominent)
+         Row 1: Evaluated and Completed (full width, prominent)
          Row 2: Approved Applicants + Active (side-by-side) -->
       <div style="display:flex;flex-direction:column;gap:10px;margin-top:10px;">
 
-        <!-- Row 1a: Evaluated (full width, above Completed) -->
+        <!-- Row 1a: Evaluated (full width) -->
         <div style="background:#f5f7ff;border-radius:8px;padding:12px;border:1px solid #e6e9fb;box-shadow:0 2px 6px rgba(0,0,0,0.02);display:flex;align-items:center;justify-content:space-between;min-height:64px;">
         <div style="display:flex;flex-direction:column;gap:2px;">
           <div style="font-size:13px;color:#6d6d6d;font-weight:600">Evaluated</div>
@@ -450,11 +446,10 @@ $stmtActive = $conn->prepare("
     FROM users
     WHERE role = 'ojt' AND office_name = ? AND status = 'ongoing'
 ");
-// completed OJTs per office
 $stmtCompleted = $conn->prepare("
-  SELECT COUNT(*) AS cnt
-  FROM users
-  WHERE role = 'ojt' AND office_name = ? AND status = 'completed'
+    SELECT COUNT(*) AS cnt
+    FROM users
+    WHERE role = 'ojt' AND office_name = ? AND status = 'completed'
 ");
 ?>
 
@@ -477,7 +472,7 @@ $stmtCompleted = $conn->prepare("
               <option value="">None</option>
               <option value="capacity">Capacity</option>
               <option value="active">Ongoing OJTs</option>
-              <option value="approved">Approved OJTs</option>
+              <option value="approved">Approved</option>
               <option value="completed">Completed OJTs</option>
               <option value="available">Available Slot</option>
             </select>
@@ -504,7 +499,7 @@ $stmtCompleted = $conn->prepare("
                   <th style="text-align:left;padding:6px;border:1px solid #eee;background:#e6e9fb">Office</th>
                   <th style="padding:6px;border:1px solid #eee;background:#e6e9fb;text-align:center">Capacity</th>
                   <th style="padding:6px;border:1px solid #eee;background:#e6e9fb;text-align:center">Ongoing OJTs</th>
-                  <th style="padding:6px;border:1px solid #eee;background:#e6e9fb;text-align:center">Approved OJTs</th>
+                  <th style="padding:6px;border:1px solid #eee;background:#e6e9fb;text-align:center">Approved</th>
                   <th style="padding:6px;border:1px solid #eee;background:#e6e9fb;text-align:center">Completed OJTs</th>
                   <th style="padding:6px;border:1px solid #eee;background:#e6e9fb;text-align:center">Available Slot</th>
                   <th style="padding:6px;border:1px solid #eee;background:#e6e9fb;text-align:center">Status</th>
@@ -528,9 +523,8 @@ $stmtCompleted = $conn->prepare("
                 <tbody id="officesBody">
                 <?php foreach ($offices as $o):
                     // approved count per office
-                  $approved = 0;
-                  $active = 0;
-                  $completed = 0;
+                    $approved = 0;
+                    $active = 0;
                     // use office_name from offices table to count users assigned to that office
                     $officeName = $o['office_name'] ?? '';
                     if ($stmtApproved) {
@@ -549,14 +543,16 @@ $stmtCompleted = $conn->prepare("
                         $active = (int)($activeTemp ?? 0);
                         $stmtActive->free_result();
                     }
-                  if ($stmtCompleted) {
-                    $stmtCompleted->bind_param('s', $officeName);
-                    $stmtCompleted->execute();
-                    $stmtCompleted->bind_result($completedTemp);
-                    $stmtCompleted->fetch();
-                    $completed = (int)($completedTemp ?? 0);
-                    $stmtCompleted->free_result();
-                  }
+                    // completed count per office
+                    $completed = 0;
+                    if ($stmtCompleted) {
+                        $stmtCompleted->bind_param('s', $officeName);
+                        $stmtCompleted->execute();
+                        $stmtCompleted->bind_result($completedTemp);
+                        $stmtCompleted->fetch();
+                        $completed = (int)($completedTemp ?? 0);
+                        $stmtCompleted->free_result();
+                    }
 
                     $cap = isset($o['capacity']) ? (int)$o['capacity'] : null;
 
@@ -776,7 +772,7 @@ $stmtCompleted->close();
                     <circle cx="11" cy="11" r="6"></circle>
                     <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
                   </svg>
-                  <input id="tabSearch" aria-label="Search pending or rejected" type="text" placeholder="Search name / address" style="padding:6px 10px 6px 34px;border:1px solid #ddd;border-radius:8px;min-width:220px" />
+                  <input id="tabSearch" aria-label="Search pending or rejected" type="text" placeholder="Search name / address / office..." style="padding:6px 10px 6px 34px;border:1px solid #ddd;border-radius:8px;min-width:220px" />
                 </div>
                 <select id="tabOfficeFilter" style="padding:6px;border:1px solid #ddd;border-radius:8px;">
                     <option value="all">All offices</option>
@@ -791,7 +787,7 @@ $stmtCompleted->close();
         <?php if (count($apps) === 0): ?>
             <div class="empty">No <?php echo $tab === 'rejected' ? 'rejected' : 'pending'; ?> applications found.</div>
         <?php else: ?>
-        <table id="appsTable">
+        <table>
             <thead>
                 <tr>
                     <th>Date Submitted</th>
@@ -803,7 +799,7 @@ $stmtCompleted->close();
                         <th>Reason</th>
                     <?php endif; ?>
                     <?php if ($tab !== 'rejected'): ?>
-                        <th style="text-align:center">Action</th>
+                    <th style="text-align:center">Action</th>
                     <?php endif; ?>
                 </tr>
             </thead>
@@ -820,7 +816,7 @@ $stmtCompleted->close();
                     <?php endif; ?>
                     <?php if ($tab !== 'rejected'): ?>
                     <td class="actions">
-                      <button type="button" class="view" title="View" onclick="openViewModal(<?= (int)$row['application_id'] ?>)">👁</button>
+                        <button type="button" class="view" title="View" onclick="openViewModal(<?= (int)$row['application_id'] ?>)">👁</button>
                     </td>
                     <?php endif; ?>
                 </tr>
@@ -847,30 +843,21 @@ $stmtCompleted->close();
     </div>
 
     <div class="row">
-      <label>Assigned Office</label>
+      <label>Assigned Office (from applicant)</label>
       <div class="values" id="modal_office">—</div>
     </div>
 
     <div class="row">
       <label>Orientation / Starting Date</label>
-      <div style="position:relative;">
-        <input type="text" id="modal_date" placeholder="YYYY-MM-DD" readonly style="width:100%;padding:8px;border-radius:6px;border:1px solid #ccc;">
-        <button type="button" id="modal_date_btn" aria-label="Open calendar" style="position:absolute;right:6px;top:50%;transform:translateY(-50%);border:none;background:transparent;cursor:pointer;padding:6px;">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#444" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-        </button>
-      </div>
+      <input type="date" id="modal_date">
     </div>
     <div class="row">
       <label>Location</label>
-      <div style="position:relative;">
-        <input type="text" id="modal_location" value="CHRMO/3rd Floor" placeholder="CHRMO/3rd Floor" style="width:100%;padding:8px;border-radius:6px;border:1px solid #ccc;">
-      </div>
+      <input type="text" id="modal_location" value="CHRMO/3rd Floor" placeholder="CHRMO/3rd Floor">
     </div>
     <div class="row">
       <label>Time</label>
-      <div style="position:relative;">
-        <input type="time" id="modal_time" value="08:30" min="08:00" max="16:00" style="width:100%;padding:8px;border-radius:6px;border:1px solid #ccc;">
-      </div>
+      <input type="time" id="modal_time" value="08:30">
     </div>
 
     <!-- status message area (hidden until send result) -->
@@ -878,7 +865,7 @@ $stmtCompleted->close();
 
     <div class="actions">
       <button class="btn-cancel" onclick="closeModal()" type="button">Cancel</button>
-      <button id="btnSend" class="btn-send" type="button" onclick="sendApproval();" aria-disabled="true" disabled>Send</button>
+      <button id="btnSend" class="btn-send" type="button" onclick="sendApproval(); setTimeout(function(){ location.reload(); }, 1200);" aria-disabled="true" disabled>Send</button>
     </div>
   </div>
 </div>
@@ -917,8 +904,7 @@ $stmtCompleted->close();
         <div id="view_status" style="color:#666;font-size:13px">Status | hours</div>
       </div>
       <div style="display:flex;gap:8px;margin-top:8px">
-        <button style="background:#fff;border:2px solid #28a745;color:#28a745;padding:8px 14px;border-radius:24px;cursor:pointer" id="view_approve_btn">APPROVE</button>
-        <button style="background:#fff;border:2px solid #dc3545;color:#dc3545;padding:8px 14px;border-radius:24px;cursor:pointer" id="view_reject_btn">REJECT</button>
+        <!-- Approve/Reject removed for HR Staff view — view-only access -->
       </div>
     </div>
 
@@ -937,7 +923,6 @@ $stmtCompleted->close();
 
             <tr><td style="font-weight:700">College/University</td><td id="view_college"></td></tr>
             <tr><td style="font-weight:700">Course</td><td id="view_course"></td></tr>
-            <tr><td style="font-weight:700">Hours Required</td><td id="view_total_hours"></td></tr>
             <tr><td style="font-weight:700">Year level</td><td id="view_year"></td></tr>
             <tr><td style="font-weight:700">School Address</td><td id="view_school_address"></td></tr>
             <tr><td style="font-weight:700">OJT Adviser</td><td id="view_adviser"></td></tr>
@@ -973,75 +958,7 @@ $stmtCompleted->close();
   </div>
 </div>
 
-  <script>
-  // Calendar modal open/close handlers
-  (function(){
-    const openBtn = document.getElementById('openCalendarBtn');
-    if (!openBtn) return;
-    // create overlay element (inserted once)
-    const calendarOverlay = document.createElement('div');
-    calendarOverlay.id = 'calendarOverlay';
-    calendarOverlay.className = 'overlay';
-    calendarOverlay.setAttribute('role','dialog');
-    calendarOverlay.setAttribute('aria-hidden','true');
-    calendarOverlay.style.display = 'none';
-    calendarOverlay.style.alignItems = 'center';
-    calendarOverlay.style.justifyContent = 'center';
-    // lightweight overlay: iframe fills the overlay; sizing handled inside calendar.php
-    // create modal container with iframe. Close button will be placed inside the iframe's white card
-    calendarOverlay.innerHTML = `
-      <div class="modal" style="width:100%;height:100vh;max-width:100%;max-height:100vh;padding:0;background:transparent;display:flex;align-items:center;justify-content:center;position:relative;">
-        <iframe src="calendar_staff.php" title="Calendar" style="width:100%;height:100%;border:0;display:block;"></iframe>
-      </div>`;
-
-    document.body.appendChild(calendarOverlay);
-
-    function showCalendar(){ calendarOverlay.style.display = 'flex'; calendarOverlay.setAttribute('aria-hidden','false'); }
-    function hideCalendar(){ calendarOverlay.style.display = 'none'; calendarOverlay.setAttribute('aria-hidden','true'); }
-    // expose a simple global close function so iframe content can request the overlay to close
-    window.closeCalendarOverlay = hideCalendar;
-
-    openBtn.addEventListener('click', function(){ showCalendar(); });
-    calendarOverlay.addEventListener('click', function(e){ if (e.target === calendarOverlay) hideCalendar(); });
-    // close button was moved inside the iframe; iframe will call parent.closeCalendarOverlay()
-  })();
-  
-  // Settings modal open/close handlers (iframe overlay, white icon)
-  (function(){
-    const openBtn = document.getElementById('btnSettings');
-    if (!openBtn) return;
-    const settingsOverlay = document.createElement('div');
-    settingsOverlay.id = 'settingsOverlay';
-    settingsOverlay.className = 'overlay';
-    settingsOverlay.setAttribute('role','dialog');
-    settingsOverlay.setAttribute('aria-hidden','true');
-    settingsOverlay.style.display = 'none';
-    settingsOverlay.style.alignItems = 'center';
-    settingsOverlay.style.justifyContent = 'center';
-    // iframe will load settings.php which contains its own white-card close button
-    settingsOverlay.innerHTML = `
-      <div class="modal" style="width:100%;height:100vh;max-width:100%;max-height:100vh;padding:0;background:transparent;display:flex;align-items:center;justify-content:center;position:relative;">
-        <iframe src="settings.php" title="Settings" style="width:100%;height:100%;border:0;display:block;"></iframe>
-      </div>`;
-
-    document.body.appendChild(settingsOverlay);
-
-    function showSettings(){
-      settingsOverlay.style.display = 'flex';
-      settingsOverlay.setAttribute('aria-hidden','false');
-      try { openBtn.style.background = '#fff'; openBtn.style.boxShadow = '0 6px 18px rgba(0,0,0,0.06)'; } catch(e){}
-    }
-    function hideSettings(){
-      settingsOverlay.style.display = 'none';
-      settingsOverlay.setAttribute('aria-hidden','true');
-      try { openBtn.style.background = 'transparent'; openBtn.style.boxShadow = 'none'; } catch(e){}
-    }
-    // expose a close function so iframe can call parent.closeSettingsOverlay()
-    window.closeSettingsOverlay = hideSettings;
-
-    openBtn.addEventListener('click', function(ev){ ev.preventDefault(); showSettings(); });
-    settingsOverlay.addEventListener('click', function(e){ if (e.target === settingsOverlay) hideSettings(); });
-  })();
+<script>
 // hold currently approving application id
 let currentAppId = null;
 
@@ -1058,76 +975,52 @@ async function openApproveModal(btn) {
     document.getElementById('modal_name').textContent = name;
     document.getElementById('modal_email').textContent = email;
 
-    // show assigned office: if applicant provided a second choice, show a dropdown
-    // NOTE: per request, do not call server-side `hr_actions.php` here; this is purely client-side.
-    const modalOfficeEl = document.getElementById('modal_office');
-    modalOfficeEl.innerHTML = '';
-    // remove the .values background/padding here so assigned-office looks like the other inputs
-    modalOfficeEl.style.background = 'transparent';
-    modalOfficeEl.style.padding = '0';
-    modalOfficeEl.style.border = 'none';
-    modalOfficeEl.style.borderRadius = '0';
-    if (opt2Id && opt2Id !== 0) {
-      const sel = document.createElement('select');
-      sel.id = 'modal_office_select';
-      sel.style.width = '100%';
-      sel.style.padding = '8px';
-      sel.style.borderRadius = '6px';
-      sel.style.border = '1px solid #ccc';
-
-      // opt1 option
-      const o1 = document.createElement('option');
-      o1.value = String(opt1Id || 0);
-      o1.text = opt1Name || 'Preference 1';
-      sel.appendChild(o1);
-
-      // opt2 option
-      const o2 = document.createElement('option');
-      o2.value = String(opt2Id || 0);
-      o2.text = opt2Name || 'Preference 2';
-      sel.appendChild(o2);
-
-      modalOfficeEl.appendChild(sel);
-    } else {
-      // render a readonly text input to match Location/Time styling
-      const textInput = document.createElement('input');
-      textInput.type = 'text';
-      textInput.id = 'modal_office_input';
-      textInput.value = opt1Name || 'N/A';
-      textInput.readOnly = true;
-      textInput.style.width = '100%';
-      textInput.style.padding = '8px';
-      textInput.style.borderRadius = '6px';
-      textInput.style.border = '1px solid #ccc';
-      modalOfficeEl.appendChild(textInput);
+    // determine assigned office by asking server (pref1 if has capacity, else pref2, else show N/A)
+    let assigned = '';
+    try {
+        const payload = { action: 'check_capacity', office1: opt1Id, office2: opt2Id };
+        const res = await fetch('../hr_actions.php', {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify(payload)
+        });
+        const json = await res.json();
+        if (json && json.success) {
+            assigned = json.assigned || '';
+        } else {
+            // fallback display: prefer opt1 name then opt2
+            assigned = opt1Name || opt2Name || 'N/A';
+        }
+    } catch (e) {
+        assigned = opt1Name || opt2Name || 'N/A';
     }
+
+    document.getElementById('modal_office').textContent = assigned || 'N/A';
 
     const dateInput = document.getElementById('modal_date');
 
-    // prevent selecting past dates; disallow today but allow tomorrow and after
+    // --- ADDED: prevent selecting past dates and disable next 7 days starting tomorrow ---
     const today = new Date();
+
+    // block range: tomorrow .. tomorrow + 6 (7 days total: days 1..7)
+    const blockedStart = new Date(today);
+    blockedStart.setDate(blockedStart.getDate() + 1);
+    const blockedEnd = new Date(today);
+    blockedEnd.setDate(blockedEnd.getDate() + 7);
+
+    // earliest allowed date is the day after the blockedEnd
     const allowedMin = new Date(today);
-    allowedMin.setDate(allowedMin.getDate() + 1); // tomorrow
+    allowedMin.setDate(allowedMin.getDate() + 8);
 
-    const toIsoDate = d => {
-      const y = d.getFullYear();
-      const m = String(d.getMonth()+1).padStart(2,'0');
-      const day = String(d.getDate()).padStart(2,'0');
-      return `${y}-${m}-${day}`;
-    };
+    const toIsoDate = d => d.toISOString().split('T')[0];
 
-    // set min/value on the native input for HTML semantics (tomorrow)
     dateInput.min = toIsoDate(allowedMin);
+    // optionally prefill with the first allowed date
     dateInput.value = toIsoDate(allowedMin);
 
-    // also set minDate and selected date on the Flatpickr instance if available
-    if (window.modalDatePicker && typeof window.modalDatePicker.set === 'function') {
-      window.modalDatePicker.set('minDate', toIsoDate(allowedMin));
-      window.modalDatePicker.setDate(toIsoDate(allowedMin), true);
-    }
-
-    // hint: today is not selectable
-    dateInput.title = `Note: today is not selectable. Earliest selectable: ${toIsoDate(allowedMin)}.`;
+    // add user hint (shows on hover) about the disabled range
+    dateInput.title = `Unavailable: ${toIsoDate(blockedStart)} — ${toIsoDate(blockedEnd)}. Earliest selectable: ${toIsoDate(allowedMin)}.`;
+    // --- end added ---
 
     // disable send until date chosen
     const btnSend = document.getElementById('btnSend');
@@ -1152,24 +1045,6 @@ async function openApproveModal(btn) {
     ov.setAttribute('aria-hidden', 'false');
 
     dateInput.focus();
-
-    // enforce office hours on time input: only allow 08:00 - 16:00, default stays 08:30
-    try {
-      const timeInput = document.getElementById('modal_time');
-      if (timeInput) {
-        timeInput.min = '08:00';
-        timeInput.max = '16:00';
-        if (!timeInput.value) timeInput.value = '08:30';
-        // clamp any existing value into range
-        if (timeInput.value < timeInput.min) timeInput.value = timeInput.min;
-        if (timeInput.value > timeInput.max) timeInput.value = timeInput.max;
-        // safe-guard: prevent selecting outside range by clamping on input
-        timeInput.addEventListener('input', function(){
-          if (this.value && this.min && this.value < this.min) this.value = this.min;
-          if (this.value && this.max && this.value > this.max) this.value = this.max;
-        });
-      }
-    } catch (e) { /* ignore */ }
 }
 
 function closeModal(){
@@ -1193,20 +1068,6 @@ function sendApproval(){
         return alert('Please select the orientation / starting date.');
     }
 
-    // validate time is within office hours (08:00 - 16:00)
-    try {
-      const timeVal = document.getElementById('modal_time') ? document.getElementById('modal_time').value : '';
-      const timeEl = document.getElementById('modal_time');
-      const minTime = (timeEl && timeEl.min) ? timeEl.min : '08:00';
-      const maxTime = (timeEl && timeEl.max) ? timeEl.max : '16:00';
-      if (timeVal) {
-        if (timeVal < minTime || timeVal > maxTime) {
-          alert('Please choose a time between ' + minTime + ' and ' + maxTime + '.');
-          return;
-        }
-      }
-    } catch (e) { /* ignore validation errors */ }
-
     // disable button to prevent double submit
     const btnSend = document.getElementById('btnSend');
     btnSend.disabled = true;
@@ -1223,40 +1084,14 @@ function sendApproval(){
         application_id: parseInt(currentAppId,10),
         orientation_date: date
     };
-    // include time/location and selected assigned office (if dropdown used)
-    try {
-      const timeVal = document.getElementById('modal_time') ? document.getElementById('modal_time').value : '';
-      const locVal = document.getElementById('modal_location') ? document.getElementById('modal_location').value : '';
-      payload.orientation_time = timeVal || '';
-      payload.orientation_location = locVal || '';
-      const sel = document.getElementById('modal_office_select');
-      if (sel && sel.value) payload.assigned_office_id = parseInt(sel.value,10) || 0;
-    } catch(e) { /* ignore */ }
 
     fetch('../hr_actions.php', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify(payload)
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(payload)
     }).then(r => r.json())
       .then(res => {
-        // If server requests confirmation (over capacity), ask user and resend if confirmed
-        if (res && res.needs_confirmation) {
-          const ok = confirm((res.message || 'This session exceeds capacity. Proceed?'));
-          if (ok) {
-            payload.confirm_over_capacity = 1;
-            return fetch('../hr_actions.php', {
-              method: 'POST',
-              headers: {'Content-Type':'application/json'},
-              body: JSON.stringify(payload)
-            }).then(r2 => r2.json());
-          } else {
-            btnSend.disabled = false;
-            btnSend.setAttribute('aria-disabled', 'false');
-            throw new Error('User cancelled due to capacity');
-          }
-        }
-
-        if (res.success) {
+          if (res.success) {
               // show inline status based on mail result
               if (res.mail && res.mail === 'sent') {
                   statusEl.style.display = 'block';
@@ -1279,15 +1114,13 @@ function sendApproval(){
               }, 900);
           } else {
               // server returned success=false
-              alert((res.message || 'Unknown') + (res.error ? '\n' + res.error : ''));
+              alert('Error: ' + (res.message || 'Unknown') + (res.error ? '\n' + res.error : ''));
               // re-enable send on failure
               btnSend.disabled = false;
               btnSend.setAttribute('aria-disabled', 'false');
           }
       }).catch(err => {
-        // if user cancelled confirmation, don't show generic error
-        if (err && err.message === 'User cancelled due to capacity') return;
-        alert('Request failed.');
+          alert('Request failed.');
           console.error(err);
           btnSend.disabled = false;
           btnSend.setAttribute('aria-disabled', 'false');
@@ -1411,7 +1244,7 @@ async function openViewModal(appId) {
   const overlay = document.getElementById('viewOverlay');
   // clear
   ['view_name','view_status','view_age','view_birthday','view_address','view_phone','view_email',
-   'view_college','view_course','view_total_hours','view_year','view_school_address','view_adviser',
+   'view_college','view_course','view_year','view_school_address','view_adviser',
    'view_emg_name','view_emg_relation','view_emg_contact','view_attachments'].forEach(id=> {
      const el = document.getElementById(id);
      if (el) el.textContent = '';
@@ -1448,7 +1281,6 @@ async function openViewModal(appId) {
     setText('view_email', st.email);
     setText('view_college', st.college);
     setText('view_course', st.course);
-    setText('view_total_hours', (typeof st.total_hours_required !== 'undefined' && st.total_hours_required !== null) ? (st.total_hours_required + ' hrs') : 'N/A');
     setText('view_year', st.year_level);
     setText('view_school_address', st.school_address);
     setText('view_adviser', st.ojt_adviser);
@@ -1606,14 +1438,92 @@ function closeViewModal() {
   overlay.setAttribute('aria-hidden', 'true');
 }
 
-// notifications temporarily disabled (no action)
-const notifBtn = document.getElementById('btnNotif');
-if (notifBtn) {
+// Notification overlay (iframe to notif.php)
+(function(){
+  const notifBtn = document.getElementById('btnNotif');
+  if (!notifBtn) return;
+  const badge = notifBtn.querySelector('.notif-count');
+
+  let overlay = document.getElementById('notifOverlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'notifOverlay';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-hidden', 'true');
+    overlay.style.position = 'fixed';
+    overlay.style.inset = '0';
+    overlay.style.display = 'none';
+    overlay.style.alignItems = 'flex-start';
+    overlay.style.justifyContent = 'flex-end';
+    overlay.style.padding = '18px';
+    overlay.style.background = 'rgba(15, 23, 42, 0.25)';
+    overlay.style.zIndex = '10050';
+    overlay.innerHTML =
+      '<div style="width:360px;max-width:calc(100% - 32px);height:600px;max-height:calc(100vh - 36px);background:#fff;border-radius:16px;box-shadow:0 18px 45px rgba(15, 23, 42, 0.18);overflow:hidden;">' +
+      '<iframe src="notif.php?embed=1" title="Notifications" style="width:100%;height:100%;border:0;"></iframe>' +
+      '</div>';
+    document.body.appendChild(overlay);
+  }
+
+  notifBtn.setAttribute('aria-haspopup', 'dialog');
+  notifBtn.setAttribute('aria-expanded', 'false');
+
+  function setBadge(count) {
+    if (!badge) return;
+    const num = parseInt(count || 0, 10) || 0;
+    if (num > 0) {
+      badge.textContent = num;
+      badge.style.display = 'inline-flex';
+    } else {
+      badge.textContent = '0';
+      badge.style.display = 'none';
+    }
+  }
+
+  try {
+    const saved = localStorage.getItem('notifUnread');
+    if (saved !== null) setBadge(saved);
+  } catch (e) {
+    // ignore storage errors
+  }
+
+  window.addEventListener('message', function(e){
+    if (e && e.data && e.data.type === 'notif-count') {
+      setBadge(e.data.unread);
+    }
+  });
+
+  function openPanel() {
+    overlay.style.display = 'flex';
+    overlay.setAttribute('aria-hidden', 'false');
+    notifBtn.setAttribute('aria-expanded', 'true');
+  }
+
+  function closePanel() {
+    overlay.style.display = 'none';
+    overlay.setAttribute('aria-hidden', 'true');
+    notifBtn.setAttribute('aria-expanded', 'false');
+  }
+
+  window.closeNotifOverlay = closePanel;
+
   notifBtn.addEventListener('click', function(e){
     e.preventDefault();
-    // intentionally left blank — notifications disabled for now
+    if (overlay.style.display === 'flex') {
+      closePanel();
+    } else {
+      openPanel();
+    }
   });
-}
+
+  overlay.addEventListener('click', function(e){
+    if (e.target === overlay) closePanel();
+  });
+
+  document.addEventListener('keydown', function(e){
+    if (e.key === 'Escape') closePanel();
+  });
+})();
 
 // confirm before logout
 const logoutBtn = document.getElementById('btnLogout');
@@ -1627,175 +1537,33 @@ if (logoutBtn) {
 }
 </script>
 <script>
-// Orientation counts injected server-side; render them inline as `18(3)`.
-const orientationCounts = <?php
-    $counts = [];
-        // count how many assignment rows reference each session (count occurrences of session_id)
-        $sql = "SELECT os.session_date AS dt, COUNT(oa.session_id) AS cnt
-          FROM orientation_sessions os
-          LEFT JOIN orientation_assignments oa ON oa.session_id = os.session_id
-          GROUP BY os.session_date";
-    if ($res = $conn->query($sql)) {
-        while ($r = $res->fetch_assoc()) {
-            $d = $r['dt'];
-            if ($d) $counts[$d] = (int)$r['cnt'];
-        }
-        $res->free();
-    }
-    echo json_encode($counts, JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE);
-?>;
-
-// (removed hardcoded test) counts are now sourced from DB only
-
+// Calendar modal open/close handlers
 (function(){
-  const toIso = d => {
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${y}-${m}-${day}`;
-  };
+  const openBtn = document.getElementById('openCalendarBtn');
+  if (!openBtn) return;
+  // create overlay element (inserted once)
+  const calendarOverlay = document.createElement('div');
+  calendarOverlay.id = 'calendarOverlay';
+  calendarOverlay.className = 'overlay';
+  calendarOverlay.setAttribute('role','dialog');
+  calendarOverlay.setAttribute('aria-hidden','true');
+  calendarOverlay.style.display = 'none';
+  calendarOverlay.style.alignItems = 'center';
+  calendarOverlay.style.justifyContent = 'center';
+  var calSrc = <?php echo json_encode(dirname($_SERVER['SCRIPT_NAME']) . '/calendar_staff.php'); ?>;
+  calendarOverlay.innerHTML = `
+    <div class="modal" style="width:100%;height:100vh;max-width:100%;max-height:100vh;padding:0;background:transparent;display:flex;align-items:center;justify-content:center;position:relative;">
+      <iframe src="${calSrc}" title="Calendar" style="width:100%;height:100%;border:0;display:block;"></iframe>
+    </div>`;
 
-  function initFlatpickr() {
-    const el = document.getElementById('modal_date');
-    if (!el || typeof flatpickr === 'undefined') return;
+  document.body.appendChild(calendarOverlay);
 
-    // store instance on window so external button can open it
-    window.modalDatePicker = flatpickr(el, {
-      dateFormat: 'Y-m-d',
-      allowInput: false,
-      clickOpens: false,
-      // disable weekends (Saturday=6, Sunday=0)
-      disable: [
-        function(date) {
-          return (date.getDay() === 0 || date.getDay() === 6);
-        }
-      ],
-      // render the count badges reliably after calendar renders
-      onReady: function(selectedDates, dateStr, fp) { renderCounts(fp); },
-      onOpen: function(selectedDates, dateStr, fp) { renderCounts(fp); },
-      onMonthChange: function(selectedDates, dateStr, fp) { renderCounts(fp); },
-      onYearChange: function(selectedDates, dateStr, fp) { renderCounts(fp); },
-      onDayCreate: function(dObj, dStr, dayElem) {
-        // keep this lightweight; main work done by renderCounts
-        try {
-          const dateObj = dayElem.dateObj || (dayElem.__dateObj || null);
-          if (!dateObj) return;
-          const iso = toIso(dateObj);
-          const cnt = orientationCounts[iso] || 0;
-          if (cnt && cnt > 0) {
-            const existing = dayElem.querySelector('.orient-count');
-            if (!existing) {
-              const span = document.createElement('span');
-              span.className = 'orient-count';
-              span.textContent = `(${cnt})`;
-              span.style.cssText = 'color:#0b7a3a;font-weight:inherit;font-size:inherit;margin-left:0;vertical-align:baseline;line-height:1;';
-              // append after day number text
-              // remove stray whitespace text nodes so span sits immediately after number
-              Array.from(dayElem.childNodes).forEach(n => { if (n.nodeType === Node.TEXT_NODE && n.textContent.trim() === '') n.remove(); });
-              dayElem.appendChild(span);
-            }
-          }
-        } catch (err) { /* ignore */ }
-      },
-      onChange: function(selectedDates, dateStr, fp) {
-        // enable send when a date is selected via the picker
-        try {
-          const btnSend = document.getElementById('btnSend');
-          if (btnSend) {
-            if (dateStr && dateStr >= (el.min || '')) {
-              btnSend.disabled = false;
-              btnSend.setAttribute('aria-disabled', 'false');
-            }
-          }
-        } catch (e) { /* ignore */ }
-      }
-    });
+  function showCalendar(){ calendarOverlay.style.display = 'flex'; calendarOverlay.setAttribute('aria-hidden','false'); }
+  function hideCalendar(){ calendarOverlay.style.display = 'none'; calendarOverlay.setAttribute('aria-hidden','true'); }
+  window.closeCalendarOverlay = hideCalendar;
 
-    // wire calendar icon button to open the picker
-    const btn = document.getElementById('modal_date_btn');
-    if (btn) {
-      btn.addEventListener('click', function(e){
-        e.preventDefault();
-        if (window.modalDatePicker) window.modalDatePicker.open();
-      });
-    }
-
-    function renderCounts(fp) {
-      try {
-        const days = fp.calendarContainer ? fp.calendarContainer.querySelectorAll('.flatpickr-day') : [];
-        days.forEach(dayElem => {
-          try {
-            // remove old badge
-            const old = dayElem.querySelector('.orient-count');
-            if (old) old.remove();
-
-            // get day number text
-            let dateObj = dayElem.dateObj || null;
-            if (!dateObj) {
-              // parse day number from element
-              const txt = (dayElem.textContent || '').trim();
-              const m = txt.match(/^(\d{1,2})/);
-              if (!m) return;
-              const dayNum = parseInt(m[1], 10);
-              // use current view month/year
-              dateObj = new Date(fp.currentYear, fp.currentMonth, dayNum);
-            }
-            const iso = toIso(dateObj);
-            const cnt = orientationCounts[iso] || 0;
-            if (cnt && cnt > 0) {
-              const span = document.createElement('span');
-              span.className = 'orient-count';
-              span.textContent = `(${cnt})`;
-              span.style.cssText = 'color:#0b7a3a;font-weight:inherit;font-size:inherit;margin-left:0;vertical-align:baseline;line-height:1;';
-              // try to place after existing number span
-              // remove stray whitespace text nodes so span sits immediately after number
-              Array.from(dayElem.childNodes).forEach(n => { if (n.nodeType === Node.TEXT_NODE && n.textContent.trim() === '') n.remove(); });
-              const numSpan = dayElem.querySelector('.flat-day-num');
-              if (numSpan && numSpan.parentNode) numSpan.parentNode.insertBefore(span, numSpan.nextSibling);
-              else dayElem.appendChild(span);
-            }
-          } catch (e) { /* ignore per-day errors */ }
-        });
-      } catch (e) { console.error('renderCounts failed', e); }
-    }
-  }
-
-  initFlatpickr();
-    })();
-</script>
-
-<script>
-// Filter pending/rejected applications by name/address and office select
-(function(){
-  const tabSearch = document.getElementById('tabSearch');
-  const tabOffice = document.getElementById('tabOfficeFilter');
-  const appsTable = document.getElementById('appsTable');
-  if (!appsTable) return;
-  const tbody = appsTable.querySelector('tbody');
-  if (!tbody) return;
-
-  function filterApps(){
-    const q = (tabSearch && tabSearch.value || '').toLowerCase().trim();
-    const office = (tabOffice && tabOffice.value || 'all').toLowerCase();
-    Array.from(tbody.querySelectorAll('tr')).forEach(tr => {
-      const cols = tr.querySelectorAll('td');
-      const name = (cols[1] && cols[1].textContent || '').toLowerCase();
-      const address = (cols[2] && cols[2].textContent || '').toLowerCase();
-      const opt1 = (cols[3] && cols[3].textContent || '').toLowerCase();
-      const opt2 = (cols[4] && cols[4].textContent || '').toLowerCase();
-
-      const matchesQ = !q || name.indexOf(q) !== -1 || address.indexOf(q) !== -1 || opt1.indexOf(q) !== -1 || opt2.indexOf(q) !== -1;
-      const matchesOffice = !office || office === 'all' || opt1.toLowerCase() === office || opt2.toLowerCase() === office || name.indexOf(office) !== -1 || address.indexOf(office) !== -1;
-
-      tr.style.display = (matchesQ && matchesOffice) ? '' : 'none';
-    });
-  }
-
-  if (tabSearch) tabSearch.addEventListener('input', filterApps);
-  if (tabOffice) tabOffice.addEventListener('change', filterApps);
-
-  // initial filter pass
-  filterApps();
+  openBtn.addEventListener('click', function(){ showCalendar(); });
+  calendarOverlay.addEventListener('click', function(e){ if (e.target === calendarOverlay) hideCalendar(); });
 })();
 </script>
 <?php

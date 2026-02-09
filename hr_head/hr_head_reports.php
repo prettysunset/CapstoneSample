@@ -87,7 +87,24 @@ function fetch_offices($conn){
     return $rows;
 }
 
-/* MOA server-side helper removed (MOA tab removed) */
+function fetch_moa($conn){
+    $rows = [];
+    $sql = "
+      SELECT m.moa_id, m.school_name, m.moa_file, m.date_signed, m.valid_until,
+             (SELECT COUNT(*) FROM students s WHERE LOWER(TRIM(s.college)) = LOWER(TRIM(m.school_name))) AS student_count
+      FROM moa m
+      ORDER BY m.date_signed DESC
+    ";
+    $res = $conn->query($sql);
+    if ($res){
+        while ($r = $res->fetch_assoc()) {
+            $r['student_count'] = (int)($r['student_count'] ?? 0);
+            $rows[] = $r;
+        }
+        $res->free();
+    }
+    return $rows;
+}
 
 // Office requests removed from UI. Server-side helper retained if needed in future.
 
@@ -134,13 +151,6 @@ function fmtDate($d){ if (!$d) return '-'; $dt = date_create($d); return $dt ? $
 
 $students = fetch_students($conn);
 
-// Only show students with these statuses in the Students tab
-$allowed_statuses = ['evaluated','rejected','deactivated'];
-$students = array_values(array_filter($students, function($s) use ($allowed_statuses) {
-  $st = strtolower(trim((string)($s['student_status'] ?? '')));
-  return in_array($st, $allowed_statuses, true);
-}));
-
 // NEW: override students[].hours_rendered with sum from dtr (dtr.student_id = users.user_id).
 // Do not show any errors to users; log only on failure.
 if (!empty($students)) {
@@ -177,6 +187,7 @@ if (!empty($students)) {
 }
 
 $offices = fetch_offices($conn);
+$moa = fetch_moa($conn);
 $evaluations = fetch_evaluations($conn);
 ?>
 <!doctype html>
@@ -284,16 +295,17 @@ $evaluations = fetch_evaluations($conn);
     <!-- top-right outline icons: notifications, calendar, settings, logout
          NOTE: same markup/placement as hr_head_accounts.php so icons align across pages -->
     <div id="top-icons" style="display:flex;justify-content:flex-end;gap:14px;align-items:center;margin:8px 0 12px 0;z-index:50;">
-        <a href="notifications.php" title="Notifications" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;">
+        <a id="btnNotif" href="#" title="Notifications" aria-haspopup="dialog" aria-expanded="false" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;position:relative;">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 17h5l-1.405-1.405A2.032 2.032 0 0 1 18 14.158V11a6 6 0 1 0-12 0v3.159c0 .538-.214 1.055-.595 1.436L4 17h5"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
+          <span class="notif-count" aria-hidden="true" style="position:absolute;top:-4px;right:-4px;min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:#ef4444;color:#fff;font-size:11px;line-height:18px;text-align:center;display:none;">0</span>
         </a>
         <!-- calendar icon (clickable: opens calendar overlay) -->
         <button id="openCalendarBtn" title="Calendar" aria-label="Open calendar" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;background:transparent;border:0;cursor:pointer;padding:0;">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
         </button>
-        <button id="btnSettings" type="button" title="Settings" aria-label="Settings" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;background:transparent;border:0;box-shadow:none;cursor:pointer;">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06A2 2 0 1 1 2.28 16.8l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09c.7 0 1.3-.4 1.51-1A1.65 1.65 0 0 0 4.27 6.3L4.2 6.23A2 2 0 1 1 6 3.4l.06.06c.5.5 1.2.7 1.82.33.7-.4 1.51-.4 2.21 0 .62.37 1.32.17 1.82-.33L12.6 3.4a2 2 0 1 1 1.72 3.82l-.06.06c-.5.5-.7 1.2-.33 1.82.4.7.4 1.51 0 2.21-.37.62-.17 1.32.33 1.82l.06.06A2 2 0 1 1 19.4 15z"></path></svg>
-        </button>
+        <a href="settings.php" title="Settings" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06A2 2 0 1 1 2.28 16.8l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09c.7 0 1.3-.4 1.51-1A1.65 1.65 0 0 0 4.27 6.3L4.2 6.23A2 2 0 1 1 6 3.4l.06.06c.5.5 1.2.7 1.82.33.7-.4 1.51-.4 2.21 0 .62.37 1.32.17 1.82-.33L12.6 3.4a2 2 0 1 1 1.72 3.82l-.06.06c-.5.5-.7 1.2-.33 1.82.4.7.4 1.51 0 2.21-.37.62-.17 1.32.33 1.82l.06.06A2 2 0 1 1 19.4 15z"></path></svg>
+        </a>
         <a id="top-logout" href="../logout.php" title="Logout" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
         </a>
@@ -332,7 +344,13 @@ $evaluations = fetch_evaluations($conn);
             <button class="tab active" data-tab="students" role="tab" aria-selected="true" aria-controls="panel-students">
               <span>Students (<?= count($students) ?>)</span>
             </button>
-            <!-- Offices and MOA tabs removed -->
+            <button class="tab" data-tab="offices" role="tab" aria-selected="false" aria-controls="panel-offices">
+              <span>Offices (<?= count($offices) ?>)</span>
+            </button>
+            <button class="tab" data-tab="moa" role="tab" aria-selected="false" aria-controls="panel-moa">
+              <span>MOA (<?= count($moa) ?>)</span>
+            </button>
+            <!-- Office Requests tab removed -->
             <button class="tab" data-tab="evaluations" role="tab" aria-selected="false" aria-controls="panel-evaluations">
               <span>Evaluations (<?= count($evaluations) ?>)</span>
             </button>
@@ -360,14 +378,38 @@ $evaluations = fetch_evaluations($conn);
             </select>
 
             <select id="statusFilter" style="padding:8px;border-radius:8px;border:1px solid #ddd;background:#fff;min-width:160px;">
-              <option value="">Status</option>
+              <option value="">All status</option>
+              <option value="pending">Pending</option>
+              <option value="approved">Approved</option>
+              <option value="ongoing">Ongoing</option>
+              <option value="completed">Completed</option>
               <option value="evaluated">Evaluated</option>
               <option value="rejected">Rejected</option>
               <option value="deactivated">Deactivated</option>
             </select>
           </div>
 
-          <!-- Offices and MOA specific filters removed -->
+          <!-- right (offices) filters - shown only when Offices tab active -->
+          <div id="officesFilters" style="display:none;gap:8px;align-items:center;flex:0 0 auto;">
+            <select id="officesSortColumn" style="padding:8px;border-radius:8px;border:1px solid #ddd;background:#fff;min-width:220px;">
+              <option value="">None</option>
+              <option value="capacity">Capacity</option>
+              <option value="available">Available Slot</option>
+              <option value="approved">Approved OJTs</option>
+              <option value="ongoing">Ongoing OJTs</option>
+              <option value="completed">Completed OJTs</option>
+            </select>
+            <button id="officesSortDirBtn" data-dir="asc" title="Toggle sort direction" style="padding:8px 12px;border-radius:8px;border:1px solid #ddd;background:#fff;cursor:pointer">Asc</button>
+          </div>
+
+          <!-- right (moa) filters - shown only when MOA tab active -->
+          <div id="moaFilters" style="display:none;gap:8px;align-items:center;flex:0 0 auto;">
+            <select id="moaStatusFilter" style="padding:8px;border-radius:8px;border:1px solid #ddd;background:#fff;min-width:160px;">
+              <option value="">All status</option>
+              <option value="active">Active</option>
+              <option value="expired">Expired</option>
+            </select>
+          </div>
         </div>
 
       <div id="panel-students" class="panel" style="display:block">
@@ -405,7 +447,77 @@ $evaluations = fetch_evaluations($conn);
         </div>
       </div>
 
-      <!-- Offices and MOA panels removed -->
+      <div id="panel-offices" class="panel" style="display:none">
+        <div style="overflow-x:auto">
+          <table class="tbl" id="tblOffices">
+            <thead>
+              <tr>
+                <th>Office</th>
+                <th style="text-align:center">Capacity</th>
+                <th style="text-align:center">Available Slot</th>
+                <th style="text-align:center">Approved OJTs</th>
+                <th style="text-align:center">Ongoing OJTs</th>
+                <th style="text-align:center">Completed OJTs</th>
+              </tr>
+            </thead>
+            <tbody>
+              <?php if (empty($offices)): ?>
+                <tr><td colspan="6" class="empty">No offices found.</td></tr>
+              <?php else: foreach ($offices as $o): ?>
+                <tr data-search="<?= htmlspecialchars(strtolower($o['office_name'])) ?>">
+                  <td><?= htmlspecialchars($o['office_name']) ?></td>
+                  <td style="text-align:center"><?= is_null($o['capacity']) ? '—' : (int)$o['capacity'] ?></td>
+                  <td style="text-align:center"><?= is_string($o['available']) ? htmlspecialchars($o['available']) : (int)$o['available'] ?></td>
+                  <td style="text-align:center"><?= (int)($o['approved'] ?? 0) ?></td>
+                  <td style="text-align:center"><?= (int)($o['ongoing'] ?? 0) ?></td>
+                  <td style="text-align:center"><?= (int)($o['completed'] ?? 0) ?></td>
+                </tr>
+              <?php endforeach; endif; ?>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="panel-moa" class="panel" style="display:none">
+        <div style="overflow-x:auto">
+          <table class="tbl" id="tblMoa">
+            <thead>
+              <tr><th>School</th><th style="text-align:center">Students</th><th>MOA File</th><th>Date Signed</th><th style="text-align:center">Valid Until</th><th style="text-align:center">Status</th></tr>
+            </thead>
+            <tbody>
+              <?php if (empty($moa)): ?>
+                <tr><td colspan="6" class="empty">No MOA records.</td></tr>
+              <?php else: foreach ($moa as $m): ?>
+                 <tr data-search="<?= htmlspecialchars(strtolower($m['school_name'])) ?>">
+                   <td><?= htmlspecialchars($m['school_name']) ?></td>
+                   <td style="text-align:center"><?= (int)($m['student_count'] ?? 0) ?></td>
+                   <td>
+                     <?php if (!empty($m['moa_file'])): ?>
+                       <a href="<?= htmlspecialchars('../' . $m['moa_file']) ?>" target="_blank">View</a>
+                     <?php else: ?>—<?php endif; ?>
+                   </td>
+                  <?php
+                    // Date Signed and Valid Until are directly from DB
+                    $date_signed = fmtDate($m['date_signed']);
+                    $valid_until = fmtDate($m['valid_until']);
+                    $status_label = 'Expired';
+                    if (!empty($m['valid_until'])) {
+                      $valid_until_ts = strtotime($m['valid_until']);
+                      $today_ts = strtotime(date('Y-m-d'));
+                      $status_label = ($valid_until_ts >= $today_ts) ? 'Active' : 'Expired';
+                    }
+                    // css class suffix (lowercase) for client-side filtering
+                    $status_class = strtolower($status_label);
+                  ?>
+                  <td><?= htmlspecialchars($date_signed) ?></td>
+                  <td style="text-align:center"><?= htmlspecialchars($valid_until) ?></td>
+                  <td style="text-align:center"><span class="moa-status <?= htmlspecialchars($status_class) ?>"><?= htmlspecialchars($status_label) ?></span></td>
+                 </tr>
+               <?php endforeach; endif; ?>
+             </tbody>
+           </table>
+         </div>
+       </div>
 
       <!-- Office Requests panel removed -->
 
@@ -529,11 +641,11 @@ $evaluations = fetch_evaluations($conn);
        document.querySelectorAll('.tabs button').forEach(b=>b.classList.remove('active'));
        this.classList.add('active');
 
-      const tab = this.getAttribute('data-tab');
-      const ps = document.getElementById('panel-students'); if (ps) ps.style.display = tab==='students' ? 'block' : 'none';
-      const po = document.getElementById('panel-offices');  if (po) po.style.display = tab==='offices' ? 'block' : 'none';
-      const pm = document.getElementById('panel-moa');      if (pm) pm.style.display = tab==='moa' ? 'block' : 'none';
-      const pe = document.getElementById('panel-evaluations'); if (pe) pe.style.display = tab==='evaluations' ? 'block' : 'none';
+       const tab = this.getAttribute('data-tab');
+        document.getElementById('panel-students').style.display = tab==='students' ? 'block' : 'none';
+        document.getElementById('panel-offices').style.display = tab==='offices' ? 'block' : 'none';
+        document.getElementById('panel-moa').style.display = tab==='moa' ? 'block' : 'none';
+        document.getElementById('panel-evaluations').style.display = tab==='evaluations' ? 'block' : 'none';
 
        // show/hide students-only filters
        const sf = document.getElementById('studentsFilters');
@@ -703,38 +815,90 @@ $evaluations = fetch_evaluations($conn);
 </script>
 
 <script>
-  // Settings modal open/close handlers (iframe overlay)
   (function(){
-    const openBtn = document.getElementById('btnSettings');
-    if (!openBtn) return;
-    const settingsOverlay = document.createElement('div');
-    settingsOverlay.id = 'settingsOverlay';
-    settingsOverlay.style.position = 'fixed';
-    settingsOverlay.style.top = '0';
-    settingsOverlay.style.left = '0';
-    settingsOverlay.style.right = '0';
-    settingsOverlay.style.bottom = '0';
-    settingsOverlay.style.display = 'none';
-    settingsOverlay.style.alignItems = 'center';
-    settingsOverlay.style.justifyContent = 'center';
-    settingsOverlay.style.background = 'rgba(102, 51, 153, 0.18)';
-    settingsOverlay.style.zIndex = '9999';
-    settingsOverlay.setAttribute('role','dialog');
-    settingsOverlay.setAttribute('aria-hidden','true');
+    const notifBtn = document.getElementById('btnNotif');
+    if (!notifBtn) return;
+    const badge = notifBtn.querySelector('.notif-count');
 
-    settingsOverlay.innerHTML = `
-      <div style="width:100%;height:100vh;max-width:100%;max-height:100vh;padding:0;background:transparent;display:flex;align-items:center;justify-content:center;position:relative;">
-        <iframe src="settings.php" title="Settings" style="width:100%;height:100%;border:0;display:block;"></iframe>
-      </div>`;
+    let overlay = document.getElementById('notifOverlay');
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.id = 'notifOverlay';
+      overlay.setAttribute('role', 'dialog');
+      overlay.setAttribute('aria-hidden', 'true');
+      overlay.style.position = 'fixed';
+      overlay.style.inset = '0';
+      overlay.style.display = 'none';
+      overlay.style.alignItems = 'flex-start';
+      overlay.style.justifyContent = 'flex-end';
+      overlay.style.padding = '18px';
+      overlay.style.background = 'rgba(15, 23, 42, 0.25)';
+      overlay.style.zIndex = '10050';
+      overlay.innerHTML =
+        '<div style="width:360px;max-width:calc(100% - 32px);height:600px;max-height:calc(100vh - 36px);background:#fff;border-radius:16px;box-shadow:0 18px 45px rgba(15, 23, 42, 0.18);overflow:hidden;">' +
+        '<iframe src="notif.php?embed=1" title="Notifications" style="width:100%;height:100%;border:0;"></iframe>' +
+        '</div>';
+      document.body.appendChild(overlay);
+    }
 
-    document.body.appendChild(settingsOverlay);
+    notifBtn.setAttribute('aria-haspopup', 'dialog');
+    notifBtn.setAttribute('aria-expanded', 'false');
 
-    function showSettings(){ settingsOverlay.style.display = 'flex'; settingsOverlay.setAttribute('aria-hidden','false'); try{ openBtn.style.background = '#fff'; openBtn.style.boxShadow = '0 6px 18px rgba(0,0,0,0.06)'; }catch(e){} }
-    function hideSettings(){ settingsOverlay.style.display = 'none'; settingsOverlay.setAttribute('aria-hidden','true'); try{ openBtn.style.background = 'transparent'; openBtn.style.boxShadow = 'none'; }catch(e){} }
-    window.closeSettingsOverlay = hideSettings;
+    function setBadge(count) {
+      if (!badge) return;
+      const num = parseInt(count || 0, 10) || 0;
+      if (num > 0) {
+        badge.textContent = num;
+        badge.style.display = 'inline-flex';
+      } else {
+        badge.textContent = '0';
+        badge.style.display = 'none';
+      }
+    }
 
-    openBtn.addEventListener('click', function(ev){ ev.preventDefault(); showSettings(); });
-    settingsOverlay.addEventListener('click', function(e){ if (e.target === settingsOverlay) hideSettings(); });
+    try {
+      const saved = localStorage.getItem('notifUnread');
+      if (saved !== null) setBadge(saved);
+    } catch (e) {
+      // ignore storage errors
+    }
+
+    window.addEventListener('message', function(e){
+      if (e && e.data && e.data.type === 'notif-count') {
+        setBadge(e.data.unread);
+      }
+    });
+
+    function openPanel() {
+      overlay.style.display = 'flex';
+      overlay.setAttribute('aria-hidden', 'false');
+      notifBtn.setAttribute('aria-expanded', 'true');
+    }
+
+    function closePanel() {
+      overlay.style.display = 'none';
+      overlay.setAttribute('aria-hidden', 'true');
+      notifBtn.setAttribute('aria-expanded', 'false');
+    }
+
+    window.closeNotifOverlay = closePanel;
+
+    notifBtn.addEventListener('click', function(e){
+      e.preventDefault();
+      if (overlay.style.display === 'flex') {
+        closePanel();
+      } else {
+        openPanel();
+      }
+    });
+
+    overlay.addEventListener('click', function(e){
+      if (e.target === overlay) closePanel();
+    });
+
+    document.addEventListener('keydown', function(e){
+      if (e.key === 'Escape') closePanel();
+    });
   })();
 </script>
 
