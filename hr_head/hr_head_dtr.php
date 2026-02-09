@@ -211,7 +211,7 @@ $stmtOff->close();
               <circle cx="11" cy="11" r="6"></circle>
               <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
             </svg>
-            <input type="text" id="search" placeholder="Search name / course"
+            <input type="text" id="search" placeholder="Search"
                    style="width:280px;padding:10px 10px 10px 36px;border:1px solid #ddd;border-radius:8px">
           </div>
         </div>

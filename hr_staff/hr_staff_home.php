@@ -755,7 +755,7 @@ $stmtCompleted->close();
                     <circle cx="11" cy="11" r="6"></circle>
                     <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
                   </svg>
-                  <input id="tabSearch" aria-label="Search pending or rejected" type="text" placeholder="Search name / address / office..." style="padding:6px 10px 6px 34px;border:1px solid #ddd;border-radius:8px;min-width:220px" />
+                  <input id="tabSearch" aria-label="Search pending or rejected" type="text" placeholder="Search" style="padding:6px 10px 6px 34px;border:1px solid #ddd;border-radius:8px;min-width:220px" />
                 </div>
                 <select id="tabOfficeFilter" style="padding:6px;border:1px solid #ddd;border-radius:8px;">
                     <option value="all">All offices</option>

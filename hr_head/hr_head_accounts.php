@@ -674,7 +674,7 @@ foreach ($officeHeads as $oh) {
             <circle cx="11" cy="11" r="7"></circle>
             <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
           </svg>
-          <input type="text" id="search" placeholder="Search name / email / office" style="width:100%;padding:10px 10px 10px 36px;border:1px solid #ddd;border-radius:8px" />
+          <input type="text" id="search" placeholder="Search" style="width:100%;padding:10px 10px 10px 36px;border:1px solid #ddd;border-radius:8px" />
         </div>
         <div style="flex:1"></div>
         <div style="display:flex;gap:8px;align-items:center">
@@ -870,7 +870,7 @@ foreach ($officeHeads as $oh) {
      // update search placeholder: remove "office" when HR Staffs tab is active
      const search = document.getElementById('search');
      if (search) {
-       search.placeholder = (tab === 'hr') ? 'Search name / email' : 'Search name / email / office';
+       search.placeholder = (tab === 'hr') ? 'Search' : 'Search';
      }
   }
 

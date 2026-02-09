@@ -378,7 +378,7 @@ function fmtDate($d){ if (!$d) return '-'; $dt = date_create($d); return $dt ? d
               <circle cx="11" cy="11" r="6"></circle>
               <path d="M21 21l-4.35-4.35A2.032 2.032 0 0 1 18 14.158V11a6 6 0 1 0-12 0v3.159c0 .538-.214 1.055-.595 1.436L4 17h5"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
             </svg>
-            <input type="text" id="search" placeholder="Search school" style="width:320px;padding:8px 10px 8px 36px;border:1px solid #ddd;border-radius:8px">
+            <input type="text" id="search" placeholder="Search" style="width:320px;padding:8px 10px 8px 36px;border:1px solid #ddd;border-radius:8px">
           </div>
           <button id="btnExport" style="padding:8px 12px;border-radius:8px;border:1px solid #ddd;background:#e6f2ff;cursor:pointer">Export</button>
           <button id="btnAdd" style="padding:8px 12px;border-radius:8px;border:1px solid #2f3850;background:#3a4163;color:#fff;cursor:pointer">+ Add</button>
