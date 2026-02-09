@@ -330,15 +330,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $client_ts = trim($_POST['client_ts'] ?? '');
         $today = null; $now = null;
         if ($client_local_date && $client_local_time) { $today = $client_local_date; $now = $client_local_time; }
-        elseif ($client_ts) { try { $cdt = new DateTime($client_ts); $today = $cdt->format('Y-m-d'); $now = $cdt->format('g:i'); } catch(Exception $e) { } }
+        elseif ($client_ts) { try { $cdt = new DateTime($client_ts); $today = $cdt->format('Y-m-d'); $now = $cdt->format('H:i'); } catch(Exception $e) { } }
         if (!$today || !$now) {
             $dtRow = $conn->query("SELECT DATE_FORMAT(NOW(), '%Y-%m-%d') AS today, DATE_FORMAT(NOW(), '%H:%i:%s') AS now_time")->fetch_assoc();
             $today = $dtRow['today'] ?? date('Y-m-d');
             if (!empty($dtRow['now_time'])) {
                 $tmpNow = DateTime::createFromFormat('H:i:s', $dtRow['now_time']);
-                $now = $tmpNow ? $tmpNow->format('g:i') : date('g:i');
+                $now = $tmpNow ? $tmpNow->format('H:i') : date('H:i');
             } else {
-                $now = date('g:i');
+                $now = date('H:i');
             }
         }
         // determine hour (24-hour) for deciding AM vs PM, then normalize stored time to 12-hour like "2:01"
@@ -347,8 +347,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             if (!empty($now)) {
                 $tmpHour = DateTime::createFromFormat('H:i:s', $now) ?: DateTime::createFromFormat('H:i', $now) ?: new DateTime($today . ' ' . $now);
                 if ($tmpHour) $hourForDecision = (int)$tmpHour->format('H');
-                // store normalized time in 12-hour form for display (avoid military time)
-                if ($tmpHour) $now = $tmpHour->format('g:i');
+                // store normalized time in 24-hour form for unambiguous parsing
+                if ($tmpHour) $now = $tmpHour->format('H:i');
             }
         } catch (Exception $e) { /* leave $now as-is on parse error */ }
 
@@ -624,15 +624,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $client_ts = trim($_POST['client_ts'] ?? '');
                 $today = null; $now = null;
                 if ($client_local_date && $client_local_time) { $today = $client_local_date; $now = $client_local_time; }
-                elseif ($client_ts) { try { $cdt = new DateTime($client_ts); $today = $cdt->format('Y-m-d'); $now = $cdt->format('g:i'); } catch(Exception $e) { } }
+                elseif ($client_ts) { try { $cdt = new DateTime($client_ts); $today = $cdt->format('Y-m-d'); $now = $cdt->format('H:i'); } catch(Exception $e) { } }
                 if (!$today || !$now) {
                     $dtRow = $conn->query("SELECT DATE_FORMAT(NOW(), '%Y-%m-%d') AS today, DATE_FORMAT(NOW(), '%H:%i:%s') AS now_time")->fetch_assoc();
                     $today = $dtRow['today'] ?? date('Y-m-d');
                     if (!empty($dtRow['now_time'])) {
                         $tmpNow = DateTime::createFromFormat('H:i:s', $dtRow['now_time']);
-                        $now = $tmpNow ? $tmpNow->format('g:i') : date('g:i');
+                        $now = $tmpNow ? $tmpNow->format('H:i') : date('H:i');
                     } else {
-                        $now = date('g:i');
+                        $now = date('H:i');
                     }
                 }
                 // determine hour (24-hour) for deciding AM vs PM, then normalize stored time to 12-hour like "2:01"
@@ -641,7 +641,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     if (!empty($now)) {
                         $tmpHour = DateTime::createFromFormat('H:i:s', $now) ?: DateTime::createFromFormat('H:i', $now) ?: new DateTime($today . ' ' . $now);
                         if ($tmpHour) $hourForDecision = (int)$tmpHour->format('H');
-                        if ($tmpHour) $now = $tmpHour->format('g:i');
+                        if ($tmpHour) $now = $tmpHour->format('H:i');
                     }
                 } catch (Exception $e) { /* leave $now as-is on parse error */ }
 
@@ -927,17 +927,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             // client_ts is an ISO string (UTC). Convert to server timezone only if needed.
             $cdt = new DateTime($client_ts);
             $today = $cdt->format('Y-m-d');
-            $now = $cdt->format('g:i'); // store/display in 12-hour format (g:i)
+            $now = $cdt->format('H:i');
         } catch (Exception $e) { /* ignore, fallback to DB */ }
     }
-    if (!$today || !$now) {
+        if (!$today || !$now) {
         $dtRow = $conn->query("SELECT DATE_FORMAT(NOW(), '%Y-%m-%d') AS today, DATE_FORMAT(NOW(), '%H:%i:%s') AS now_time")->fetch_assoc();
         $today = $dtRow['today'] ?? date('Y-m-d');
         if (!empty($dtRow['now_time'])) {
             $tmpNow = DateTime::createFromFormat('H:i:s', $dtRow['now_time']);
-            $now = $tmpNow ? $tmpNow->format('g:i') : date('g:i');
+            $now = $tmpNow ? $tmpNow->format('H:i') : date('H:i');
         } else {
-            $now = date('g:i');
+            $now = date('H:i');
         }
     }
 
