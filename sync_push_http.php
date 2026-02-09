@@ -281,42 +281,77 @@ try {
 
                 $fn = $r['first_name'] ?? '';
                 $ln = $r['last_name'] ?? '';
-                $uid = isset($r['user_id']) ? (int)$r['user_id'] : 0;
+                $uid = array_key_exists('user_id', $r) && $r['user_id'] !== null ? (int)$r['user_id'] : null;
                 $status = $r['status'] ?? '';
                 $thr = isset($r['total_hours_required']) ? (int)$r['total_hours_required'] : 0;
 
                 if ($st) {
                     // update local row
                     try {
-                        $u = $local->prepare('UPDATE students SET user_id = ?, first_name = ?, last_name = ?, status = ?, total_hours_required = ? WHERE student_id = ?');
-                        if ($u) {
-                            $u->bind_param('isssii', $uid, $fn, $ln, $status, $thr, $sid);
-                            $ok = $u->execute();
-                            if ($ok) $studentsUpdated++;
-                            else { $err = $u->error; $msg = 'student update failed student_id=' . var_export($sid, true) . ' err=' . $err; error_log('sync_push_http: ' . $msg); $studentsErrors[] = $msg; }
-                            $u->close();
+                        if ($uid !== null) {
+                            $u = $local->prepare('UPDATE students SET user_id = ?, first_name = ?, last_name = ?, status = ?, total_hours_required = ? WHERE student_id = ?');
+                            if ($u) {
+                                $u->bind_param('isssii', $uid, $fn, $ln, $status, $thr, $sid);
+                                $ok = $u->execute();
+                                if ($ok) $studentsUpdated++;
+                                else { $err = $u->error; $msg = 'student update failed student_id=' . var_export($sid, true) . ' err=' . $err; error_log('sync_push_http: ' . $msg); $studentsErrors[] = $msg; }
+                                $u->close();
+                            }
+                        } else {
+                            // remote user_id is NULL — do not overwrite local user_id, update other fields only
+                            $u = $local->prepare('UPDATE students SET first_name = ?, last_name = ?, status = ?, total_hours_required = ? WHERE student_id = ?');
+                            if ($u) {
+                                $u->bind_param('sssii', $fn, $ln, $status, $thr, $sid);
+                                $ok = $u->execute();
+                                if ($ok) $studentsUpdated++;
+                                else { $err = $u->error; $msg = 'student update failed (no user_id) student_id=' . var_export($sid, true) . ' err=' . $err; error_log('sync_push_http: ' . $msg); $studentsErrors[] = $msg; }
+                                $u->close();
+                            }
                         }
                     } catch (Exception $ex) { /* ignore per-row errors */ }
                 } else {
                     // insert minimal row (use provided student_id if available)
                     try {
                         if ($sid !== null) {
-                            $ins = $local->prepare('INSERT INTO students (student_id, user_id, first_name, last_name, status, total_hours_required) VALUES (?, ?, ?, ?, ?, ?)');
-                            if ($ins) {
-                                $ins->bind_param('iisssi', $sid, $uid, $fn, $ln, $status, $thr);
-                                $ok = $ins->execute();
-                                if ($ok) $studentsCreated++;
-                                else { $err = $ins->error; $msg = 'student insert failed student_id=' . var_export($sid, true) . ' err=' . $err; error_log('sync_push_http: ' . $msg); $studentsErrors[] = $msg; }
-                                $ins->close();
+                            if ($uid !== null) {
+                                $ins = $local->prepare('INSERT INTO students (student_id, user_id, first_name, last_name, status, total_hours_required) VALUES (?, ?, ?, ?, ?, ?)');
+                                if ($ins) {
+                                    $ins->bind_param('iisssi', $sid, $uid, $fn, $ln, $status, $thr);
+                                    $ok = $ins->execute();
+                                    if ($ok) $studentsCreated++;
+                                    else { $err = $ins->error; $msg = 'student insert failed student_id=' . var_export($sid, true) . ' err=' . $err; error_log('sync_push_http: ' . $msg); $studentsErrors[] = $msg; }
+                                    $ins->close();
+                                }
+                            } else {
+                                // insert with user_id = NULL
+                                $ins = $local->prepare('INSERT INTO students (student_id, user_id, first_name, last_name, status, total_hours_required) VALUES (?, NULL, ?, ?, ?, ?)');
+                                if ($ins) {
+                                    $ins->bind_param('isssi', $sid, $fn, $ln, $status, $thr);
+                                    $ok = $ins->execute();
+                                    if ($ok) $studentsCreated++;
+                                    else { $err = $ins->error; $msg = 'student insert failed (null user_id) student_id=' . var_export($sid, true) . ' err=' . $err; error_log('sync_push_http: ' . $msg); $studentsErrors[] = $msg; }
+                                    $ins->close();
+                                }
                             }
                         } else {
-                            $ins = $local->prepare('INSERT INTO students (user_id, first_name, last_name, status, total_hours_required) VALUES (?, ?, ?, ?, ?)');
-                            if ($ins) {
-                                $ins->bind_param('isssi', $uid, $fn, $ln, $status, $thr);
-                                $ok = $ins->execute();
-                                if ($ok) $studentsCreated++;
-                                else { $err = $ins->error; $msg = 'student insert failed (no id) user_id=' . var_export($uid, true) . ' err=' . $err; error_log('sync_push_http: ' . $msg); $studentsErrors[] = $msg; }
-                                $ins->close();
+                            if ($uid !== null) {
+                                $ins = $local->prepare('INSERT INTO students (user_id, first_name, last_name, status, total_hours_required) VALUES (?, ?, ?, ?, ?)');
+                                if ($ins) {
+                                    $ins->bind_param('isssi', $uid, $fn, $ln, $status, $thr);
+                                    $ok = $ins->execute();
+                                    if ($ok) $studentsCreated++;
+                                    else { $err = $ins->error; $msg = 'student insert failed (no id) user_id=' . var_export($uid, true) . ' err=' . $err; error_log('sync_push_http: ' . $msg); $studentsErrors[] = $msg; }
+                                    $ins->close();
+                                }
+                            } else {
+                                $ins = $local->prepare('INSERT INTO students (user_id, first_name, last_name, status, total_hours_required) VALUES (NULL, ?, ?, ?, ?)');
+                                if ($ins) {
+                                    $ins->bind_param('sssi', $fn, $ln, $status, $thr);
+                                    $ok = $ins->execute();
+                                    if ($ok) $studentsCreated++;
+                                    else { $err = $ins->error; $msg = 'student insert failed (no id null user) err=' . $err; error_log('sync_push_http: ' . $msg); $studentsErrors[] = $msg; }
+                                    $ins->close();
+                                }
                             }
                         }
                     } catch (Exception $ex) { /* ignore insert errors */ }
