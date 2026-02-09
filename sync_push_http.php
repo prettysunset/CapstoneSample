@@ -251,13 +251,16 @@ try {
 } catch (Exception $e) {
     // ignore pull errors
 }
-$studentsPulled = 0; $studentsCreated = 0; $studentsUpdated = 0;
+$studentsPulled = 0; $studentsCreated = 0; $studentsUpdated = 0; $studentsErrors = [];
 // --- remote -> local students sync (pull full table, including total_hours_required) ---
 try {
     $c = $local->query("SHOW TABLES LIKE 'students'");
     if ($c && $c->num_rows > 0) {
         // Ensure local column exists (best-effort)
         try { $local->query("ALTER TABLE students ADD COLUMN IF NOT EXISTS total_hours_required INT DEFAULT 0"); } catch (Exception $e) {}
+
+        // disable FK checks to avoid insert/update failures when related rows missing locally
+        $local->query('SET SESSION FOREIGN_KEY_CHECKS=0');
 
         $rs = $remote->query("SELECT student_id, user_id, first_name, last_name, status, COALESCE(total_hours_required,0) AS total_hours_required FROM students");
         if ($rs) {
@@ -286,23 +289,43 @@ try {
                     // update local row
                     try {
                         $u = $local->prepare('UPDATE students SET user_id = ?, first_name = ?, last_name = ?, status = ?, total_hours_required = ? WHERE student_id = ?');
-                        if ($u) { $u->bind_param('isssii', $uid, $fn, $ln, $status, $thr, $sid); $u->execute(); $u->close(); $studentsUpdated++; }
+                        if ($u) {
+                            $u->bind_param('isssii', $uid, $fn, $ln, $status, $thr, $sid);
+                            $ok = $u->execute();
+                            if ($ok) $studentsUpdated++;
+                            else { $err = $u->error; $msg = 'student update failed student_id=' . var_export($sid, true) . ' err=' . $err; error_log('sync_push_http: ' . $msg); $studentsErrors[] = $msg; }
+                            $u->close();
+                        }
                     } catch (Exception $ex) { /* ignore per-row errors */ }
                 } else {
                     // insert minimal row (use provided student_id if available)
                     try {
                         if ($sid !== null) {
                             $ins = $local->prepare('INSERT INTO students (student_id, user_id, first_name, last_name, status, total_hours_required) VALUES (?, ?, ?, ?, ?, ?)');
-                            if ($ins) { $ins->bind_param('iisssi', $sid, $uid, $fn, $ln, $status, $thr); $ok = $ins->execute(); $ins->close(); if ($ok) $studentsCreated++; }
+                            if ($ins) {
+                                $ins->bind_param('iisssi', $sid, $uid, $fn, $ln, $status, $thr);
+                                $ok = $ins->execute();
+                                if ($ok) $studentsCreated++;
+                                else { $err = $ins->error; $msg = 'student insert failed student_id=' . var_export($sid, true) . ' err=' . $err; error_log('sync_push_http: ' . $msg); $studentsErrors[] = $msg; }
+                                $ins->close();
+                            }
                         } else {
                             $ins = $local->prepare('INSERT INTO students (user_id, first_name, last_name, status, total_hours_required) VALUES (?, ?, ?, ?, ?)');
-                            if ($ins) { $ins->bind_param('isssi', $uid, $fn, $ln, $status, $thr); $ok = $ins->execute(); $ins->close(); if ($ok) $studentsCreated++; }
+                            if ($ins) {
+                                $ins->bind_param('isssi', $uid, $fn, $ln, $status, $thr);
+                                $ok = $ins->execute();
+                                if ($ok) $studentsCreated++;
+                                else { $err = $ins->error; $msg = 'student insert failed (no id) user_id=' . var_export($uid, true) . ' err=' . $err; error_log('sync_push_http: ' . $msg); $studentsErrors[] = $msg; }
+                                $ins->close();
+                            }
                         }
                     } catch (Exception $ex) { /* ignore insert errors */ }
                 }
             }
             $rs->close();
         }
+        // re-enable FK checks
+        $local->query('SET SESSION FOREIGN_KEY_CHECKS=1');
     }
 } catch (Exception $e) {
     // ignore students pull errors
@@ -404,7 +427,7 @@ try {
     // ignore ojt_applications pull errors
 }
 
-echo json_encode(['ok'=>true,'pushed'=>$pushed,'failed'=>$failed,'users_pulled'=>$usersPulled,'users_created'=>$usersCreated,'users_updated'=>$usersUpdated,'students_pulled'=>$studentsPulled,'students_created'=>$studentsCreated,'students_updated'=>$studentsUpdated,'apps_pulled'=>$appsPulled,'apps_created'=>$appsCreated,'apps_errors'=>$appsErrors]);
+echo json_encode(['ok'=>true,'pushed'=>$pushed,'failed'=>$failed,'users_pulled'=>$usersPulled,'users_created'=>$usersCreated,'users_updated'=>$usersUpdated,'students_pulled'=>$studentsPulled,'students_created'=>$studentsCreated,'students_updated'=>$studentsUpdated,'students_errors'=>$studentsErrors,'apps_pulled'=>$appsPulled,'apps_created'=>$appsCreated,'apps_errors'=>$appsErrors]);
 $local->close(); $remote->close();
 exit;
 
