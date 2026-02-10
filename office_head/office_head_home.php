@@ -530,6 +530,30 @@ $late_dtr_res = $late_dtr->get_result();
         padding: 5px;
         border-radius: 5px;
     }
+    /* Overlay/modal styles for HR-style view modal */
+    .overlay {
+      position: fixed;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0,0,0,0.35);
+      z-index: 10050;
+      padding: 20px;
+      box-sizing: border-box;
+    }
+    /* style the first child of the overlay as the modal card */
+    #viewAppModal > * {
+      background: #fff;
+      border-radius: 10px;
+      max-width: 900px;
+      width: 100%;
+      max-height: 90vh;
+      overflow: auto;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+      padding: 18px;
+      box-sizing: border-box;
+    }
 </style>
 </head>
 <body>
@@ -663,54 +687,169 @@ $late_dtr_res = $late_dtr->get_result();
         <input type="hidden" id="oh_office_id" value="<?= (int)$office['office_id'] ?>">
     </div>
 
-    <!-- REPLACE Late DTR Submissions section with Office Requests table -->
+    <!-- Applications: Pending / Approved tabs -->
     <div class="table-section">
-        <div style="display:flex;align-items:center;justify-content:space-between">
-            <h3>Office Requests</h3>
-            <div></div>
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <div style="display:flex;gap:8px;align-items:center">
+          <button id="tabPending" style="padding:8px 12px;border-radius:6px;border:1px solid #d0d0d0;background:#fff;cursor:pointer">Pending Applications</button>
+          <button id="tabApproved" style="padding:8px 12px;border-radius:6px;border:1px solid #d0d0d0;background:transparent;cursor:pointer;color:#666">Approved OJTs</button>
         </div>
+        <div></div>
+      </div>
 
-        <div style="margin-top:12px; overflow-x:auto;">
-          <?php
-            $officeId = (int)($office['office_id'] ?? 0);
-            $reqs = [];
-            if ($officeId > 0) {
-                // ensure newest requests appear first (most recent date_requested on top)
-                $qr = $conn->prepare("
-                    SELECT request_id, new_limit, reason, status, date_requested
-                    FROM office_requests
-                    WHERE office_id = ?
-                    ORDER BY COALESCE(date_requested, '1970-01-01') DESC, request_id DESC
-                    LIMIT 100
-                ");
-                if ($qr) {
-                    $qr->bind_param('i', $officeId);
-                    $qr->execute();
-                    $resr = $qr->get_result();
-                    while ($row = $resr->fetch_assoc()) $reqs[] = $row;
-                    $qr->close();
-                }
-            }
-          ?>
-          <table id="officeRequestsTable" style="width:100%; border-collapse:collapse; text-align:left;">
+      <div style="margin-top:12px; overflow-x:auto;">
+        <?php
+        $officeId = (int)($office['office_id'] ?? 0);
+        $apps = [];
+        $approved_list = [];
+        if ($officeId > 0) {
+          // include student details and attachments to populate HR-style view modal
+          $qr = $conn->prepare("SELECT oa.application_id, oa.date_submitted, oa.status,
+            s.student_id, s.first_name, s.last_name, s.address, s.contact_number, s.email AS s_email, s.birthday,
+            s.college, s.course, s.year_level, s.school_address, s.ojt_adviser, s.emergency_name, s.emergency_relation, s.emergency_contact,
+            oa.office_preference1, oa.office_preference2, o1.office_name AS opt1, o2.office_name AS opt2,
+            oa.letter_of_intent, oa.endorsement_letter, oa.resume, oa.picture
+            FROM ojt_applications oa
+            LEFT JOIN students s ON oa.student_id = s.student_id
+            LEFT JOIN offices o1 ON oa.office_preference1 = o1.office_id
+            LEFT JOIN offices o2 ON oa.office_preference2 = o2.office_id
+            WHERE oa.status = 'pending' AND (oa.office_preference1 = ? OR oa.office_preference2 = ?) ORDER BY oa.date_submitted DESC, oa.application_id DESC LIMIT 200");
+          if ($qr) {
+            $qr->bind_param('ii', $officeId, $officeId);
+            $qr->execute();
+            $resr = $qr->get_result();
+            while ($row = $resr->fetch_assoc()) $apps[] = $row;
+            $qr->close();
+          }
+
+          // Approved OJTs: derive from `users` table where role='ojt' and status='approved'
+          // match office by case-insensitive LIKE on office_name (consistent with above)
+          $likeOffice = '%' . mb_strtolower(trim((string)($office['office_name'] ?? ''))) . '%';
+          // join students to get course/year_level and other student details
+          $qa = $conn->prepare("SELECT u.user_id, u.first_name, u.last_name, u.email, u.office_name, u.status,
+            s.student_id, s.address, s.contact_number, s.birthday, s.college, s.course, s.year_level, s.school_address, s.ojt_adviser,
+            s.emergency_name, s.emergency_relation, s.emergency_contact
+            FROM users u
+            LEFT JOIN students s ON u.user_id = s.user_id
+            WHERE u.role = 'ojt' AND LOWER(TRIM(u.office_name)) LIKE ? AND u.status = 'approved'
+            ORDER BY u.last_name, u.first_name LIMIT 200");
+          if ($qa) {
+            $qa->bind_param('s', $likeOffice);
+            $qa->execute();
+            $ra = $qa->get_result();
+            while ($r = $ra->fetch_assoc()) $approved_list[] = $r;
+            $qa->close();
+          }
+        }
+        ?>
+
+        <table id="pendingAppsTable" style="width:100%; border-collapse:collapse; text-align:left;">
             <thead>
               <tr>
-                <th style="padding:8px; background:#f7f7f7; border:1px solid #e0e0e0;">Date Requested</th>
-                <th style="padding:8px; background:#f7f7f7; border:1px solid #e0e0e0;">Requested Capacity</th>
-                <th style="padding:8px; background:#f7f7f7; border:1px solid #e0e0e0;">Reason</th>
-                <th style="padding:8px; background:#f7f7f7; border:1px solid #e0e0e0;">Status</th>
+                <th style="padding:8px; background:#f7f7f7; border:1px solid #e0e0e0;">Date Submitted</th>
+                <th style="padding:8px; background:#f7f7f7; border:1px solid #e0e0e0;">Name</th>
+                <th style="padding:8px; background:#f7f7f7; border:1px solid #e0e0e0;">Address</th>
+                <th style="padding:8px; background:#f7f7f7; border:1px solid #e0e0e0;">1st Option</th>
+                <th style="padding:8px; background:#f7f7f7; border:1px solid #e0e0e0;">2nd Option</th>
+                <th style="padding:8px; background:#f7f7f7; border:1px solid #e0e0e0;">Action</th>
               </tr>
             </thead>
             <tbody>
-              <?php if (empty($reqs)): ?>
-                <tr><td colspan="4" style="padding:12px;color:#666;text-align:center">No office requests found.</td></tr>
+              <?php if (empty($apps)): ?>
+                <tr><td colspan="6" style="padding:12px;color:#666;text-align:center">No pending applications for this office.</td></tr>
               <?php else: ?>
-                <?php foreach ($reqs as $r): ?>
+                <?php foreach ($apps as $a):
+                    $studentName = trim(($a['first_name'] ?? '') . ' ' . ($a['last_name'] ?? ''));
+                ?>
                   <tr>
-                    <td style="padding:8px; border:1px solid #e0e0e0;"><?php echo !empty($r['date_requested']) ? htmlspecialchars(date('m/d/Y', strtotime($r['date_requested']))) : '-'; ?></td>
-                    <td style="padding:8px; border:1px solid #e0e0e0;"><?php echo htmlspecialchars($r['new_limit']); ?></td>
-                    <td style="padding:8px; border:1px solid #e0e0e0; max-width:360px;"><?php echo htmlspecialchars($r['reason']); ?></td>
-                    <td style="padding:8px; border:1px solid #e0e0e0;"><?php echo htmlspecialchars(ucfirst($r['status'])); ?></td>
+                    <td style="padding:8px; border:1px solid #e0e0e0;"><?php echo !empty($a['date_submitted']) ? htmlspecialchars(date('M j, Y', strtotime($a['date_submitted']))) : '-'; ?></td>
+                    <td style="padding:8px; border:1px solid #e0e0e0;"><?php echo htmlspecialchars($studentName); ?></td>
+                    <td style="padding:8px; border:1px solid #e0e0e0;"><?php echo htmlspecialchars($a['address'] ?? '-'); ?></td>
+                    <td style="padding:8px; border:1px solid #e0e0e0;"><?php echo htmlspecialchars($a['opt1'] ?? '-'); ?></td>
+                    <td style="padding:8px; border:1px solid #e0e0e0;"><?php echo htmlspecialchars($a['opt2'] ?? '-'); ?></td>
+                    <td style="padding:8px; border:1px solid #e0e0e0;text-align:center;">
+                      <button class="view-app" 
+                        data-appid="<?= (int)$a['application_id'] ?>" 
+                        data-name="<?= htmlspecialchars($studentName) ?>"
+                        data-email="<?= htmlspecialchars($a['s_email'] ?? '') ?>"
+                        data-date="<?= htmlspecialchars($a['date_submitted'] ?? '') ?>"
+                        data-opt1="<?= htmlspecialchars($a['opt1'] ?? '') ?>"
+                        data-opt2="<?= htmlspecialchars($a['opt2'] ?? '') ?>"
+                        data-address="<?= htmlspecialchars($a['address'] ?? '') ?>"
+                        data-phone="<?= htmlspecialchars($a['contact_number'] ?? '') ?>"
+                        data-birthday="<?= htmlspecialchars($a['birthday'] ?? '') ?>"
+                        data-college="<?= htmlspecialchars($a['college'] ?? '') ?>"
+                        data-course="<?= htmlspecialchars($a['course'] ?? '') ?>"
+                        data-year="<?= htmlspecialchars($a['year_level'] ?? '') ?>"
+                        data-school_address="<?= htmlspecialchars($a['school_address'] ?? '') ?>"
+                        data-adviser="<?= htmlspecialchars($a['ojt_adviser'] ?? '') ?>"
+                        data-emg_name="<?= htmlspecialchars($a['emergency_name'] ?? '') ?>"
+                        data-emg_relation="<?= htmlspecialchars($a['emergency_relation'] ?? '') ?>"
+                        data-emg_contact="<?= htmlspecialchars($a['emergency_contact'] ?? '') ?>"
+                        data-loi="<?= htmlspecialchars($a['letter_of_intent'] ?? '') ?>"
+                        data-endorse="<?= htmlspecialchars($a['endorsement_letter'] ?? '') ?>"
+                        data-resume="<?= htmlspecialchars($a['resume'] ?? '') ?>"
+                        data-picture="<?= htmlspecialchars($a['picture'] ?? '') ?>"
+                        style="background:transparent;border:0;color:#0b74de;cursor:pointer;font-size:18px" title="View">
+                        👁️
+                      </button>
+                    </td>
+                  </tr>
+                <?php endforeach; ?>
+              <?php endif; ?>
+            </tbody>
+          </table>
+
+          <!-- Approved OJTs table (hidden by default) -->
+          <table id="approvedOjtsTable" style="width:100%; border-collapse:collapse; text-align:left; display:none; margin-top:12px;">
+            <thead>
+              <tr>
+                <th style="padding:8px; background:#f7f7f7; border:1px solid #e0e0e0;">Name</th>
+                <th style="padding:8px; background:#f7f7f7; border:1px solid #e0e0e0;">School</th>
+                <th style="padding:8px; background:#f7f7f7; border:1px solid #e0e0e0;">Course</th>
+                <th style="padding:8px; background:#f7f7f7; border:1px solid #e0e0e0;">Year Level</th>
+                <th style="padding:8px; background:#f7f7f7; border:1px solid #e0e0e0;">View</th>
+              </tr>
+            </thead>
+            <tbody>
+              <?php if (empty($approved_list)): ?>
+                <tr><td colspan="5" style="padding:12px;color:#666;text-align:center">No approved OJTs for this office.</td></tr>
+              <?php else: ?>
+                <?php foreach ($approved_list as $ap):
+                    $apName = trim(($ap['first_name'] ?? '') . ' ' . ($ap['last_name'] ?? ''));
+                ?>
+                  <tr>
+                    <td style="padding:8px; border:1px solid #e0e0e0;"><?php echo htmlspecialchars($apName); ?></td>
+                    <td style="padding:8px; border:1px solid #e0e0e0;"><?php echo htmlspecialchars($ap['college'] ?? '-'); ?></td>
+                    <td style="padding:8px; border:1px solid #e0e0e0;"><?php echo htmlspecialchars($ap['course'] ?? '-'); ?></td>
+                    <td style="padding:8px; border:1px solid #e0e0e0;"><?php echo htmlspecialchars($ap['year_level'] ?? '-'); ?></td>
+                    <td style="padding:8px; border:1px solid #e0e0e0;text-align:center;">
+                      <button class="view-app" 
+                        data-appid="" 
+                        data-name="<?= htmlspecialchars($apName) ?>"
+                        data-email="<?= htmlspecialchars($ap['email'] ?? '') ?>"
+                        data-date=""
+                        data-opt1=""
+                        data-opt2=""
+                        data-address="<?= htmlspecialchars($ap['address'] ?? '') ?>"
+                        data-phone="<?= htmlspecialchars($ap['contact_number'] ?? '') ?>"
+                        data-birthday="<?= htmlspecialchars($ap['birthday'] ?? '') ?>"
+                        data-college="<?= htmlspecialchars($ap['college'] ?? '') ?>"
+                        data-course="<?= htmlspecialchars($ap['course'] ?? '') ?>"
+                        data-year="<?= htmlspecialchars($ap['year_level'] ?? '') ?>"
+                        data-school_address="<?= htmlspecialchars($ap['school_address'] ?? '') ?>"
+                        data-adviser="<?= htmlspecialchars($ap['ojt_adviser'] ?? '') ?>"
+                        data-emg_name="<?= htmlspecialchars($ap['emergency_name'] ?? '') ?>"
+                        data-emg_relation="<?= htmlspecialchars($ap['emergency_relation'] ?? '') ?>"
+                        data-emg_contact="<?= htmlspecialchars($ap['emergency_contact'] ?? '') ?>"
+                        data-loi=""
+                        data-endorse=""
+                        data-resume=""
+                        data-picture=""
+                        style="background:transparent;border:0;color:#0b74de;cursor:pointer;font-size:18px" title="View">
+                        👁️
+                      </button>
+                    </td>
                   </tr>
                 <?php endforeach; ?>
               <?php endif; ?>
@@ -718,90 +857,174 @@ $late_dtr_res = $late_dtr->get_result();
           </table>
         </div>
 
-        <input type="hidden" id="oh_office_id" value="<?= (int)$office['office_id'] ?>">
-    </div>
+        <script>
+        (function(){
+          var tabP = document.getElementById('tabPending');
+          var tabA = document.getElementById('tabApproved');
+          var tPending = document.getElementById('pendingAppsTable');
+          var tApproved = document.getElementById('approvedOjtsTable');
+          if (!tabP || !tabA || !tPending || !tApproved) return;
+          function showPending(){
+            tPending.style.display = '';
+            tApproved.style.display = 'none';
+            tabP.style.background = '#fff'; tabP.style.color='';
+            tabA.style.background = 'transparent'; tabA.style.color='#666';
+          }
+          function showApproved(){
+            tPending.style.display = 'none';
+            tApproved.style.display = '';
+            tabA.style.background = '#fff'; tabA.style.color='';
+            tabP.style.background = 'transparent'; tabP.style.color='#666';
+          }
+          tabP.addEventListener('click', showPending);
+          tabA.addEventListener('click', showApproved);
+        })();
+        </script>
 
+        <!-- View Application Modal (HR-style) -->
+        <div id="viewAppModal" class="overlay" style="display:none;align-items:center;justify-content:center;" role="dialog" aria-hidden="true">
+          <div class="modal" style="width:760px;max-width:calc(100% - 40px);max-height:80vh;overflow:auto;padding:16px;">
+            <div style="display:flex;flex-direction:column;align-items:center;gap:12px;padding-bottom:8px;border-bottom:1px solid #eee">
+              <div id="view_avatar" style="width:120px;height:120px;border-radius:50%;background:#e9e9e9;display:flex;align-items:center;justify-content:center;font-size:44px;color:#777">👤</div>
+              <div style="text-align:center">
+                <div id="view_name" style="font-weight:700;font-size:18px">Name</div>
+                <div id="view_status" style="color:#666;font-size:13px">Status</div>
+              </div>
+            </div>
+
+            <div style="display:flex;gap:18px;margin-top:12px;flex-wrap:wrap;">
+              <div style="flex:1;min-width:280px;border-right:1px solid #eee;padding-right:12px">
+                <table style="width:100%;border-collapse:collapse">
+                  <tbody style="font-size:14px">
+                    <tr><td style="width:140px;font-weight:700">Age</td><td id="view_age"></td></tr>
+                    <tr><td style="font-weight:700">Birthday</td><td id="view_birthday"></td></tr>
+                    <tr><td style="font-weight:700">Address</td><td id="view_address"></td></tr>
+                    <tr><td style="font-weight:700">Phone</td><td id="view_phone"></td></tr>
+                    <tr><td style="font-weight:700">Email</td><td id="view_email"></td></tr>
+
+                    <tr><td style="height:8px"></td><td></td></tr>
+
+                    <tr><td style="font-weight:700">College/University</td><td id="view_college"></td></tr>
+                    <tr><td style="font-weight:700">Course</td><td id="view_course"></td></tr>
+                    <tr><td style="font-weight:700">Year level</td><td id="view_year"></td></tr>
+                    <tr><td style="font-weight:700">School Address</td><td id="view_school_address"></td></tr>
+                    <tr><td style="font-weight:700">OJT Adviser</td><td id="view_adviser"></td></tr>
+
+                    <tr><td style="height:8px"></td><td></td></tr>
+
+                    <tr><td style="font-weight:700">Emergency Contact</td><td id="view_emg_name"></td></tr>
+                    <tr><td style="font-weight:700">Relationship</td><td id="view_emg_relation"></td></tr>
+                    <tr><td style="font-weight:700">Contact Number</td><td id="view_emg_contact"></td></tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <div style="width:320px;padding-left:12px;min-width:220px">
+                <div style="font-weight:700;margin-bottom:8px">Attachments</div>
+                <div id="view_attachments" style="display:flex;flex-direction:column;gap:8px"></div>
+              </div>
+            </div>
+
+            <style>
+              .modal { position: relative; }
+            </style>
+
+            <div style="position:absolute; top:12px; right:12px;">
+              <button class="btn-cancel" id="v_close" type="button" style="padding:8px 12px; border-radius:8px; border:none; background:#eee; color:#333; cursor:pointer;">Close</button>
+            </div>
+          </div>
+        </div>
+
+    </div>
     <script>
     (function(){
-      const officeId = Number(document.getElementById('oh_office_id').value || 0);
- 
-      function updateRowStatus(id, status, processedAt) {
-        const tr = document.querySelector('tr[data-req-id="'+id+'"]');
-        if (!tr) return;
-        const statusEl = tr.querySelector('.req-status');
-        if (statusEl) statusEl.textContent = status.charAt(0).toUpperCase() + status.slice(1);
-        const actionTd = tr.querySelector('td:last-child');
-        if (actionTd) {
-          actionTd.innerHTML = ''; // clear existing buttons
-          if (status === 'pending') {
-            // Add Approve and Deny buttons
-            const approveBtn = document.createElement('button');
-            approveBtn.textContent = 'Approve';
-            approveBtn.className = 'btn-approve';
-            approveBtn.style.cssText = 'padding:6px 8px;border-radius:6px;border:1px solid #2f8f4a;background:#2f8f4a;color:#fff;cursor:pointer;margin-right:6px';
-            approveBtn.onclick = function() { handleRequestAction(id, 'approve'); };
- 
-            const denyBtn = document.createElement('button');
-            denyBtn.textContent = 'Deny';
-            denyBtn.className = 'btn-deny';
-            denyBtn.style.cssText = 'padding:6px 8px;border-radius:6px;border:1px solid #c03;background:#fff;color:#c03;cursor:pointer';
-            denyBtn.onclick = function() { handleRequestAction(id, 'deny'); };
- 
-            actionTd.appendChild(approveBtn);
-            actionTd.appendChild(denyBtn);
-          } else {
-            // Optionally, show processed date or other info
-            const processedInfo = document.createElement('small');
-            processedInfo.style.color = '#666';
-            processedInfo.textContent = processedAt ? 'Processed on ' + new Date(processedAt).toLocaleString() : '';
-            actionTd.appendChild(processedInfo);
-          }
-        }
+      function clearAttachments() {
+        const c = document.getElementById('view_attachments');
+        if (!c) return;
+        c.innerHTML = '';
       }
- 
-      function handleRequestAction(requestId, action) {
-        const url = action === 'approve' ? 'approve_request.php' : 'deny_request.php';
-        const data = new FormData();
-        data.append('request_id', requestId);
- 
-        fetch(url, {
-          method: 'POST',
-          body: data,
-          headers: {
-            'X-Requested-With': 'XMLHttpRequest'
-          }
-        })
-        .then(response => response.json())
-        .then(result => {
-          if (result.success) {
-            // Update row status immediately
-            updateRowStatus(requestId, action === 'approve' ? 'approved' : 'denied', result.processed_at);
-            // Optionally, show a success message
-            alert('Request ' + action + 'd successfully.');
-          } else {
-            // Handle error (e.g., show message)
-            alert('Error: ' + (result.message || 'Unknown error'));
-          }
-        })
-        .catch(error => {
-          console.error('Request failed:', error);
-          alert('Request failed. Please try again later.');
-        });
+      function addAttachment(label, url) {
+        if (!url) return;
+        const c = document.getElementById('view_attachments');
+        if (!c) return;
+        const a = document.createElement('a');
+        a.href = url;
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        a.textContent = label;
+        a.style.color = '#0b74de';
+        c.appendChild(a);
       }
- 
-      // Refresh button removed — table updates via action handlers automatically.
- 
-      // Initial row status update (in case there are pending requests)
-      document.querySelectorAll('tr[data-req-id]').forEach(tr => {
-        const id = tr.getAttribute('data-req-id');
-        const status = tr.querySelector('.req-status')?.textContent.trim().toLowerCase();
-        const processedAt = tr.getAttribute('data-processed-at');
-        if (status === 'pending') {
-          updateRowStatus(id, 'pending');
-        } else if (status === 'approved' || status === 'denied') {
-          updateRowStatus(id, status, processedAt);
-        }
+
+      function openModal(btn){
+        const get = k => btn.getAttribute(k) || '';
+        const name = get('data-name');
+        const email = get('data-email');
+        const address = get('data-address');
+        const phone = get('data-phone');
+        const birthday = get('data-birthday');
+        const college = get('data-college');
+        const course = get('data-course');
+        const year = get('data-year');
+        const school_address = get('data-school_address');
+        const adviser = get('data-adviser');
+        const emg_name = get('data-emg_name');
+        const emg_relation = get('data-emg_relation');
+        const emg_contact = get('data-emg_contact');
+        const opt1 = get('data-opt1');
+        const opt2 = get('data-opt2');
+        const date = get('data-date');
+        const loi = get('data-loi');
+        const endorse = get('data-endorse');
+        const resume = get('data-resume');
+        const picture = get('data-picture');
+
+        document.getElementById('view_name').textContent = name;
+        document.getElementById('view_status').textContent = (opt1 ? ('1st: ' + opt1) : '') + (opt2 ? (' | 2nd: ' + opt2) : '');
+        document.getElementById('view_address').textContent = address;
+        document.getElementById('view_phone').textContent = phone;
+        document.getElementById('view_email').textContent = email;
+        document.getElementById('view_birthday').textContent = birthday;
+        document.getElementById('view_college').textContent = college;
+        document.getElementById('view_course').textContent = course;
+        document.getElementById('view_year').textContent = year;
+        document.getElementById('view_school_address').textContent = school_address;
+        document.getElementById('view_adviser').textContent = adviser;
+        document.getElementById('view_emg_name').textContent = emg_name;
+        document.getElementById('view_emg_relation').textContent = emg_relation;
+        document.getElementById('view_emg_contact').textContent = emg_contact;
+        document.getElementById('view_age').textContent = '';
+
+        // avatar placeholder
+        const avatar = document.getElementById('view_avatar');
+        if (avatar) avatar.innerHTML = '👤';
+
+        clearAttachments();
+        addAttachment('Letter of Intent', loi);
+        addAttachment('Endorsement Letter', endorse);
+        addAttachment('Resume', resume);
+        if (picture) addAttachment('Picture', picture);
+
+        const modal = document.getElementById('viewAppModal');
+        modal.style.display = 'flex';
+        modal.setAttribute('aria-hidden','false');
+      }
+
+      function closeModal(){
+        const modal = document.getElementById('viewAppModal');
+        if (!modal) return;
+        modal.style.display = 'none';
+        modal.setAttribute('aria-hidden','true');
+      }
+
+      document.querySelectorAll('.view-app').forEach(btn => {
+        btn.addEventListener('click', function(){ openModal(this); });
       });
+
+      const vclose = document.getElementById('v_close');
+      if (vclose) vclose.addEventListener('click', closeModal);
+      const vmodal = document.getElementById('viewAppModal');
+      if (vmodal) vmodal.addEventListener('click', function(e){ if (e.target === vmodal) closeModal(); });
     })();
     </script>
 </div>

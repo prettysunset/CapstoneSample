@@ -257,7 +257,7 @@ $user_name = $display_name ?? 'Office Head';
         <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
           <!-- take remaining space and push contents to the right -->
           <div style="display:flex;gap:8px;align-items:center;flex:1;justify-content:flex-end">
-            <input id="searchDaily" type="text" placeholder="Search name / school / course"
+            <input id="searchDaily" type="text" placeholder="Search"
                    style="padding:10px;border-radius:8px;border:1px solid #ddd;flex:0 0 520px;min-width:260px;max-width:60%;" />
           </div>
         </div>
