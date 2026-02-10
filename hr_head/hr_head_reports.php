@@ -401,9 +401,8 @@ $evaluations = fetch_evaluations($conn);
                   <td><?php
                     $st = strtolower(trim((string)($s['student_status'] ?? '')));
                     if ($st === 'rejected') {
-                      $reason = trim((string)($s['reason'] ?? ''));
-                      if ($reason === '') $reason = 'No reason provided';
-                      echo htmlspecialchars('Rejected | ' . $reason);
+                      // Do not display the stored reason in the Students tab; show only the status
+                      echo htmlspecialchars('Rejected');
                     } else {
                       echo htmlspecialchars(ucfirst($s['student_status'] ?: ''));
                     }

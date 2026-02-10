@@ -230,6 +230,12 @@ if ($action === 'approve_send') {
     $pref1 = !empty($res['office_preference1']) ? (int)$res['office_preference1'] : null;
     $pref2 = !empty($res['office_preference2']) ? (int)$res['office_preference2'] : null;
 
+    // allow HR to explicitly choose an office from the approve modal/dropdown
+    $selectedOfficeId = 0;
+    foreach (['selected_office_id','assigned_office_id','selected_office','assigned_office'] as $k) {
+        if (!empty($input[$k])) { $selectedOfficeId = (int)$input[$k]; break; }
+    }
+
     $info1 = $pref1 ? $getOfficeInfo($conn, $pref1) : null;
     $info2 = $pref2 ? $getOfficeInfo($conn, $pref2) : null;
 
@@ -270,6 +276,18 @@ if ($action === 'approve_send') {
             $u->close();
 
             if (!$ok) respond(['success' => false, 'message' => 'Failed to update application status.']);
+
+            // also record reason into students.reason when auto-rejected
+            try {
+                if ($ok && !empty($student_id)) {
+                    $upReason = $conn->prepare("UPDATE students SET reason = ? WHERE student_id = ?");
+                    if ($upReason) {
+                        $upReason->bind_param("si", $remarks, $student_id);
+                        $upReason->execute();
+                        $upReason->close();
+                    }
+                }
+            } catch (Exception $e) { /* non-fatal */ }
 
             // send rejection email (reuse existing rejection template)
             $mailSent = false;
@@ -322,6 +340,18 @@ if ($action === 'approve_send') {
             $u->close();
             if (!$ok) respond(['success' => false, 'message' => 'Failed to update application status.']);
 
+            // also record reason into students.reason when auto-rejected (preferred office full, no second choice)
+            try {
+                if ($ok && !empty($student_id)) {
+                    $upReason = $conn->prepare("UPDATE students SET reason = ? WHERE student_id = ?");
+                    if ($upReason) {
+                        $upReason->bind_param("si", $remarks, $student_id);
+                        $upReason->execute();
+                        $upReason->close();
+                    }
+                }
+            } catch (Exception $e) { /* non-fatal */ }
+
             $mailSent = false;
             if (filter_var($to, FILTER_VALIDATE_EMAIL)) {
                 try {
@@ -357,15 +387,24 @@ if ($action === 'approve_send') {
         // else available -> do not auto-reject
     }
 
-    // decide assigned office (same logic as before)
+    // decide assigned office
     $assignedOfficeName = '';
-    if ($info1 && ($info1['capacity'] === null || $info1['filled'] < $info1['capacity'])) {
-        $assignedOfficeName = $info1['office_name'];
-    } elseif ($info2 && ($info2['capacity'] === null || $info2['filled'] < $info2['capacity'])) {
-        $assignedOfficeName = $info2['office_name'];
-    } else {
-        if ($info1) $assignedOfficeName = $info1['office_name'];
-        elseif ($info2) $assignedOfficeName = $info2['office_name'];
+    // 1) If HR explicitly selected an office, use it (even if it's not in preferences)
+    if ($selectedOfficeId) {
+        $selInfo = $getOfficeInfo($conn, $selectedOfficeId);
+        if ($selInfo) {
+            $assignedOfficeName = $selInfo['office_name'];
+        }
+    }
+
+    // 2) Otherwise, prefer preferred offices that actually have available capacity
+    if (empty($assignedOfficeName)) {
+        if ($info1 && ($info1['capacity'] === null || $info1['filled'] < $info1['capacity'])) {
+            $assignedOfficeName = $info1['office_name'];
+        } elseif ($info2 && ($info2['capacity'] === null || $info2['filled'] < $info2['capacity'])) {
+            $assignedOfficeName = $info2['office_name'];
+        }
+        // NOTE: do NOT default to a preferred office that is already full
     }
 
     // --- VALIDATION RULES ---
@@ -572,6 +611,16 @@ if ($action === 'approve_send') {
         $updUserStatus->bind_param("i", $targetUserId);
         $updUserStatus->execute();
         $updUserStatus->close();
+
+        // If HR selected or we determined an assigned office, update the user's office_name
+        if (!empty($assignedOfficeName)) {
+            $updOffice = $conn->prepare("UPDATE users SET office_name = ? WHERE user_id = ?");
+            if ($updOffice) {
+                $updOffice->bind_param("si", $assignedOfficeName, $targetUserId);
+                $updOffice->execute();
+                $updOffice->close();
+            }
+        }
     }
 
     // Keep student.status as 'pending' after HR approval.

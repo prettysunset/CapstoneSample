@@ -1285,28 +1285,43 @@ async function openApproveModal(btn) {
     // track added office ids to avoid duplicates
     const added = new Set();
 
-    // add applicant's first preference (mark as 1st)
+    // helper: check if an office row indicates availability (reads the "Available" column)
+    function isOfficeAvailable(officeId) {
+      try {
+        const tr = document.querySelector('#officesBody tr[data-office-id="' + officeId + '"]') ||
+                   document.querySelector('#officesBody tr[data-office="' + officeId + '"]');
+        if (!tr) return false;
+        const cols = tr.cells;
+        const availRaw = (cols[4] && cols[4].textContent) ? cols[4].textContent.trim() : '';
+        if (availRaw === '—' || availRaw === '') return true; // unlimited
+        const n = parseInt(availRaw.replace(/[^\d-]/g,''), 10);
+        return !isNaN(n) && n > 0;
+      } catch (e) { return false; }
+    }
+
+    // add applicant's first preference (mark as 1st) only if it has available slots
+    let opt1Full = false;
     if (opt1Id) {
-      const o1 = document.createElement('option');
-      o1.value = String(opt1Id);
-      o1.text = (opt1Name || 'Preference 1') + ' — 1st';
-      sel.appendChild(o1);
-      added.add(String(opt1Id));
-    } else {
-      const o1 = document.createElement('option');
-      o1.value = '0';
-      o1.text = (opt1Name || 'Preference 1') + ' — 1st';
-      sel.appendChild(o1);
-      added.add('0');
+      if (isOfficeAvailable(opt1Id)) {
+        const o1 = document.createElement('option');
+        o1.value = String(opt1Id);
+        o1.text = (opt1Name || 'Preference 1') + ' — 1st';
+        sel.appendChild(o1);
+        added.add(String(opt1Id));
+      } else {
+        opt1Full = true; // do not add to dropdown when full
+      }
     }
 
     // add applicant's second preference if available (mark as 2nd)
     if (opt2Id && opt2Id !== 0) {
-      const o2 = document.createElement('option');
-      o2.value = String(opt2Id);
-      o2.text = (opt2Name || 'Preference 2') + ' — 2nd';
-      sel.appendChild(o2);
-      added.add(String(opt2Id));
+      if (isOfficeAvailable(opt2Id)) {
+        const o2 = document.createElement('option');
+        o2.value = String(opt2Id);
+        o2.text = (opt2Name || 'Preference 2') + ' — 2nd';
+        sel.appendChild(o2);
+        added.add(String(opt2Id));
+      }
     }
 
     // separator option (disabled) - simple line only (no label)
@@ -1360,15 +1375,29 @@ async function openApproveModal(btn) {
       console.warn('Could not build available offices list', e);
     }
 
-    // default selection: prefer applicant first preference
-    try { sel.value = String(opt1Id || (sel.options[0] && sel.options[0].value) || '0'); } catch(e){}
+    // default selection: if first preference is full, prefer second preference; otherwise take first available option
+    try {
+      let defaultVal = null;
+      if (opt1Full) {
+        if (opt2Id && added.has(String(opt2Id))) defaultVal = String(opt2Id);
+      }
+      if (!defaultVal) {
+        if (opt1Id && added.has(String(opt1Id))) defaultVal = String(opt1Id);
+        else if (sel.options[0] && sel.options[0].value) defaultVal = sel.options[0].value;
+      }
+      if (defaultVal) sel.value = defaultVal;
+    } catch(e){}
 
     // single textbox visible by default; select is hidden until textbox clicked
     sel.style.display = 'none';
 
     // set initial display input value from selected option (name only)
     try {
-      displayInput.value = nameOnly((sel.options[sel.selectedIndex] && sel.options[sel.selectedIndex].text) || opt1Name || '');
+      let displayText = '';
+      if (sel.options[sel.selectedIndex] && sel.options[sel.selectedIndex].text) displayText = sel.options[sel.selectedIndex].text;
+      else if (opt1Full && opt2Name) displayText = opt2Name + ' — 2nd';
+      else displayText = opt1Name || '';
+      displayInput.value = nameOnly(displayText);
     } catch(e) {}
 
     // when textbox clicked, show the select under it for choice

@@ -153,7 +153,7 @@ if (!$signer_name) $signer_name = 'City Human Resource Management Officer';
 <body>
   <div class="cert" role="document">
     <div class="seal"><img src="" alt=""></div>
-    <div class="org">Office of the City Human Resource Management Officer</div>
+    <div class="org">Office of the City Human Resource Management Office</div>
     <h1>CERTIFICATE OF COMPLETION</h1>
 
         <p>This is to certify that <span class="big"><?= htmlspecialchars(strtoupper($student_name)) ?></span> has completed the <strong><?= htmlspecialchars($required_hours) ?></strong> hours of internship in the City Government of Malolos under the <strong><?= htmlspecialchars($office_name ?: 'the appropriate office') ?></strong>, covering the Period of <strong><?= htmlspecialchars($period_label ?: 'N/A') ?></strong>.</p>
