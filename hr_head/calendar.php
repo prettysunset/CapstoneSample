@@ -1285,6 +1285,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && strpos($_SERVER['CONTENT_TYPE'] ?? 
     function buildSessionDOM(s){
       var sess = document.createElement('div'); sess.className = 'session';
       sess.dataset.sessionId = s.session_id || '';
+      sess.dataset.sessionDate = s.date || '';
       var row1 = document.createElement('div'); row1.className = 'row';
       var icon1 = document.createElement('div'); icon1.className = 'icon';
       icon1.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 1a11 11 0 1 0 11 11A11.012 11.012 0 0 0 12 1zm1 12.59V7h-2v6.59l5 3 1-1.66z"></path></svg>';
@@ -1326,6 +1327,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && strpos($_SERVER['CONTENT_TYPE'] ?? 
       sess.appendChild(studentsWrap);
       try { if (s.rescheduled_from) { var fd = new Date(s.rescheduled_from); if (!isNaN(fd)) { var fl = fd.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }); var badge = document.createElement('span'); badge.className = 'resched-badge'; badge.textContent = 'Rescheduled from ' + fl; sess.appendChild(badge); } } } catch(e) { }
       var sessionBtn = document.createElement('a'); sessionBtn.className = 'resched'; sessionBtn.href = '#'; sessionBtn.textContent = 'Reschedule'; sessionBtn.classList.add('disabled'); sessionBtn.setAttribute('aria-disabled','true'); sessionBtn.style.marginTop = '10px'; sessionBtn.dataset.sessionId = s.session_id || '';
+      // disable reschedule for sessions that are strictly before today (today remains allowed)
+      try {
+        var sd = s && s.date ? new Date(s.date) : null;
+        if (sd && !isNaN(sd.getTime())) {
+          var sd0 = new Date(sd.getFullYear(), sd.getMonth(), sd.getDate());
+          var td0 = new Date(); td0 = new Date(td0.getFullYear(), td0.getMonth(), td0.getDate());
+          if (sd0.getTime() < td0.getTime()) {
+            sessionBtn.classList.add('disabled');
+            sessionBtn.setAttribute('aria-disabled','true');
+          }
+        }
+      } catch(e) { /* ignore */ }
       sessionBtn.addEventListener('click', function(ev){ if (this.classList && this.classList.contains('disabled')) return; ev.preventDefault(); var sessEl = this.closest('.session'); var checks = sessEl ? sessEl.querySelectorAll('.resched-checkbox:checked') : []; if (!checks || checks.length === 0) { alert('Please select one or more students to reschedule.'); return; } var sel = []; checks.forEach(function(c){ sel.push({ application_id: c.dataset.applicationId || null, student_id: c.dataset.studentId || null }); }); currentReschedSelected = sel; openRescheduleModalForSession(this.dataset.sessionId); });
       sess.appendChild(sessionBtn);
       return sess;
@@ -1432,9 +1445,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && strpos($_SERVER['CONTENT_TYPE'] ?? 
         }
         var sessEl = studentsWrap.closest && studentsWrap.closest('.session');
         var reschedBtn = sessEl ? sessEl.querySelector('.resched') : null;
+        // determine if session date is in the past (strictly before today). If so, keep reschedule disabled regardless of selection.
+        var isPastSession = false;
+        try {
+          var sdIso = sessEl && sessEl.dataset ? (sessEl.dataset.sessionDate || '') : '';
+          if (sdIso) {
+            var sd2 = new Date(sdIso);
+            if (!isNaN(sd2.getTime())) {
+              var sd02 = new Date(sd2.getFullYear(), sd2.getMonth(), sd2.getDate());
+              var td02 = new Date(); td02 = new Date(td02.getFullYear(), td02.getMonth(), td02.getDate());
+              if (sd02.getTime() < td02.getTime()) isPastSession = true;
+            }
+          }
+        } catch(e) { isPastSession = false; }
         if (reschedBtn) {
-          if (checkedCount > 0) { reschedBtn.classList.remove('disabled'); reschedBtn.removeAttribute('aria-disabled'); }
-          else { reschedBtn.classList.add('disabled'); reschedBtn.setAttribute('aria-disabled','true'); }
+          if (isPastSession) {
+            reschedBtn.classList.add('disabled');
+            reschedBtn.setAttribute('aria-disabled','true');
+          } else {
+            if (checkedCount > 0) { reschedBtn.classList.remove('disabled'); reschedBtn.removeAttribute('aria-disabled'); }
+            else { reschedBtn.classList.add('disabled'); reschedBtn.setAttribute('aria-disabled','true'); }
+          }
         }
         // update select-all checkbox state
         var sa = studentsWrap.querySelector('.select-all');
