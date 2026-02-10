@@ -12241,3 +12241,6 @@ Press CTRL+C to quit
 127.0.0.1 - - [10/Feb/2026 14:08:54] "POST /antispoof HTTP/1.1" 200 -
 127.0.0.1 - - [10/Feb/2026 14:08:55] "POST /antispoof HTTP/1.1" 200 -
 127.0.0.1 - - [10/Feb/2026 14:08:56] "POST /antispoof HTTP/1.1" 200 -
+127.0.0.1 - - [10/Feb/2026 18:47:17] "GET /ping HTTP/1.1" 200 -
+127.0.0.1 - - [10/Feb/2026 19:46:13] "GET /ping HTTP/1.1" 200 -
+127.0.0.1 - - [10/Feb/2026 19:47:36] "GET /ping HTTP/1.1" 200 -

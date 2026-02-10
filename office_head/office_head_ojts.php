@@ -237,23 +237,24 @@ foreach ($ojts as $r) {
     $student_status = strtolower(trim((string)($r['student_status'] ?? '')));
     $user_status = strtolower(trim((string)($r['user_status'] ?? '')));
 
-    // If already evaluated in students table, show under Evaluated
-    if ($student_status === 'evaluated') {
-        $completedArr[] = $r;
-        continue;
+    // Evaluated: primarily based on users.status; fallback to students.status
+    if ($user_status === 'evaluated' || $student_status === 'evaluated') {
+      $completedArr[] = $r;
+      continue;
     }
 
-    // For Evaluation: students explicitly marked 'completed' OR those who reached required hours
-    if ($student_status === 'completed' || ($hr > 0 && $hc >= $hr)) {
-        $for_eval[] = $r;
-        continue;
+    // For Evaluation: users with users.status = 'completed' OR those who reached required hours
+    if ($user_status === 'completed' || ($hr > 0 && $hc >= $hr)) {
+      $for_eval[] = $r;
+      continue;
     }
 
-    // Active/Ongoing: include only if the user's users.status is 'ongoing'
+    // Active/Ongoing: show only if users.status is exactly 'ongoing'
     if ($user_status === 'ongoing') {
-        $active[] = $r;
+      $active[] = $r;
+      continue;
     }
-    // otherwise do not include in Ongoing tab
+    // otherwise do not include in any tab
 }
 
 // Load evaluated OJTs with latest evaluation remarks (override completedArr with richer rows)
