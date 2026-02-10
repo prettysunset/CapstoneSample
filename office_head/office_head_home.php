@@ -18,9 +18,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (!empty($_SERVER['HTTP_X_REQUESTED_
 
     $office_id = isset($input['office_id']) ? (int)$input['office_id'] : 0;
     $new_limit = isset($input['new_limit']) ? (int)$input['new_limit'] : null;
+    // reason is optional now; office head's change is auto-approved
     $reason = isset($input['reason']) ? trim($input['reason']) : '';
 
-    if ($office_id <= 0 || $new_limit === null || $new_limit < 0 || $reason === '') {
+    if ($office_id <= 0 || $new_limit === null || $new_limit < 0) {
         http_response_code(400);
         echo json_encode(['success' => false, 'message' => 'Invalid input']);
         exit;
@@ -110,21 +111,52 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (!empty($_SERVER['HTTP_X_REQUESTED_
     }
     // --- end server-side check ---
 
-    $ins = $conn->prepare("INSERT INTO office_requests (office_id, new_limit, reason, status, date_requested) VALUES (?, ?, ?, 'pending', NOW())");
-    if (!$ins) {
-        http_response_code(500);
-        echo json_encode(['success' => false, 'message' => 'DB prepare failed']);
-        exit;
+    // Office Head changes are applied immediately and set to 'approved'
+    // Ensure we have the current limit value
+    if (!isset($currentLimit)) {
+      $qcur2 = $conn->prepare("SELECT COALESCE(current_limit, 0) AS current_limit FROM offices WHERE office_id = ? LIMIT 1");
+      if ($qcur2) {
+        $qcur2->bind_param('i', $office_id);
+        $qcur2->execute();
+        $curRow2 = $qcur2->get_result()->fetch_assoc();
+        $qcur2->close();
+        $currentLimit = isset($curRow2['current_limit']) ? (int)$curRow2['current_limit'] : 0;
+      } else {
+        $currentLimit = 0;
+      }
     }
-    $ins->bind_param('iis', $office_id, $new_limit, $reason);
-    $ok = $ins->execute();
+
+    $conn->begin_transaction();
+    $ins = $conn->prepare("INSERT INTO office_requests (office_id, old_limit, new_limit, reason, status, date_requested, date_of_action) VALUES (?, ?, ?, ?, 'approved', NOW(), NOW())");
+    if (!$ins) {
+      $conn->rollback();
+      http_response_code(500);
+      echo json_encode(['success' => false, 'message' => 'DB prepare failed (insert)']);
+      exit;
+    }
+    $ins->bind_param('iiis', $office_id, $currentLimit, $new_limit, $reason);
+    $ok1 = $ins->execute();
     $ins->close();
 
-    if ($ok) {
-        echo json_encode(['success' => true, 'message' => 'Request created']);
+    // Update offices table so the approved capacity takes effect immediately
+    $upd = $conn->prepare("UPDATE offices SET current_limit = ?, updated_limit = ?, requested_limit = NULL, reason = ?, status = 'Approved' WHERE office_id = ?");
+    if (!$upd) {
+      $conn->rollback();
+      http_response_code(500);
+      echo json_encode(['success' => false, 'message' => 'DB prepare failed (update)']);
+      exit;
+    }
+    $upd->bind_param('iisi', $new_limit, $new_limit, $reason, $office_id);
+    $ok2 = $upd->execute();
+    $upd->close();
+
+    if ($ok1 && $ok2) {
+      $conn->commit();
+      echo json_encode(['success' => true, 'message' => 'Capacity changed']);
     } else {
-        http_response_code(500);
-        echo json_encode(['success' => false, 'message' => 'Failed to create request']);
+      $conn->rollback();
+      http_response_code(500);
+      echo json_encode(['success' => false, 'message' => 'Failed to apply capacity change']);
     }
     exit;
 }
@@ -458,9 +490,9 @@ $late_dtr_res = $late_dtr->get_result();
         padding: 20px;
     }
     .cards {
-        display: grid;
-        grid-template-columns: repeat(4, 1fr);
-        gap: 15px;
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 15px;
     }
     .card {
         background: #dcdff5;
@@ -586,8 +618,12 @@ $late_dtr_res = $late_dtr->get_result();
         <h2 style="margin:0"><?= $completed_ojts ?></h2>
       </div>
       <div class="card" style="height:110px;min-height:90px;max-height:140px;display:flex;flex-direction:column;justify-content:center;align-items:center;box-sizing:border-box;overflow:hidden;">
-        <p style="margin:0 0 6px 0">Pending Student Applications</p>
-        <h2 style="margin:0"><?= $pending_students ?></h2>
+        <p style="margin:0 0 6px 0">Available Slots</p>
+        <h2 style="margin:0"><?= isset($available_slots) ? $available_slots : 0 ?></h2>
+      </div>
+      <div class="card" style="height:110px;min-height:90px;max-height:140px;display:flex;flex-direction:column;justify-content:center;align-items:center;box-sizing:border-box;overflow:hidden;">
+        <p style="margin:0 0 6px 0">Capacity</p>
+        <h2 style="margin:0"><?= isset($curLimit) ? $curLimit : (int)($office['current_limit'] ?? 0) ?></h2>
       </div>
 
     </div>
@@ -599,64 +635,27 @@ $late_dtr_res = $late_dtr->get_result();
             <?php if ((int)$pending_office > 0): ?>
               <button id="btnEditOffice" disabled style="padding:6px 10px;border-radius:6px;border:1px solid #ccc;background:#f0f0f0;color:#666;cursor:not-allowed">Request Pending</button>
             <?php else: ?>
-              <button id="btnEditOffice" style="padding:6px 10px;border-radius:6px;border:1px solid #ccc;background:#fff;cursor:pointer">Request</button>
+              <button id="btnEditOffice" style="padding:6px 10px;border-radius:6px;border:1px solid #ccc;background:#fff;cursor:pointer">Change</button>
             <?php endif; ?>
         </div>
         <input type="hidden" id="oh_has_pending" value="<?= (int)$pending_office ?>">
 
-        <!-- Office Information table with headers -->
-        <div style="margin-top:12px; overflow-x:auto;">
-          <table style="width:100%; border-collapse:collapse; text-align:center;">
-            <thead>
-              <tr>
-                <th style="padding:8px; background:#f7f7f7; border:1px solid #e0e0e0;">Capacity</th>
-                <th style="padding:8px; background:#f7f7f7; border:1px solid #e0e0e0;">Available Slots</th>
-                <th style="padding:8px; background:#f7f7f7; border:1px solid #e0e0e0;">Ongoing OJTs</th>
-                <th style="padding:8px; background:#f7f7f7; border:1px solid #e0e0e0;">Approved OJTs</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td style="padding:8px; border:1px solid #e0e0e0;">
-                  <input id="ci_current_limit" type="text" value="<?= htmlspecialchars($office['current_limit']) ?>" readonly style="width:70px;border:0;background:transparent;text-align:center;">
-                </td>
-                <td style="padding:8px; border:1px solid #e0e0e0;">
-                  <?php
-                    $curLimit = isset($office['current_limit']) ? (int)$office['current_limit'] : 0;
-                    $available = max($curLimit - ($active_ojts + $approved_ojts), 0);
-                  ?>
-                  <input id="ci_available_slots" type="text" value="<?= $available ?>" readonly style="width:70px;border:0;background:transparent;text-align:center;">
-                </td>
-                <td style="padding:8px; border:1px solid #e0e0e0;">
-                  <input id="ci_active_ojts" type="text" value="<?= $active_ojts ?>" readonly style="width:70px;border:0;background:transparent;text-align:center;">
-                </td>
-                <td style="padding:8px; border:1px solid #e0e0e0;">
-                  <input id="ci_approved_ojts" type="text" value="<?= $approved_ojts ?>" readonly style="width:70px;border:0;background:transparent;text-align:center;">
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        <!-- store display/pending request values so modal can prefill -->
-        <input type="hidden" id="ci_requested_limit" value="<?= htmlspecialchars($display_requested_limit ?? '') ?>">
-        <input type="hidden" id="ci_reason" value="<?= htmlspecialchars($display_reason ?? '') ?>">
+        <!-- Office info table removed; only Request button remains -->
 
         <!-- Edit Modal (updated: include editable Requested Limit + Reason) -->
         <div id="officeModal" style="display:none;position:fixed;left:0;top:0;right:0;bottom:0;background:rgba(0,0,0,0.35);align-items:center;justify-content:center;">
             <div style="background:#fff;padding:18px;border-radius:8px;width:420px;box-shadow:0 8px 30px rgba(0,0,0,0.12);">
                 <h4 style="margin:0 0 8px 0">Request Change - <?= htmlspecialchars($office_display) ?></h4>
                 <div style="display:grid;gap:8px;margin-top:8px">
-                    <label>Capacity <input id="m_current_limit" readonly style="width:100%;padding:8px;border-radius:6px;border:1px solid #ddd"></label>
-                    <label>Available Slots <input id="m_available_slots" readonly style="width:100%;padding:8px;border-radius:6px;border:1px solid #ddd"></label>
+                    <label>Capacity <input id="m_current_limit" readonly value="<?= htmlspecialchars($curLimit) ?>" style="width:100%;padding:8px;border-radius:6px;border:1px solid #ddd"></label>
+                    <label>Available Slots <input id="m_available_slots" readonly value="<?= $available_slots ?>" style="width:100%;padding:8px;border-radius:6px;border:1px solid #ddd"></label>
 
-                    <!-- Editable fields required for submitting a request -->
+                    <!-- Editable field required for submitting the change -->
                     <label>Requested Capacity <input id="m_requested_limit" type="number" min="0" style="width:100%;padding:8px;border-radius:6px;border:1px solid #ddd" required></label>
-                    <label>Reason <textarea id="m_reason" rows="3" style="width:100%;padding:8px;border-radius:6px;border:1px solid #ddd" required></textarea></label>
                     
                     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:6px">
                         <button id="m_cancel" style="padding:8px 10px;border-radius:6px;border:1px solid #ccc;background:#fff;cursor:pointer">Cancel</button>
-                        <button id="m_request" style="padding:8px 12px;border-radius:6px;border:none;background:#5b5f89;color:#fff;cursor:pointer">Request</button>
+                        <button id="m_request" style="padding:8px 12px;border-radius:6px;border:none;background:#5b5f89;color:#fff;cursor:pointer">Change</button>
                     </div>
                 </div>
             </div>
@@ -826,41 +825,25 @@ $late_dtr_res = $late_dtr->get_result();
   const modal = document.getElementById('officeModal');
   if (!btnEdit || !modal) return;
 
-  const fldCurrent = document.getElementById('ci_current_limit');
-  const fldActive = document.getElementById('ci_active_ojts');
-  const fldApproved = document.getElementById('ci_approved_ojts');
-  const fldAvailable = document.getElementById('ci_available_slots');
-  const fldRequested = document.getElementById('ci_requested_limit');
-  const fldReason = document.getElementById('ci_reason');
-
   // modal inputs
   const mCurrent = document.getElementById('m_current_limit');
-  const mActive = document.getElementById('m_active_ojts');
-  const mApproved = document.getElementById('m_approved_ojts');
   const mAvailable = document.getElementById('m_available_slots');
   const mRequested = document.getElementById('m_requested_limit');
-  const mReason = document.getElementById('m_reason');
   const mCancel = document.getElementById('m_cancel');
   const mRequest = document.getElementById('m_request');
 
-  // open modal and populate
+  // server-provided constants for validation
+  const OFFICE_ID = Number(document.getElementById('oh_office_id').value || 0);
+  const CURRENT_LIMIT = <?= $curLimit ?>;
+  const OCCUPIED = <?= ($active_ojts + $approved_ojts) ?>;
+
+  // open modal
   btnEdit.addEventListener('click', function(e){
     e.preventDefault();
-    // if button disabled do nothing
     if (btnEdit.disabled) return;
-
-    // populate modal fields from visible inputs
-    if (mCurrent) mCurrent.value = fldCurrent ? fldCurrent.value : '';
-    if (mActive) mActive.value = fldActive ? fldActive.value : '';
-    if (mApproved) mApproved.value = fldApproved ? fldApproved.value : '';
-    if (mAvailable) mAvailable.value = fldAvailable ? fldAvailable.value : '';
-    if (mRequested) mRequested.value = fldRequested ? fldRequested.value : '';
-    if (mReason) mReason.value = fldReason ? fldReason.value : '';
-
     modal.style.display = 'flex';
     modal.setAttribute('aria-hidden','false');
-    // focus first input
-    (mRequested || mReason).focus();
+    mRequested.focus();
   });
 
   // cancel/hide modal
@@ -870,84 +853,53 @@ $late_dtr_res = $late_dtr->get_result();
     modal.setAttribute('aria-hidden','true');
   });
 
-  // client validation + submit (simple fetch to office_requests endpoint if exists)
+  // submit change (no reason required)
   mRequest && mRequest.addEventListener('click', function(e){
     e.preventDefault();
-    const officeId = Number(document.getElementById('oh_office_id').value || 0);
     const requestedRaw = (mRequested.value || '').trim();
-    if (requestedRaw === '') {
-      alert('Requested limit is required.');
+    if (requestedRaw === ''){
+      alert('Requested capacity is required.');
       mRequested.focus();
       return;
     }
     const requested = Number(requestedRaw);
-    const reason = (mReason.value || '').trim();
-
-    if (isNaN(requested) || requested < 0) {
-      alert('Please enter a valid requested limit (0 or greater).');
+    if (isNaN(requested) || requested < 0){
+      alert('Please enter a valid requested capacity (0 or greater).');
       mRequested.focus();
       return;
     }
-    if (reason.length === 0) {
-      alert('Please provide a reason for the request.');
-      mReason.focus();
+    if (requested < OCCUPIED){
+      alert('Requested capacity cannot be less than current number of OJTs (' + OCCUPIED + ').');
+      mRequested.focus();
       return;
     }
-
-    // additional validations reinstated
-    const current = Number((mCurrent && mCurrent.value) || 0);
-    // use the visible page values (ci_active_ojts and ci_approved_ojts) since modal no longer displays them
-    const active = Number((fldActive && fldActive.value) || 0);
-    const approved = Number((fldApproved && fldApproved.value) || 0);
-    const occupied = active + approved;
-    
-    // prevent requesting a limit lower than existing people (active + approved)
-    if (requested < occupied) {
-      alert('Requested limit cannot be less than the current number of OJTs (' + occupied + ').');
+    if (requested === CURRENT_LIMIT){
+      alert('Requested capacity is the same as the current capacity. No change submitted.');
       mRequested.focus();
       return;
     }
 
-    // block no-op requests: do not submit if requested equals current
-    if (requested === current) {
-      alert('Requested limit is the same as the current limit. No request submitted.');
-      mRequested.focus();
-      return;
-    }
-
-    // disable button to prevent duplicate clicks
     mRequest.disabled = true;
-
-    // Post to server endpoint (same-page AJAX handler)
     fetch(window.location.pathname, {
-       method: 'POST',
-       headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-       body: JSON.stringify({ office_id: officeId, new_limit: requested, reason: reason })
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+      body: JSON.stringify({ office_id: OFFICE_ID, new_limit: requested })
     })
     .then(r => r.json())
     .then(j => {
-      if (j && j.success) {
-        alert('Request submitted.');
+      if (j && j.success){
+        alert('Capacity changed.');
         location.reload();
       } else {
-        alert('Request failed: ' + (j && j.message ? j.message : 'Unknown error'));
+        alert('Change failed: ' + (j && j.message ? j.message : 'Unknown error'));
         mRequest.disabled = false;
       }
     })
-    .catch(err => {
-      console.error(err);
-      alert('Request failed. Check console for details.');
-      mRequest.disabled = false;
-    });
+    .catch(err => { console.error(err); alert('Change failed.'); mRequest.disabled = false; });
   });
 
   // close modal when clicking outside content
-  modal.addEventListener('click', function(ev){
-    if (ev.target === modal) {
-      modal.style.display = 'none';
-      modal.setAttribute('aria-hidden','true');
-    }
-  });
+  modal.addEventListener('click', function(ev){ if (ev.target === modal) { modal.style.display = 'none'; modal.setAttribute('aria-hidden','true'); } });
 })();
 
 // Notification overlay (iframe to notif.php)
