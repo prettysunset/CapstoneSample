@@ -607,14 +607,7 @@ $late_dtr_res = $late_dtr->get_result();
       <span>DTR</span>
     </a>
 
-    <a href="office_head_reports.php" title="Reports" style="display:flex;align-items:center;gap:8px;color:#fff;">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-        <rect x="3" y="10" width="4" height="10"></rect>
-        <rect x="10" y="6" width="4" height="14"></rect>
-        <rect x="17" y="2" width="4" height="18"></rect>
-      </svg>
-      <span>Reports</span>
-    </a>
+    <!-- Reports link removed per request -->
 
   </nav>
 
@@ -669,7 +662,7 @@ $late_dtr_res = $late_dtr->get_result();
         <div style="display:flex;align-items:center;justify-content:space-between">
             <!-- Edit button (always enabled) -->
             <div></div>
-            <button id="btnEditOffice" style="padding:6px 10px;border-radius:6px;border:1px solid #ccc;background:#fff;cursor:pointer">Change</button>
+            <button id="btnEditOffice" style="padding:6px 10px;border-radius:6px;border:1px solid #ccc;background:#fff;cursor:pointer">Change Capacity</button>
         </div>
 
         <!-- Office info table removed; only Request button remains -->
