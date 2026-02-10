@@ -234,7 +234,7 @@ if ($user_id) {
         <a href="notifications.php" title="Notifications" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 17h5l-1.405-1.405A2.032 2.032 0 0 1 18 14.158V11a6 6 0 1 0-12 0v3.159c0 .538-.214 1.055-.595 1.436L4 17h5"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
         </a>
-        <a href="settings.php" title="Settings" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;">
+        <a id="btnSettings" href="settings.php" title="Settings" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82L4.3 4.46a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09c0 .64.38 1.2 1 1.51h.09a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.64.3 1.03.87 1.03 1.51V12c0 .64-.39 1.21-1.03 1.51z"></path></svg>
         </a>
         <a id="top-logout" href="../logout.php" title="Logout" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;">
@@ -312,13 +312,11 @@ if ($user_id) {
                     ?>
                     <?php echo htmlspecialchars($status_display . ' OJT • ' . $office_display); ?>
                 </p>
-                <?php
-                  // prefer status from users table (title-cased). fallback to 'active'.
-                  $status_display = ucwords(strtolower($ur['status'] ?? 'active'));
-                ?>
-                <div style="display:flex; gap:12px; align-items:center; margin-top:6px;">
-                    <button style="padding:12px 16px; border-radius:10px; border:1px solid #e6e9f2; background:transparent; color:#2f3459; cursor:pointer; font-size:15px;">Edit Profile</button>
-                </div>
+                                <?php
+                                    // prefer status from users table (title-cased). fallback to 'active'.
+                                    $status_display = ucwords(strtolower($ur['status'] ?? 'active'));
+                                ?>
+                                <!-- Edit Profile button removed as requested -->
             </div>
         </div>
             <div style="width:100%; max-width:none; display:grid; grid-template-columns:1fr; gap:20px;">
@@ -1305,8 +1303,7 @@ if ($user_id) {
         // keep small handlers for notif/settings
         var n = document.getElementById('btnNotif');
         if (n) n.addEventListener('click', function(e){ e.preventDefault(); alert('Walang bagong notification ngayon.'); });
-        var s = document.getElementById('btnSettings');
-        if (s) s.addEventListener('click', function(e){ e.preventDefault(); window.location.href = 'settings.php'; });
+        // settings overlay is handled separately; do not navigate away here
       })();
     </script>
 
@@ -1324,6 +1321,46 @@ if ($user_id) {
         }
       })();
     </script>
+
+                <!-- Settings overlay: match HR pages — full-screen iframe, inner page provides white-card chrome -->
+                <div id="settings-overlay" style="display:none;position:fixed;inset:0;background:rgba(15,20,40,0.6);align-items:center;justify-content:center;z-index:12000;">
+                        <div class="modal" style="width:100%;height:100vh;max-width:100%;max-height:100vh;padding:0;background:transparent;display:flex;align-items:center;justify-content:center;position:relative;">
+                                <iframe id="settings-iframe" src="" title="Settings" style="width:100%;height:100%;border:0;display:block;"></iframe>
+                        </div>
+                </div>
+
+                <script>
+                    (function(){
+                        var btn = document.getElementById('btnSettings');
+                        var overlay = document.getElementById('settings-overlay');
+                        var iframe = document.getElementById('settings-iframe');
+
+                        if (!overlay || !iframe) return;
+
+                        function openOverlay(href){
+                            try{ document.body.style.overflow = 'hidden'; }catch(e){}
+                            href = href || 'settings.php';
+                            // load the full settings page (it contains its own white-card and close button)
+                            iframe.src = href;
+                            overlay.style.display = 'flex';
+                            overlay.setAttribute('aria-hidden','false');
+                        }
+
+                        function closeOverlay(){
+                            try{ document.body.style.overflow = ''; }catch(e){}
+                            overlay.style.display = 'none';
+                            overlay.setAttribute('aria-hidden','true');
+                            try{ iframe.src = 'about:blank'; }catch(e){}
+                        }
+
+                        // expose for iframe to call parent.closeSettingsOverlay()
+                        window.closeSettingsOverlay = closeOverlay;
+
+                        if (btn) btn.addEventListener('click', function(e){ e.preventDefault(); openOverlay(this.getAttribute('href') || 'settings.php'); });
+                        // clicking outside the modal content closes overlay
+                        overlay.addEventListener('click', function(e){ if (e.target === overlay) closeOverlay(); });
+                    })();
+                </script>
         <script>
             // Only activate the Weekly Journals tab when we were redirected after an upload
             (function(){
