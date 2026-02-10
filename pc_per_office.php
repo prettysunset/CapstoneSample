@@ -111,6 +111,54 @@ function mark_user_and_student_completed_if_done($conn, $user_id, $student_id) {
     return false;
 }
 
+// Helper: pull a single user's password from remote and update local if different
+function pull_remote_password_for_user_if_changed($localConn, $user_id) {
+    // remote DB credentials (match other sync scripts)
+    $remoteHost = 'auth-db2090.hstgr.io';
+    $remoteUser = 'u389936701_user';
+    $remotePass = 'CapstoneDefended1';
+    $remoteDb   = 'u389936701_capstone';
+    $remotePort = 3306;
+
+    try {
+        $remote = @new mysqli($remoteHost, $remoteUser, $remotePass, $remoteDb, $remotePort);
+        if (!$remote || $remote->connect_errno) return false;
+        $remote->set_charset('utf8mb4');
+
+        $rstm = $remote->prepare('SELECT password FROM users WHERE user_id = ? LIMIT 1');
+        if (!$rstm) { $remote->close(); return false; }
+        $rstm->bind_param('i', $user_id);
+        $rstm->execute();
+        $rr = $rstm->get_result()->fetch_assoc();
+        $rstm->close();
+        $remotePassHash = isset($rr['password']) ? $rr['password'] : null;
+
+        // fetch local password
+        $lstm = $localConn->prepare('SELECT password FROM users WHERE user_id = ? LIMIT 1');
+        if (!$lstm) { $remote->close(); return false; }
+        $lstm->bind_param('i', $user_id);
+        $lstm->execute();
+        $lr = $lstm->get_result()->fetch_assoc();
+        $lstm->close();
+        $localPass = $lr ? $lr['password'] : null;
+
+        if ($remotePassHash !== null && $remotePassHash !== '' && $remotePassHash !== $localPass) {
+            $up = $localConn->prepare('UPDATE users SET password = ? WHERE user_id = ?');
+            if ($up) {
+                $up->bind_param('si', $remotePassHash, $user_id);
+                $ok = $up->execute();
+                $up->close();
+                $remote->close();
+                return (bool)$ok;
+            }
+        }
+        $remote->close();
+    } catch (Exception $e) {
+        // ignore errors — do not block kiosk
+    }
+    return false;
+}
+
 // Load attendance API keys from external config if present.
 // Create `config/attendance_keys.php` returning an array of `key => client_id|true`.
 $ATTENDANCE_API_KEYS = [];
@@ -324,6 +372,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
         // matched user
         $matched_user_id = $best['user_id'];
+        // attempt to refresh this single user's password from remote if it changed
+        try { @pull_remote_password_for_user_if_changed($conn, $matched_user_id); } catch (
+            Exception $ex) { /* ignore */ }
         // ensure role is ojt
         if (($best['role'] ?? '') !== 'ojt') json_resp(['success'=>false,'message'=>'Matched user is not OJT']);
 

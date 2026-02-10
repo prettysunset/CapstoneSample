@@ -711,6 +711,8 @@ if ($moa_q) {
 <script>
   // embed mapping office_id => office_name for client-side usage
   window.officeNames = <?= json_encode(array_column($offices_for_requests, 'office_name', 'office_id'), JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_AMP|JSON_HEX_QUOT) ?> || {};
+  // embed mapping user_id => users.status so the view modal can prefer the users table status
+  window.userStatusMap = <?= json_encode(array_column($students ?? [], 'user_status', 'user_id'), JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_AMP|JSON_HEX_QUOT) ?> || {};
 </script>
 
 <script>
@@ -948,7 +950,14 @@ if ($moa_q) {
         // show an accurate status badge based on server-provided status
         (function(){
           const statusBadgeEl = document.getElementById('view_status_badge');
-          const st = (d.status || '').toString().trim().toLowerCase();
+          // Prefer the `users.status` value when available in the embedded map.
+          let stRaw = (d.status || '');
+          try {
+            if (window.userStatusMap && userId && (window.userStatusMap[userId] !== undefined && window.userStatusMap[userId] !== null)) {
+              stRaw = window.userStatusMap[userId];
+            }
+          } catch (e) { /* ignore and fall back to application status */ }
+          const st = (stRaw || '').toString().trim().toLowerCase();
           if (!st) {
             statusBadgeEl.style.display = 'none';
           } else {
