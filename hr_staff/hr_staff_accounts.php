@@ -983,6 +983,7 @@ function openAdd(){
   const courseInput = document.getElementById('m_course_input'); if (courseInput) courseInput.style.display = '';
   const addCourseBtn = document.getElementById('m_add_course_btn'); if (addCourseBtn) addCourseBtn.style.display = '';
   const courseTags = document.getElementById('m_course_tags'); if (courseTags) courseTags.style.display = '';
+  const addrEl = document.getElementById('m_address'); if (addrEl) { addrEl.style.display = 'none'; addrEl.value = ''; }
   try { m.dataset.role = 'office_head'; } catch(e) { m.setAttribute('data-role','office_head'); }
   m.style.display = 'flex';
 }
@@ -1483,7 +1484,6 @@ async function submitAdd(){
   const last_name = (document.getElementById('m_last').value || '').trim();
   const email = (document.getElementById('m_email').value || '').trim();
   const office = (document.getElementById('m_office').value || '').trim();
-  const address = (document.getElementById('m_address').value || '').trim();
   const initial_limit = parseInt(document.getElementById('m_initial_limit').value || '0', 10) || 0;
   const courses = (window.__hr_modal && window.__hr_modal.getCourses()) ? window.__hr_modal.getCourses() : [];
   const accept_courses = courses.join(',');
@@ -1573,7 +1573,6 @@ async function submitAdd(){
       email: email,
       role: 'office_head',
       office: office,
-      address: address,
       initial_limit: initial_limit,
       accept_courses: accept_courses,
       email_notify: false
@@ -1953,10 +1952,11 @@ function openEditModal(userId){
     document.getElementById('m_accept_courses').value = coursesCsv;
   }
 
-  // ensure office-related fields are visible for Office Head edit
-  const initEl2 = document.getElementById('m_initial_limit'); if (initEl2) initEl2.style.display = '';
+  // hide initial limit and address when editing an Office Head (not editable here)
+  const initEl2 = document.getElementById('m_initial_limit'); if (initEl2) initEl2.style.display = 'none';
   const officeEl2 = document.getElementById('m_office'); if (officeEl2) officeEl2.style.display = '';
   const courseInput2 = document.getElementById('m_course_input'); if (courseInput2) courseInput2.style.display = '';
+  const addrEl2 = document.getElementById('m_address'); if (addrEl2) { addrEl2.style.display = 'none'; addrEl2.value = ''; }
   const addCourseBtn2 = document.getElementById('m_add_course_btn'); if (addCourseBtn2) addCourseBtn2.style.display = '';
   const courseTags2 = document.getElementById('m_course_tags'); if (courseTags2) courseTags2.style.display = '';
 
@@ -1975,8 +1975,6 @@ async function submitEdit(){
   const last_name = (document.getElementById('m_last').value || '').trim();
   const email = (document.getElementById('m_email').value || '').trim();
   const office = (document.getElementById('m_office').value || '').trim();
-  const address = (document.getElementById('m_address').value || '').trim();
-  const initial_limit = parseInt(document.getElementById('m_initial_limit').value || '0', 10) || 0;
   const courses = (window.__hr_modal && window.__hr_modal.getCourses()) ? window.__hr_modal.getCourses() : [];
   const accept_courses = courses.join(',');
 
@@ -1990,6 +1988,7 @@ async function submitEdit(){
   statusEl.style.display = 'block'; statusEl.style.background = '#fffbe6'; statusEl.style.color = '#333'; statusEl.textContent = 'Saving changes...';
 
   try {
+    // Build payload: do not include address or initial_limit for Office Head edits
     const payload = {
       action: 'update_account',
       user_id: user_id,
@@ -1997,10 +1996,16 @@ async function submitEdit(){
       last_name: last_name,
       email: email,
       office: office,
-      address: address,
-      initial_limit: initial_limit,
       accept_courses: accept_courses
     };
+    // If editing an OJT, include address (modal role will be 'ojt')
+    const m = document.getElementById('addModal');
+    try {
+      if (m && m.dataset && m.dataset.role === 'ojt') {
+        const addrEl = document.getElementById('m_address');
+        if (addrEl) payload.address = (addrEl.value || '').trim();
+      }
+    } catch(e) {}
 
     let res, j;
     if (role === 'ojt') {

@@ -1,5 +1,5 @@
 <?php
-// filepath: c:\xampp\htdocs\capstone_sample\CapstoneSample\hr_staff\hr_staff_ojts.php
+// filepath: c:\xampp\htdocs\capstone_sample\CapstoneSample\hr_head\hr_head_ojts.php
 session_start();
 date_default_timezone_set('Asia/Manila');
 require_once __DIR__ . '/../conn.php';
@@ -412,10 +412,10 @@ if ($moa_q) {
        NOTE: removed position:fixed to prevent overlapping; icons now flow with page
        and stay visible. -->
   <div id="top-icons" style="display:flex;justify-content:flex-end;gap:14px;align-items:center;margin:8px 0 12px 0;z-index:50;">
-     <a id="btnNotif" href="#" title="Notifications" aria-haspopup="dialog" aria-expanded="false" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;position:relative;">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 17h5l-1.405-1.405A2.032 2.032 0 0 1 18 14.158V11a6 6 0 1 0-12 0v3.159c0 .538-.214 1.055-.595 1.436L4 17h5"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
-          <span class="notif-count" aria-hidden="true" style="position:absolute;top:-4px;right:-4px;min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:#ef4444;color:#fff;font-size:11px;line-height:18px;text-align:center;display:none;">0</span>
-        </a>
+          <a id="btnNotif" href="#" title="Notifications" aria-haspopup="dialog" aria-expanded="false" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;position:relative;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 17h5l-1.405-1.405A2.032 2.032 0 0 1 18 14.158V11a6 6 0 1 0-12 0v3.159c0 .538-.214 1.055-.595 1.436L4 17h5"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
+            <span class="notif-count" aria-hidden="true" style="position:absolute;top:-4px;right:-4px;min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:#ef4444;color:#fff;font-size:11px;line-height:18px;text-align:center;display:none;">0</span>
+      </a>
 
         <!-- calendar icon (clickable: opens calendar overlay) -->
         <button id="openCalendarBtn" title="Calendar" aria-label="Open calendar" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;background:transparent;border:0;cursor:pointer;padding:0;">
@@ -711,6 +711,8 @@ if ($moa_q) {
 <script>
   // embed mapping office_id => office_name for client-side usage
   window.officeNames = <?= json_encode(array_column($offices_for_requests, 'office_name', 'office_id'), JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_AMP|JSON_HEX_QUOT) ?> || {};
+  // embed mapping user_id => users.status so the view modal can prefer the users table status
+  window.userStatusMap = <?= json_encode(array_column($students ?? [], 'user_status', 'user_id'), JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_AMP|JSON_HEX_QUOT) ?> || {};
 </script>
 
 <script>
@@ -855,8 +857,8 @@ if ($moa_q) {
 
     // expose simple view open used elsewhere
     window.openViewModal = window.openViewModal || function(appId){
-      // fallback: navigate to application_view.php if modal endpoint not available
-      window.location.href = 'application_view.php?id=' + encodeURIComponent(appId);
+        // fallback: navigate to application_view.php if modal endpoint not available
+        window.location.href = 'application_view.php?id=' + encodeURIComponent(appId);
     };
 
     // call backend to approve/decline office requested limits
@@ -948,7 +950,14 @@ if ($moa_q) {
         // show an accurate status badge based on server-provided status
         (function(){
           const statusBadgeEl = document.getElementById('view_status_badge');
-          const st = (d.status || '').toString().trim().toLowerCase();
+          // Prefer the `users.status` value when available in the embedded map.
+          let stRaw = (d.status || '');
+          try {
+            if (window.userStatusMap && userId && (window.userStatusMap[userId] !== undefined && window.userStatusMap[userId] !== null)) {
+              stRaw = window.userStatusMap[userId];
+            }
+          } catch (e) { /* ignore and fall back to application status */ }
+          const st = (stRaw || '').toString().trim().toLowerCase();
           if (!st) {
             statusBadgeEl.style.display = 'none';
           } else {
@@ -996,27 +1005,26 @@ if ($moa_q) {
         }
 
         // hours + progress
-          // use server-provided values but prefer precomputed values passed from the table
-          const rendered = Number(s.hours_rendered || d.hours_rendered || 0);
-          const requiredRaw = (s.total_hours_required !== undefined && s.total_hours_required !== null) ? s.total_hours_required : (d.total_hours_required !== undefined && d.total_hours_required !== null ? d.total_hours_required : null);
-          const required = Number(requiredRaw || 0);
-          const requiredDisplay = requiredRaw === null ? '—' : String(required);
-          // If the caller provided precomputed values (table already had DTR-summed hours),
-          // show them immediately while the modal fetches detailed DTR rows. These will
-          // still be overridden later when computeAndUpdateDates runs.
-          if (typeof preRendered !== 'undefined' && preRendered !== null) {
-            const hoursElImmediate = document.getElementById('view_hours_text');
-            const reqDispImmediate = (preRequired === null || preRequired === undefined) ? requiredDisplay : String(preRequired);
-            if (hoursElImmediate) hoursElImmediate.textContent = `${preRendered} out of ${reqDispImmediate} hours`;
-            const pctImmediate = (preRequired !== null && preRequired !== undefined && preRequired > 0) ? (Number(preRendered) / Number(preRequired) * 100) : 0;
-            setDonut(pctImmediate);
-          } else {
-            document.getElementById('view_hours_text').textContent = `${rendered} out of ${requiredDisplay} hours`;
-            // Date Started / Expected End will be computed after fetching DTR rows below
-            document.getElementById('view_dates').textContent = `Date Started: —\nExpected End Date: —`;
-            const pct = (requiredRaw !== null && required > 0) ? (rendered / required * 100) : 0;
-            setDonut(pct);
-          }
+        const rendered = Number(s.hours_rendered || d.hours_rendered || 0);
+        const requiredRaw = (s.total_hours_required !== undefined && s.total_hours_required !== null) ? s.total_hours_required : (d.total_hours_required !== undefined && d.total_hours_required !== null ? d.total_hours_required : null);
+        const required = Number(requiredRaw || 0);
+        const requiredDisplay = requiredRaw === null ? '—' : String(required);
+        // If the caller provided precomputed values (table already had DTR-summed hours),
+        // show them immediately while the modal fetches detailed DTR rows. These will
+        // still be overridden later when computeAndUpdateDates runs.
+        if (typeof preRendered !== 'undefined' && preRendered !== null) {
+          const hoursElImmediate = document.getElementById('view_hours_text');
+          const reqDispImmediate = (preRequired === null || preRequired === undefined) ? requiredDisplay : String(preRequired);
+          if (hoursElImmediate) hoursElImmediate.textContent = `${preRendered} out of ${reqDispImmediate} hours`;
+          const pctImmediate = (preRequired !== null && preRequired !== undefined && preRequired > 0) ? (Number(preRendered) / Number(preRequired) * 100) : 0;
+          setDonut(pctImmediate);
+        } else {
+          document.getElementById('view_hours_text').textContent = `${rendered} out of ${requiredDisplay} hours`;
+          // Date Started / Expected End will be computed after fetching DTR rows below
+          document.getElementById('view_dates').textContent = `Date Started: —\nExpected End Date: —`;
+          const pct = (requiredRaw !== null && required > 0) ? (rendered / required * 100) : 0;
+          setDonut(pct);
+        }
 
         // assigned office block
         document.getElementById('view_assigned_office').textContent = d.office1 || d.office || '—';
@@ -1068,12 +1076,12 @@ if ($moa_q) {
           }
         })();
 
-        // render attachments list (resolve hrefs robustly like hr_staff_home.php)
+        // render attachments list (resolve hrefs robustly like hr_head_home.php)
         attachments.forEach(a=>{
           const filePath = (a.file || '').toString().trim();
           if (!filePath) return;
 
-          // resolve href relative to this script (hr_staff/ -> project root is ../)
+          // resolve href relative to this script (hr_head/ -> project root is ../)
           let href;
           if (/^https?:\/\//i.test(filePath) || filePath.startsWith('/')) {
             href = filePath;
@@ -1129,7 +1137,7 @@ if ($moa_q) {
             const resp = await fetch('../hr_actions.php', {
               method: 'POST',
               headers: {'Content-Type':'application/json'},
-              body: JSON.stringify({ action: 'get_dtr_by_range', from: '1900-01-01', to: today })
+              body: JSON.stringify({ action: 'get_dtr_by_range', from: '1900-01-01', to: today, user_id: parseInt(userId,10) })
             });
             const jr = await resp.json();
             if (!jr || !jr.success) {
@@ -1141,7 +1149,15 @@ if ($moa_q) {
             const nameNorm = ((s.first_name||'') + ' ' + (s.last_name||'')).toLowerCase().trim();
             const officeNorm = (d.office1 || d.office || '').toString().toLowerCase().trim();
 
+            // Prefer matching DTR rows by explicit student/user id if available
             const matched = rows.filter(r => {
+              try {
+                const rids = [r.student_id, r.user_id, r.userid, r.userId, r.userIdRaw];
+                for (const candidate of rids) {
+                  if (candidate !== undefined && candidate !== null && String(candidate) === String(userId)) return true;
+                }
+              } catch (err) {}
+
               const rName = ((r.first_name||'') + ' ' + (r.last_name||'')).toLowerCase().trim();
               const rOffice = (r.office || '').toString().toLowerCase().trim();
               if (nameNorm && rName) {
@@ -1209,6 +1225,20 @@ if ($moa_q) {
                 let sum = 0;
                 rowsMatched.forEach(rr => { sum += (Number(rr.hours || 0) + (Number(rr.minutes || 0)/60)); });
                 hrsRendered = sum;
+              }
+
+              // Update the displayed hours text and progress donut using the
+              // (possibly recomputed) hrsRendered value so the modal reflects
+              // actual DTR sums instead of stale values from the application record.
+              try {
+                const requiredDisplayLocal = (totalRequired === null || totalRequired === undefined) ? '—' : String(totalRequired);
+                const rounded = Math.round(hrsRendered * 100) / 100;
+                const hoursEl = document.getElementById('view_hours_text');
+                if (hoursEl) hoursEl.textContent = `${rounded} out of ${requiredDisplayLocal} hours`;
+                const pctLocal = (totalRequired !== null && totalRequired > 0) ? (hrsRendered / totalRequired * 100) : 0;
+                setDonut(pctLocal);
+              } catch (e) {
+                console.warn('Failed to update hours/progress in view modal', e);
               }
 
               // helper to count weekdays (Mon-Fri) inclusive of start if weekday
@@ -1477,7 +1507,7 @@ if ($moa_q) {
   })();
 </script>
 <script>
-  // attach confirm to top logout like hr_staff_home.php
+  // attach confirm to top logout like hr_head_home.php
   (function(){
     const logoutBtn = document.getElementById('top-logout');
     if (!logoutBtn) return;
@@ -1490,7 +1520,6 @@ if ($moa_q) {
     });
   })();
 </script>
-
 <script>
   (function(){
     const notifBtn = document.getElementById('btnNotif');
