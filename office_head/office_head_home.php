@@ -150,6 +150,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (!empty($_SERVER['HTTP_X_REQUESTED_
     $ok2 = $upd->execute();
     $upd->close();
 
+    // Also ensure there are no lingering pending requests for this office
+    // mark any pending requests as approved so the UI does not show "Request Pending"
+    try {
+      $clear = $conn->prepare("UPDATE office_requests SET status = 'approved', date_of_action = NOW() WHERE office_id = ? AND LOWER(status) = 'pending'");
+      if ($clear) {
+        $clear->bind_param('i', $office_id);
+        $clear->execute();
+        $clear->close();
+      }
+    } catch (Exception $e) {
+      // non-fatal: continue and commit the successful changes
+    }
+
     if ($ok1 && $ok2) {
       $conn->commit();
       echo json_encode(['success' => true, 'message' => 'Capacity changed']);
@@ -654,22 +667,17 @@ $late_dtr_res = $late_dtr->get_result();
 
     <div class="table-section">
         <div style="display:flex;align-items:center;justify-content:space-between">
-            <!-- keep only the Edit button (no heading text) -->
+            <!-- Edit button (always enabled) -->
             <div></div>
-            <?php if ((int)$pending_office > 0): ?>
-              <button id="btnEditOffice" disabled style="padding:6px 10px;border-radius:6px;border:1px solid #ccc;background:#f0f0f0;color:#666;cursor:not-allowed">Request Pending</button>
-            <?php else: ?>
-              <button id="btnEditOffice" style="padding:6px 10px;border-radius:6px;border:1px solid #ccc;background:#fff;cursor:pointer">Change</button>
-            <?php endif; ?>
+            <button id="btnEditOffice" style="padding:6px 10px;border-radius:6px;border:1px solid #ccc;background:#fff;cursor:pointer">Change</button>
         </div>
-        <input type="hidden" id="oh_has_pending" value="<?= (int)$pending_office ?>">
 
         <!-- Office info table removed; only Request button remains -->
 
         <!-- Edit Modal (updated: include editable Requested Limit + Reason) -->
         <div id="officeModal" style="display:none;position:fixed;left:0;top:0;right:0;bottom:0;background:rgba(0,0,0,0.35);align-items:center;justify-content:center;">
             <div style="background:#fff;padding:18px;border-radius:8px;width:420px;box-shadow:0 8px 30px rgba(0,0,0,0.12);">
-                <h4 style="margin:0 0 8px 0">Request Change - <?= htmlspecialchars($office_display) ?></h4>
+                <h4 style="margin:0 0 8px 0">Change Capacity</h4>
                 <div style="display:grid;gap:8px;margin-top:8px">
                     <label>Capacity <input id="m_current_limit" readonly value="<?= htmlspecialchars($curLimit) ?>" style="width:100%;padding:8px;border-radius:6px;border:1px solid #ddd"></label>
                     <label>Available Slots <input id="m_available_slots" readonly value="<?= $available_slots ?>" style="width:100%;padding:8px;border-radius:6px;border:1px solid #ddd"></label>
@@ -679,7 +687,7 @@ $late_dtr_res = $late_dtr->get_result();
                     
                     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:6px">
                         <button id="m_cancel" style="padding:8px 10px;border-radius:6px;border:1px solid #ccc;background:#fff;cursor:pointer">Cancel</button>
-                        <button id="m_request" style="padding:8px 12px;border-radius:6px;border:none;background:#5b5f89;color:#fff;cursor:pointer">Change</button>
+                        <button id="m_request" style="padding:8px 12px;border-radius:6px;border:none;background:#5b5f89;color:#fff;cursor:pointer">Change Capacity</button>
                     </div>
                 </div>
             </div>
@@ -726,13 +734,14 @@ $late_dtr_res = $late_dtr->get_result();
           // match office by case-insensitive LIKE on office_name (consistent with above)
           $likeOffice = '%' . mb_strtolower(trim((string)($office['office_name'] ?? ''))) . '%';
           // join students to get course/year_level and other student details
-          $qa = $conn->prepare("SELECT u.user_id, u.first_name, u.last_name, u.email, u.office_name, u.status,
+          // Use student names from `students` table for display (prefer `students` first/last)
+          $qa = $conn->prepare("SELECT u.user_id, s.first_name AS first_name, s.last_name AS last_name, u.email, u.office_name, u.status,
             s.student_id, s.address, s.contact_number, s.birthday, s.college, s.course, s.year_level, s.school_address, s.ojt_adviser,
             s.emergency_name, s.emergency_relation, s.emergency_contact
             FROM users u
             LEFT JOIN students s ON u.user_id = s.user_id
             WHERE u.role = 'ojt' AND LOWER(TRIM(u.office_name)) LIKE ? AND u.status = 'approved'
-            ORDER BY u.last_name, u.first_name LIMIT 200");
+            ORDER BY s.last_name, s.first_name LIMIT 200");
           if ($qa) {
             $qa->bind_param('s', $likeOffice);
             $qa->execute();
