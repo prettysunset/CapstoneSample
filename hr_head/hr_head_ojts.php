@@ -1140,7 +1140,15 @@ if ($moa_q) {
             const nameNorm = ((s.first_name||'') + ' ' + (s.last_name||'')).toLowerCase().trim();
             const officeNorm = (d.office1 || d.office || '').toString().toLowerCase().trim();
 
+            // Prefer matching DTR rows by explicit student/user id if available
             const matched = rows.filter(r => {
+              try {
+                const rids = [r.student_id, r.user_id, r.userid, r.userId, r.userIdRaw];
+                for (const candidate of rids) {
+                  if (candidate !== undefined && candidate !== null && String(candidate) === String(userId)) return true;
+                }
+              } catch (err) {}
+
               const rName = ((r.first_name||'') + ' ' + (r.last_name||'')).toLowerCase().trim();
               const rOffice = (r.office || '').toString().toLowerCase().trim();
               if (nameNorm && rName) {
