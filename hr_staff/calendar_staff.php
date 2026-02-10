@@ -1283,6 +1283,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && strpos($_SERVER['CONTENT_TYPE'] ?? 
     function buildSessionDOM(s){
       var sess = document.createElement('div'); sess.className = 'session';
       sess.dataset.sessionId = s.session_id || '';
+      // expose the session date on the DOM so client-side controls can enforce past-date rules
+      if (s.date) sess.dataset.sessionDate = s.date;
       var row1 = document.createElement('div'); row1.className = 'row';
       var icon1 = document.createElement('div'); icon1.className = 'icon';
       icon1.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 1a11 11 0 1 0 11 11A11.012 11.012 0 0 0 12 1zm1 12.59V7h-2v6.59l5 3 1-1.66z"></path></svg>';
@@ -1431,7 +1433,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && strpos($_SERVER['CONTENT_TYPE'] ?? 
         var sessEl = studentsWrap.closest && studentsWrap.closest('.session');
         var reschedBtn = sessEl ? sessEl.querySelector('.resched') : null;
         if (reschedBtn) {
-          if (checkedCount > 0) { reschedBtn.classList.remove('disabled'); reschedBtn.removeAttribute('aria-disabled'); }
+          var allow = checkedCount > 0;
+          try {
+            // if the session date is strictly before today (date-only), never enable reschedule
+            var sdateRaw = sessEl && (sessEl.dataset && sessEl.dataset.sessionDate) ? sessEl.dataset.sessionDate : null;
+            if (sdateRaw) {
+              var sd = new Date(sdateRaw);
+              if (!isNaN(sd.getTime())) {
+                var sdIso = sd.getFullYear() + '-' + String(sd.getMonth()+1).padStart(2,'0') + '-' + String(sd.getDate()).padStart(2,'0');
+                var now = new Date();
+                var nowIso = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0') + '-' + String(now.getDate()).padStart(2,'0');
+                if (sdIso < nowIso) allow = false; // past date
+              }
+            }
+          } catch (e) { /* ignore and fall back to default allow state */ }
+          if (allow) { reschedBtn.classList.remove('disabled'); reschedBtn.removeAttribute('aria-disabled'); }
           else { reschedBtn.classList.add('disabled'); reschedBtn.setAttribute('aria-disabled','true'); }
         }
         // update select-all checkbox state
