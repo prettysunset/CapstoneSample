@@ -1230,6 +1230,7 @@ if ($action === 'get_dtr_by_range') {
 
         $rows[] = [
             'dtr_id' => (int)$r['dtr_id'],
+            'student_id' => (int)($r['u_id'] ?? $r['su_id'] ?? $r['si_id'] ?? 0),
             'log_date' => $r['log_date'],
             'am_in' => $r['am_in'] ?? '',
             'am_out' => $r['am_out'] ?? '',
@@ -1245,6 +1246,14 @@ if ($action === 'get_dtr_by_range') {
         ];
     }
     $stmt->close();
+
+    // If caller requested a specific user_id, filter rows server-side as a safety-net
+    $filterUid = isset($input['user_id']) ? (int)$input['user_id'] : 0;
+    if ($filterUid > 0) {
+        $rows = array_values(array_filter($rows, function($rr) use ($filterUid) {
+            return isset($rr['student_id']) && $rr['student_id'] === $filterUid;
+        }));
+    }
 
     respond(['success' => true, 'rows' => $rows]);
 }

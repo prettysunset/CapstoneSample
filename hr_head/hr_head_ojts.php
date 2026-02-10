@@ -1128,7 +1128,7 @@ if ($moa_q) {
             const resp = await fetch('../hr_actions.php', {
               method: 'POST',
               headers: {'Content-Type':'application/json'},
-              body: JSON.stringify({ action: 'get_dtr_by_range', from: '1900-01-01', to: today })
+              body: JSON.stringify({ action: 'get_dtr_by_range', from: '1900-01-01', to: today, user_id: parseInt(userId,10) })
             });
             const jr = await resp.json();
             if (!jr || !jr.success) {
