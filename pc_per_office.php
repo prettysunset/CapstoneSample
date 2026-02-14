@@ -1433,8 +1433,9 @@ if ($office_id) {
   const nowEl = document.getElementById('now');
   const dateEl = document.getElementById('date');
   function tick(){
-    const d = new Date();
-    nowEl.textContent = d.toLocaleTimeString('en-US',{hour12:true});
+        const d = new Date();
+        // Use 12-hour format with AM/PM and timezone short name
+        nowEl.textContent = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true, timeZoneName: 'short' });
     dateEl.textContent = d.toLocaleDateString(undefined,{month:'long',day:'numeric',year:'numeric'});
   }
   tick();
@@ -1922,15 +1923,74 @@ if ($office_id) {
 <script src="assets/attendance_sync.js"></script>
 </script>
 <script>
-// Trigger server-side push every full minute while kiosk page is open.
+// Robust client-side sync: send one payload to local `sync.php` every 60s
 (function(){
-    const PUSH_URL = './sync_push_http.php';
-    function doPush(){
-        fetch(PUSH_URL, { method: 'GET', cache: 'no-store' }).catch(()=>{});
+    const SYNC_URL = './sync.php';
+    let blockedUntil = null;
+    let syncCountThisHour = 0;
+
+    function updateIndicator(text, bad){
+        let el = document.getElementById('syncIndicator');
+        if (!el) {
+            el = document.createElement('div'); el.id = 'syncIndicator';
+            el.style.position = 'fixed'; el.style.bottom = '8px'; el.style.right = '8px';
+            el.style.padding = '6px 10px'; el.style.borderRadius = '8px'; el.style.fontSize = '12px';
+            el.style.background = 'rgba(0,0,0,0.65)'; el.style.color = '#fff'; el.style.zIndex = 99999;
+            document.body.appendChild(el);
+        }
+        el.textContent = text;
+        el.style.opacity = bad ? '0.95' : '0.8';
+        el.style.background = bad ? 'rgba(150,40,40,0.9)' : 'rgba(0,0,0,0.6)';
     }
-    // align to next full minute so open at 07:14:00 triggers at 07:15:00
+
+    async function sendOne(){
+        // if blockedUntil present and not yet passed, skip
+        if (blockedUntil && new Date(blockedUntil) > new Date()) {
+            updateIndicator('Sync: blocked until ' + blockedUntil, true);
+            return;
+        }
+
+        const dNow = new Date();
+        const localDate = dNow.getFullYear() + '-' + String(dNow.getMonth()+1).padStart(2,'0') + '-' + String(dNow.getDate()).padStart(2,'0');
+        const localTime = String(dNow.getHours()).padStart(2,'0') + ':' + String(dNow.getMinutes()).padStart(2,'0') + ':' + String(dNow.getSeconds()).padStart(2,'0');
+        const payload = {
+            type: 'heartbeat',
+            ts: dNow.toISOString(),
+            client_local_date: localDate,
+            client_local_time: localTime,
+            client_local_ts: localDate + ' ' + localTime,
+            host: window.location.hostname
+        };
+        try {
+            const res = await fetch(SYNC_URL, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload), cache: 'no-store'
+            });
+            const j = await res.json().catch(()=>({ ok:false }));
+            if (res.ok && j && j.ok) {
+                syncCountThisHour++;
+                updateIndicator('Sync OK — this hour: ' + syncCountThisHour, false);
+                // reset blockedUntil if remote now reachable
+                blockedUntil = null;
+            } else {
+                // server indicates blocked or error
+                const status = (j && j.status) ? j.status : 'error';
+                if (status === 'blocked' && j.blocked_until) {
+                    blockedUntil = j.blocked_until;
+                    updateIndicator('Sync blocked until ' + blockedUntil, true);
+                } else {
+                    updateIndicator('Sync error', true);
+                }
+            }
+        } catch (e) {
+            console.warn('sync send failed', e);
+            updateIndicator('Sync network error', true);
+        }
+    }
+
+    // align first send to next full 60s tick to avoid bursts across many kiosks
     const msUntilNext = 60000 - (Date.now() % 60000);
-    setTimeout(function(){ doPush(); setInterval(doPush, 60000); }, msUntilNext);
+    setTimeout(function(){ sendOne(); setInterval(sendOne, 60000); }, msUntilNext);
 })();
 </script>
 <?php

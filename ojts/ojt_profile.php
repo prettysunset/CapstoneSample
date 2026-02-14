@@ -148,28 +148,49 @@ if ($user_id) {
                                     }
                                 }
                                 $today = date('Y-m-d');
-                                if ($from_date !== null && $to_date !== null) {
-                                    $stmt = $conn->prepare("INSERT INTO weekly_journal (user_id, week_coverage, date_uploaded, attachment, from_date, to_date) VALUES (?, ?, ?, ?, ?, ?)");
-                                    $stmt->bind_param('isssss', $student_id, $week_to_store, $today, $relpath, $from_date, $to_date);
-                                } else {
-                                    $stmt = $conn->prepare("INSERT INTO weekly_journal (user_id, week_coverage, date_uploaded, attachment) VALUES (?, ?, ?, ?)");
-                                    $stmt->bind_param('isss', $student_id, $week_to_store, $today, $relpath);
-                                }
-                                if ($stmt->execute()) {
-                                    $stmt->close();
-                                    // redirect to avoid form resubmission
-                                    // include an uploaded=1 flag so the client-side will only activate the journals tab
-                                    $redirect = $_SERVER['REQUEST_URI'];
-                                    if (strpos($redirect, 'uploaded=1') === false) {
-                                        $sep = (strpos($redirect, '?') === false) ? '?' : '&';
-                                        $redirect .= $sep . 'uploaded=1';
+
+                                // SERVER-SIDE DUPLICATE PROTECTION
+                                // If the same user already uploaded the same week today, treat as duplicate and abort.
+                                $isDuplicate = false;
+                                $chk = $conn->prepare("SELECT COUNT(*) AS cnt FROM weekly_journal WHERE user_id = ? AND week_coverage = ? AND date_uploaded = ?");
+                                if ($chk) {
+                                    $chk->bind_param('iss', $student_id, $week_to_store, $today);
+                                    $chk->execute();
+                                    $cres = $chk->get_result()->fetch_assoc();
+                                    $chk->close();
+                                    if (!empty($cres['cnt'])) {
+                                        $isDuplicate = true;
                                     }
-                                    $redirect .= '#tab-journals';
-                                    header('Location: ' . $redirect);
-                                    exit();
+                                }
+
+                                if ($isDuplicate) {
+                                    // remove the file we just moved so we don't leave orphans
+                                    if (is_file($target)) @unlink($target);
+                                    $journal_upload_error = 'Duplicate upload detected: you already uploaded this week.';
                                 } else {
-                                    $journal_upload_error = 'Database error while saving journal.';
-                                    $stmt->close();
+                                    if ($from_date !== null && $to_date !== null) {
+                                        $stmt = $conn->prepare("INSERT INTO weekly_journal (user_id, week_coverage, date_uploaded, attachment, from_date, to_date) VALUES (?, ?, ?, ?, ?, ?)");
+                                        $stmt->bind_param('isssss', $student_id, $week_to_store, $today, $relpath, $from_date, $to_date);
+                                    } else {
+                                        $stmt = $conn->prepare("INSERT INTO weekly_journal (user_id, week_coverage, date_uploaded, attachment) VALUES (?, ?, ?, ?)");
+                                        $stmt->bind_param('isss', $student_id, $week_to_store, $today, $relpath);
+                                    }
+                                    if ($stmt->execute()) {
+                                        $stmt->close();
+                                        // redirect to avoid form resubmission
+                                        // include an uploaded=1 flag so the client-side will only activate the journals tab
+                                        $redirect = $_SERVER['REQUEST_URI'];
+                                        if (strpos($redirect, 'uploaded=1') === false) {
+                                            $sep = (strpos($redirect, '?') === false) ? '?' : '&';
+                                            $redirect .= $sep . 'uploaded=1';
+                                        }
+                                        $redirect .= '#tab-journals';
+                                        header('Location: ' . $redirect);
+                                        exit();
+                                    } else {
+                                        $journal_upload_error = 'Database error while saving journal.';
+                                        $stmt->close();
+                                    }
                                 }
                             } else {
                                 $journal_upload_error = 'Unable to move uploaded file.';
@@ -831,9 +852,14 @@ if ($user_id) {
                                 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
                                     <div style="color:#6b6f8b;font-size:16px;">Weekly Journals (<?php echo count($journals); ?>)</div>
                                     <?php if (!empty($student_id)): ?>
-                                        <button id="btn-upload-journal" type="button" style="display:inline-flex;gap:8px;align-items:center;padding:8px 12px;border-radius:8px;border:0;background:#2f3459;color:#fff !important;cursor:pointer;font-size:14px;">
-                                            <span style="color:#fff !important;font-weight:700;font-size:18px;line-height:0;">+</span> Upload Journal
-                                        </button>
+                                        <div style="display:flex;gap:8px;align-items:center">
+                                            <button id="btn-upload-journal" type="button" style="display:inline-flex;gap:8px;align-items:center;padding:8px 12px;border-radius:8px;border:0;background:#2f3459;color:#fff !important;cursor:pointer;font-size:14px;">
+                                                <span style="color:#fff !important;font-weight:700;font-size:18px;line-height:0;">+</span> Upload Journal
+                                            </button>
+                                            <a href="#" id="btn-create-journal" role="button" data-href="create_journal.php" style="display:inline-flex;gap:8px;align-items:center;padding:8px 12px;border-radius:8px;text-decoration:none;background:#4b5bd6;color:#fff !important;cursor:pointer;font-size:14px;">
+                                                + Create Journal
+                                            </a>
+                                        </div>
                                     <?php endif; ?>
                                 </div>
 
@@ -1359,6 +1385,47 @@ if ($user_id) {
                         if (btn) btn.addEventListener('click', function(e){ e.preventDefault(); openOverlay(this.getAttribute('href') || 'settings.php'); });
                         // clicking outside the modal content closes overlay
                         overlay.addEventListener('click', function(e){ if (e.target === overlay) closeOverlay(); });
+                    })();
+                </script>
+                <script>
+                    (function(){
+                        var btn = document.getElementById('btn-create-journal');
+                        if (!btn) return;
+
+                        // create overlay element lazily (matches hr_head_home.php pattern)
+                        var createOverlay = document.createElement('div');
+                        createOverlay.id = 'createJournalOverlay';
+                        createOverlay.setAttribute('role','dialog');
+                        createOverlay.setAttribute('aria-hidden','true');
+                        createOverlay.style.display = 'none';
+                        createOverlay.style.position = 'fixed';
+                        createOverlay.style.inset = '0';
+                        createOverlay.style.background = 'rgba(15,20,40,0.6)';
+                        createOverlay.style.zIndex = '12500';
+                        createOverlay.style.alignItems = 'center';
+                        createOverlay.style.justifyContent = 'center';
+                        createOverlay.style.padding = '24px';
+
+                        // iframe sized as centered modal card (not full-bleed) with shadow
+                        // wider default width and a safe max-width to avoid horizontal scrollbar on common screens
+                        createOverlay.innerHTML = '\n+                            <iframe src="create_journal.php" title="Create Journal" style="width:1100px;max-width:calc(100% - 64px);height:86vh;max-height:98vh;border-radius:8px;border:0;display:block;box-shadow:0 12px 40px rgba(15,20,40,0.35);background:transparent;" allowtransparency="true"></iframe>\n+                        ';
+
+                        document.body.appendChild(createOverlay);
+
+                        function showCreate(){ createOverlay.style.display = 'flex'; createOverlay.setAttribute('aria-hidden','false'); try{ document.body.style.overflow = 'hidden'; }catch(e){} }
+                        function hideCreate(){ createOverlay.style.display = 'none'; createOverlay.setAttribute('aria-hidden','true'); try{ document.body.style.overflow = ''; }catch(e){} try{ var ifr = createOverlay.querySelector('iframe'); if(ifr) ifr.src = 'about:blank'; }catch(e){} }
+
+                        // expose to iframe
+                        window.closeCreateJournalOverlay = hideCreate;
+
+                        btn.addEventListener('click', function(e){
+                            try{ e.preventDefault(); }catch(ex){}
+                            // set iframe src to fresh composer
+                            try{ var ifr = createOverlay.querySelector('iframe'); if(ifr) ifr.src = btn.getAttribute('data-href') || 'create_journal.php'; }catch(e){}
+                            showCreate();
+                        });
+
+                        createOverlay.addEventListener('click', function(e){ if (e.target === createOverlay) hideCreate(); });
                     })();
                 </script>
         <script>
