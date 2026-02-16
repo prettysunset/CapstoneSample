@@ -31,7 +31,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
       if (!$r) { echo json_encode(['ok'=>true,'user_exists'=>false,'password_ok'=>false,'printed'=>0,'has_face'=>false]); exit; }
       $stored = (string)($r['password'] ?? '');
       $role = (string)($r['role'] ?? '');
-      $password_ok = ($pwd !== '' && $pwd === $stored) ? true : false;
+      $password_ok = false;
+      if ($stored !== '' && $pwd !== '') {
+        if (function_exists('password_verify') && (strpos($stored,'$2y$') === 0 || strpos($stored,'$argon2') === 0 || strpos($stored,'$5$') === 0)) {
+          $password_ok = password_verify($pwd, $stored);
+        } else {
+          // fallback for legacy plaintext-stored passwords
+          $password_ok = ($pwd === $stored);
+        }
+      }
       $role_ok = ($role === 'ojt') ? true : false;
       // check if user already has an entry in face_templates
       $has_face = false;

@@ -7,7 +7,7 @@
 //  - Use `AttendanceSync.recordAttendanceFor(userId)` to enqueue and attempt to send.
 
 const API_BASE = './pc_per_office.php';
-const SYNC_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+const SYNC_INTERVAL_MS = 15 * 1000; // 15 seconds (was 5 minutes)
 const QUEUE_KEY = 'attendance_event_queue';
 const TEMPLATES_KEY = 'attendance_templates';
 const FLUSH_INTERVAL_MS = 30 * 1000; // try flush every 30s
