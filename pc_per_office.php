@@ -1331,7 +1331,7 @@ if ($office_id) {
     display:flex;
     align-items:center;
     justify-content:center;
-    padding:40px;
+    padding:24px;
     box-sizing:border-box;
     width:100%;
   }
@@ -1342,7 +1342,7 @@ if ($office_id) {
     max-width:calc(100% - 48px); /* leave breathing room to avoid overflow */
     background:linear-gradient(180deg, rgba(255,255,255,0.95), rgba(255,255,255,0.90));
     border-radius:20px;
-    padding:32px;
+    padding:24px;
     box-shadow: 8px 14px 40px rgba(58,65,99,0.12);
     position:relative;
     overflow:visible;
@@ -1402,17 +1402,19 @@ if ($office_id) {
 
             <form id="pcForm" onsubmit="return false;" style="margin-top:6px">
                 <input type="hidden" id="office_id" value="<?php echo (int)$office_id; ?>">
-                <div style="text-align:center;margin-bottom:10px">
-                    <a id="registerFaceLink" href="register_face.php?return=<?php echo urlencode($_SERVER['REQUEST_URI']); ?>" style="display:inline-block;padding:8px 12px;border-radius:8px;background:#4a6ff3;color:#fff;text-decoration:none;font-weight:600">Register Face</a>
-                </div>
+                <!-- Register link moved below camera to reduce confusion for time in/out actions -->
 
                 <div class="actions" style="margin-top:10px;align-items:center">
                     <!-- Manual start/scan buttons removed: live automatic scanning enabled -->
                 </div>
 
                 <div style="position:relative;margin-top:10px">
-                    <video id="video" autoplay playsinline style="width:100%;border-radius:8px;background:#000;display:block"></video>
-                    <canvas id="canvas" style="position:absolute;left:0;top:0;width:100%;height:100%;border-radius:8px;pointer-events:none;display:block"></canvas>
+                    <video id="video" autoplay playsinline style="width:100%;border-radius:8px;background:#000;display:block;transform:scaleX(-1);-webkit-transform:scaleX(-1);"></video>
+                    <canvas id="canvas" style="position:absolute;left:0;top:0;width:100%;height:100%;border-radius:8px;pointer-events:none;display:block;transform:scaleX(-1);-webkit-transform:scaleX(-1);"></canvas>
+                </div>
+
+                <div style="text-align:center;margin-top:10px;font-size:13px;color:#475569">
+                    New OJT? <a id="registerFaceLink" href="register_face.php?return=<?php echo urlencode($_SERVER['REQUEST_URI']); ?>" title="For new OJTs or to update an existing face" aria-label="Register or update face" style="color:#3b82f6;text-decoration:underline;margin-left:6px">Click here to register your face</a>
                 </div>
 
                 <div id="msg" class="msg" role="status" aria-live="polite"></div>

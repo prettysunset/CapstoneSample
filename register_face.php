@@ -162,8 +162,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     </div>
 
     <div>
-      <video id="video" autoplay playsinline></video>
-      <canvas id="canvas"></canvas>
+      <video id="video" autoplay playsinline style="transform:scaleX(-1);-webkit-transform:scaleX(-1);"></video>
+      <canvas id="canvas" style="transform:scaleX(-1);-webkit-transform:scaleX(-1);"></canvas>
     </div>
 
     <div class="row" style="margin-top:10px">
