@@ -501,6 +501,92 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
                 // clear saved application data so forms no longer pre-fill
                 unset($_SESSION['af1'], $_SESSION['af2'], $_SESSION['student_id']);
+                // create notification for HR and relevant office heads
+                try {
+                  // build a friendly message
+                  $applicant = trim($s_first . ' ' . $s_last);
+                  // resolve office names
+                  $office1Name = '';
+                  $office2Name = '';
+                  $sr = $conn->prepare("SELECT office_name FROM offices WHERE office_id = ? LIMIT 1");
+                  if ($sr) {
+                    $sr->bind_param('i', $office1);
+                    $sr->execute();
+                    $sr->bind_result($office1Name);
+                    $sr->fetch();
+                    $sr->close();
+                  }
+                  if (!empty($office2)) {
+                    $sr2 = $conn->prepare("SELECT office_name FROM offices WHERE office_id = ? LIMIT 1");
+                    if ($sr2) {
+                      $sr2->bind_param('i', $office2);
+                      $sr2->execute();
+                      $sr2->bind_result($office2Name);
+                      $sr2->fetch();
+                      $sr2->close();
+                    }
+                  }
+
+                  $msg = $applicant . " submitted an OJT application.";
+                  $extra = [];
+                  if ($office1Name) $extra[] = '1st: ' . $office1Name;
+                  if ($office2Name) $extra[] = '2nd: ' . $office2Name;
+                  if (!empty($extra)) $msg .= ' (' . implode(', ', $extra) . ')';
+
+                  // collect recipient user IDs: hr_head, hr_staff, office_head for selected offices
+                  $recipients = [];
+                  $r1 = $conn->query("SELECT user_id FROM users WHERE role IN ('hr_head','hr_staff') AND status = 'active'");
+                  if ($r1) {
+                    while ($rr = $r1->fetch_assoc()) $recipients[] = (int)$rr['user_id'];
+                    $r1->free();
+                  }
+
+                  // office heads for office1
+                  if ($office1Name) {
+                    $ohead = $conn->prepare("SELECT user_id FROM users WHERE role = 'office_head' AND office_name = ? AND status = 'active'");
+                    if ($ohead) {
+                      $ohead->bind_param('s', $office1Name);
+                      $ohead->execute();
+                      $resOH = $ohead->get_result();
+                      while ($r = $resOH->fetch_assoc()) $recipients[] = (int)$r['user_id'];
+                      $ohead->close();
+                    }
+                  }
+                  if ($office2Name) {
+                    $ohead2 = $conn->prepare("SELECT user_id FROM users WHERE role = 'office_head' AND office_name = ? AND status = 'active'");
+                    if ($ohead2) {
+                      $ohead2->bind_param('s', $office2Name);
+                      $ohead2->execute();
+                      $resOH2 = $ohead2->get_result();
+                      while ($r = $resOH2->fetch_assoc()) $recipients[] = (int)$r['user_id'];
+                      $ohead2->close();
+                    }
+                  }
+
+                  // dedupe recipients
+                  $recipients = array_values(array_unique(array_filter($recipients, function($v){ return $v > 0; })));
+
+                  if (!empty($recipients)) {
+                    $ins = $conn->prepare("INSERT INTO notifications (message) VALUES (?)");
+                    if ($ins) {
+                      $ins->bind_param('s', $msg);
+                      $ins->execute();
+                      $nid = $conn->insert_id;
+                      $ins->close();
+
+                      $ins2 = $conn->prepare("INSERT INTO notification_users (notification_id, user_id, is_read) VALUES (?, ?, 0)");
+                      if ($ins2) {
+                        foreach ($recipients as $uid) {
+                          $ins2->bind_param('ii', $nid, $uid);
+                          $ins2->execute();
+                        }
+                        $ins2->close();
+                      }
+                    }
+                  }
+                } catch (Exception $e) {
+                  // do not break flow on notification errors
+                }
                 // server-side redirect (no reliance on JS)
                 header("Location: application_form4.php");
                 exit;

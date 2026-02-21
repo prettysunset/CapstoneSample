@@ -1,4 +1,49 @@
-<?php $embed = isset($_GET['embed']); ?>
+<?php
+$embed = isset($_GET['embed']);
+session_start();
+require __DIR__ . '/../conn.php';
+
+$user_id = (int)($_SESSION['user_id'] ?? 0);
+
+// API endpoints for marking notifications as read
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+	$action = $_POST['action'] ?? '';
+	if ($action === 'mark' && isset($_POST['id'])) {
+		$nid = (int)$_POST['id'];
+		$u = $conn->prepare("UPDATE notification_users SET is_read = 1 WHERE user_id = ? AND notification_id = ?");
+		if ($u) { $u->bind_param('ii', $user_id, $nid); $u->execute(); $u->close(); }
+		echo json_encode(['ok' => true]);
+		exit;
+	}
+	if ($action === 'mark_all') {
+		$u = $conn->prepare("UPDATE notification_users SET is_read = 1 WHERE user_id = ?");
+		if ($u) { $u->bind_param('i', $user_id); $u->execute(); $u->close(); }
+		echo json_encode(['ok' => true]);
+		exit;
+	}
+}
+
+// Load notifications for current user
+$notifications = [];
+if ($user_id > 0) {
+	$q = $conn->prepare("SELECT n.id,n.message,n.created_at,nu.is_read FROM notifications n JOIN notification_users nu ON n.id = nu.notification_id WHERE nu.user_id = ? ORDER BY n.created_at DESC LIMIT 200");
+	if ($q) {
+		$q->bind_param('i', $user_id);
+		$q->execute();
+		$res = $q->get_result();
+		while ($r = $res->fetch_assoc()) {
+			$notifications[] = [
+				'id' => (int)$r['id'],
+				'title' => mb_substr($r['message'],0,80),
+				'text' => $r['message'],
+				'time' => $r['created_at'],
+				'read' => (bool)$r['is_read']
+			];
+		}
+		$q->close();
+	}
+}
+?>
 <!doctype html>
 <html lang="en">
 	<head>
@@ -337,32 +382,32 @@
 			const tabs = Array.from(document.querySelectorAll(".tab-button"));
 			const isEmbed = document.body.classList.contains("embed");
 
-			const notifications = [
-				{
-					id: 1,
-					title: "New Applicant",
-					text: "Jenny Robles submitted her application.",
-					time: "2 hrs ago",
-					category: "Applicants",
-					read: false,
-				},
-				{
-					id: 2,
-					title: "Office Request",
-					text: "The City Mayor's Office sent a request to update their OJT limit.",
-					time: "4 hrs ago",
-					category: "Office Requests",
-					read: false,
-				},
-				{
-					id: 3,
-					title: "Late DTR Submission",
-					text: "Jasmine Santiago submitted a late daily time record.",
-					time: "1d ago",
-					category: "Late DTR",
-					read: true,
-				},
-			];
+			const notifications = <?php echo json_encode($notifications, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP); ?> || [];
+
+			// helper: mark a single notification as read (AJAX)
+			async function markRead(id) {
+				try {
+					await fetch(window.location.href, {
+						method: 'POST',
+						credentials: 'same-origin',
+						headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+						body: new URLSearchParams({ action: 'mark', id: String(id) })
+					});
+				} catch (e) {
+					// ignore errors
+				}
+			}
+
+			async function markAllServer() {
+				try {
+					await fetch(window.location.href, {
+						method: 'POST',
+						credentials: 'same-origin',
+						headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+						body: new URLSearchParams({ action: 'mark_all' })
+					});
+				} catch (e) {}
+			}
 
 			const renderNotifications = () => {
 				list.innerHTML = "";
@@ -393,8 +438,12 @@
 					`;
 
 					card.addEventListener("click", () => {
-						item.read = true;
-						renderNotifications();
+						if (!item.read) {
+							item.read = true;
+							// persist to server
+							markRead(item.id);
+							renderNotifications();
+						}
 					});
 
 					list.appendChild(card);
@@ -463,6 +512,7 @@
 				closePanel.addEventListener("click", (event) => {
 					event.preventDefault();
 					markAllRead();
+					markAllServer();
 					if (!requestCloseFromParent()) closePanelUi();
 				});
 			}
