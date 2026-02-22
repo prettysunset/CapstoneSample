@@ -5,6 +5,7 @@ require __DIR__ . '/../conn.php';
 
 $user_id = (int)($_SESSION['user_id'] ?? 0);
 
+// API endpoints for marking notifications as read
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 	$action = $_POST['action'] ?? '';
 	if ($action === 'mark' && isset($_POST['id'])) {
@@ -22,6 +23,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 	}
 }
 
+// Load notifications for current user
 $notifications = [];
 if ($user_id > 0) {
 	$q = $conn->prepare("SELECT n.id,n.message,n.created_at,nu.is_read FROM notifications n JOIN notification_users nu ON n.id = nu.notification_id WHERE nu.user_id = ? ORDER BY n.created_at DESC LIMIT 200");
@@ -30,13 +32,16 @@ if ($user_id > 0) {
 		$q->execute();
 		$res = $q->get_result();
 		while ($r = $res->fetch_assoc()) {
-			$notifications[] = [
-				'id' => (int)$r['id'],
-				'title' => mb_substr($r['message'],0,80),
-				'text' => $r['message'],
-				'time' => $r['created_at'],
-				'read' => (bool)$r['is_read']
-			];
+				// format time as: "F j, Y - g:i A.M./P.M."
+				$timeDisplay = date('F j, Y - g:i A', strtotime($r['created_at']));
+				$timeDisplay = str_replace([' AM',' PM','AM','PM'], [' A.M.',' P.M.','A.M.','P.M.'], $timeDisplay);
+				$notifications[] = [
+					'id' => (int)$r['id'],
+					'title' => mb_substr($r['message'],0,80),
+					'text' => $r['message'],
+					'time' => $timeDisplay,
+					'read' => (bool)$r['is_read']
+				];
 		}
 		$q->close();
 	}
@@ -200,10 +205,7 @@ if ($user_id > 0) {
 
 			.panel-controls {
 				padding: 10px 18px 14px;
-				border-bottom: 1px solid var(--border);
-				display: flex;
-				flex-direction: column;
-				gap: 10px;
+				border-bottom: none;
 			}
 
 			.tabs {
@@ -358,14 +360,7 @@ if ($user_id > 0) {
 				<button class="close-button" id="closePanel" aria-label="Close notifications">X</button>
 			</div>
 
-			<div class="panel-controls">
-				<div class="tabs" role="tablist">
-					<button class="tab-button" data-filter="all" role="tab" aria-selected="true">
-						All <span class="tab-badge" data-count="all">0</span>
-					</button>
-				</div>
-				<button class="mark-read" id="markAll">Mark all as read</button>
-			</div>
+			<div class="panel-controls"></div>
 
 			<div class="notifications" id="notificationList" role="list"></div>
 		</section>
@@ -376,12 +371,12 @@ if ($user_id > 0) {
 			const panel = document.getElementById("notificationPanel");
 			const closePanel = document.getElementById("closePanel");
 			const list = document.getElementById("notificationList");
-			const markAll = document.getElementById("markAll");
 			const tabs = Array.from(document.querySelectorAll(".tab-button"));
 			const isEmbed = document.body.classList.contains("embed");
 
 			const notifications = <?php echo json_encode($notifications, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP); ?> || [];
 
+			// helper: mark a single notification as read (AJAX)
 			async function markRead(id) {
 				try {
 					await fetch(window.location.href, {
@@ -390,7 +385,9 @@ if ($user_id > 0) {
 						headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
 						body: new URLSearchParams({ action: 'mark', id: String(id) })
 					});
-				} catch (e) {}
+				} catch (e) {
+					// ignore errors
+				}
 			}
 
 			async function markAllServer() {
@@ -423,11 +420,12 @@ if ($user_id > 0) {
 					card.setAttribute("role", "listitem");
 					card.dataset.id = item.id;
 					card.innerHTML = `
-						<span class="notification-title">${item.title}</span>
-						<span class="notification-text">${item.text}</span>
+						<span class="notification-line">
+							<span class="notification-label">${item.title}</span>
+							<span class="notification-text">${item.text}</span>
+						</span>
 						<div class="notification-meta">
-							<span>${item.time}</span>
-							<span class="notification-category">${item.category}</span>
+							<span class="notification-time">${item.time}</span>
 						</div>
 						${item.read ? "" : "<span class=\"unread-dot\" aria-hidden=\"true\"></span>"}
 					`;
@@ -435,6 +433,7 @@ if ($user_id > 0) {
 					card.addEventListener("click", () => {
 						if (!item.read) {
 							item.read = true;
+							// persist to server
 							markRead(item.id);
 							renderNotifications();
 						}
@@ -449,7 +448,8 @@ if ($user_id > 0) {
 			const updateCounts = () => {
 				const all = notifications.length;
 				const unread = notifications.filter((item) => !item.read).length;
-				document.querySelector("[data-count='all']").textContent = all;
+				const countEl = document.querySelector("[data-count='all']");
+				if (countEl) countEl.textContent = all;
 				try {
 					localStorage.setItem("notifUnread", String(unread));
 				} catch (e) {
@@ -520,20 +520,7 @@ if ($user_id > 0) {
 				}
 			});
 
-			tabs.forEach((tab) => {
-				tab.addEventListener("click", () => {
-					tabs.forEach((btn) => btn.setAttribute("aria-selected", "false"));
-					tab.setAttribute("aria-selected", "true");
-					renderNotifications();
-				});
-			});
-
-			markAll.addEventListener("click", () => {
-				notifications.forEach((item) => {
-					item.read = true;
-				});
-				renderNotifications();
-			});
+			// no tabs or mark-all in this simplified view
 
 			renderNotifications();
 		</script>
