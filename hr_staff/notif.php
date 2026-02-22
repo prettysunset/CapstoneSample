@@ -35,10 +35,24 @@ if ($user_id > 0) {
 				// format time as: "F j, Y - g:i A.M./P.M."
 				$timeDisplay = date('F j, Y - g:i A', strtotime($r['created_at']));
 				$timeDisplay = str_replace([' AM',' PM','AM','PM'], [' A.M.',' P.M.','A.M.','P.M.'], $timeDisplay);
+				// split message into label and body to avoid duplicating the full message
+				$msgFull = trim($r['message']);
+				$titlePart = '';
+				$textPart = '';
+				if (strpos($msgFull, ':') !== false) {
+					list($left, $right) = explode(':', $msgFull, 2);
+					$titlePart = trim($left) . ': ';
+					$textPart = trim($right);
+				} else {
+					// fallback: short title + remaining text
+					$titlePart = mb_substr($msgFull, 0, 80);
+					$textPart = mb_substr($msgFull, 80);
+				}
+
 				$notifications[] = [
 					'id' => (int)$r['id'],
-					'title' => mb_substr($r['message'],0,80),
-					'text' => $r['message'],
+					'title' => $titlePart,
+					'text' => $textPart,
 					'time' => $timeDisplay,
 					'read' => (bool)$r['is_read']
 				];
@@ -288,7 +302,7 @@ if ($user_id > 0) {
 
 			.notification-text {
 				font-size: 13px;
-				color: var(--muted);
+				color: var(--panel-text);
 			}
 
 			.notification-meta {

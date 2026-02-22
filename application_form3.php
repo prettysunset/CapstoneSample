@@ -503,35 +503,44 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 unset($_SESSION['af1'], $_SESSION['af2'], $_SESSION['student_id']);
                 // create notification for HR and relevant office heads
                 try {
-                  // build a friendly message
-                  $applicant = trim($s_first . ' ' . $s_last);
-                  // resolve office names
-                  $office1Name = '';
-                  $office2Name = '';
-                  $sr = $conn->prepare("SELECT office_name FROM offices WHERE office_id = ? LIMIT 1");
-                  if ($sr) {
-                    $sr->bind_param('i', $office1);
-                    $sr->execute();
-                    $sr->bind_result($office1Name);
-                    $sr->fetch();
-                    $sr->close();
-                  }
-                  if (!empty($office2)) {
-                    $sr2 = $conn->prepare("SELECT office_name FROM offices WHERE office_id = ? LIMIT 1");
-                    if ($sr2) {
-                      $sr2->bind_param('i', $office2);
-                      $sr2->execute();
-                      $sr2->bind_result($office2Name);
-                      $sr2->fetch();
-                      $sr2->close();
+                  // build a concise notification message in the desired format:
+                  // "New applicant: {Name} – {Office1} / {Office2}"
+                    $applicant = trim($s_first . ' ' . $s_last);
+                    // resolve office names
+                    $office1Name = '';
+                    $office2Name = '';
+                    $sr = $conn->prepare("SELECT office_name FROM offices WHERE office_id = ? LIMIT 1");
+                    if ($sr) {
+                      $sr->bind_param('i', $office1);
+                      $sr->execute();
+                      $sr->bind_result($office1Name);
+                      $sr->fetch();
+                      $sr->close();
                     }
-                  }
+                    if (!empty($office2)) {
+                      $sr2 = $conn->prepare("SELECT office_name FROM offices WHERE office_id = ? LIMIT 1");
+                      if ($sr2) {
+                        $sr2->bind_param('i', $office2);
+                        $sr2->execute();
+                        $sr2->bind_result($office2Name);
+                        $sr2->fetch();
+                        $sr2->close();
+                      }
+                    }
 
-                  $msg = $applicant . " submitted an OJT application.";
-                  $extra = [];
-                  if ($office1Name) $extra[] = '1st: ' . $office1Name;
-                  if ($office2Name) $extra[] = '2nd: ' . $office2Name;
-                  if (!empty($extra)) $msg .= ' (' . implode(', ', $extra) . ')';
+                    // build office listing (include second only if present)
+                    $officeList = $office1Name ?: '';
+                    if (!empty($office2Name)) {
+                      if ($officeList !== '') $officeList .= ' / ' . $office2Name;
+                      else $officeList = $office2Name;
+                    }
+
+                    // final message
+                    if ($officeList !== '') {
+                      $msg = 'New applicant: ' . $applicant . ' – ' . $officeList;
+                    } else {
+                      $msg = 'New applicant: ' . $applicant;
+                    }
 
                   // collect recipient user IDs: hr_head, hr_staff, office_head for selected offices
                   $recipients = [];
