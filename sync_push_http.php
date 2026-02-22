@@ -203,7 +203,8 @@ try {
                 $usersPulled++;
                 $ruid = isset($ruRow['user_id']) ? (int)$ruRow['user_id'] : null;
                 // check local existence
-                $st = $local->prepare('SELECT endorsement_printed FROM users WHERE user_id = ? LIMIT 1');
+                // fetch local endorsement flag and current password for comparison/update
+                $st = $local->prepare('SELECT endorsement_printed, password FROM users WHERE user_id = ? LIMIT 1');
                 if ($st) {
                     $st->bind_param('i', $ruid);
                     $st->execute();
@@ -220,6 +221,22 @@ try {
                     if ($remoteFlag && !$localFlag) {
                         $u = $local->prepare('UPDATE users SET endorsement_printed = 1 WHERE user_id = ? LIMIT 1');
                         if ($u) { $u->bind_param('i', $ruid); $u->execute(); $u->close(); $usersUpdated++; }
+                    }
+                    // Update local password if remote has a non-empty password and it's different
+                    $remotePwd = isset($ruRow['password']) ? $ruRow['password'] : null;
+                    $localPwd = isset($lr['password']) ? $lr['password'] : null;
+                    if ($remotePwd !== null && $remotePwd !== '' && $remotePwd !== $localPwd) {
+                        try {
+                            $upPwd = $local->prepare('UPDATE users SET password = ? WHERE user_id = ? LIMIT 1');
+                            if ($upPwd) {
+                                $upPwd->bind_param('si', $remotePwd, $ruid);
+                                $okPwd = $upPwd->execute();
+                                $upPwd->close();
+                                if ($okPwd) $usersUpdated++;
+                            }
+                        } catch (Exception $ex) {
+                            // ignore per-row password update errors
+                        }
                     }
                 } else {
                     // not found locally: insert minimal user row (best-effort)
