@@ -663,20 +663,18 @@ $late_dtr_res = $late_dtr->get_result();
             <!-- Edit button (always enabled) -->
             <div></div>
             <button id="btnEditOffice" style="padding:6px 10px;border-radius:6px;border:1px solid #ccc;background:#fff;cursor:pointer">Change Capacity</button>
-        </div>
+        </div> 
 
         <!-- Office info table removed; only Request button remains -->
 
         <!-- Edit Modal (updated: include editable Requested Limit + Reason) -->
         <div id="officeModal" style="display:none;position:fixed;left:0;top:0;right:0;bottom:0;background:rgba(0,0,0,0.35);align-items:center;justify-content:center;">
-            <div style="background:#fff;padding:18px;border-radius:8px;width:420px;box-shadow:0 8px 30px rgba(0,0,0,0.12);">
+                <div style="background:#fff;padding:18px;border-radius:8px;width:420px;box-shadow:0 8px 30px rgba(0,0,0,0.12);box-sizing:border-box;">
                 <h4 style="margin:0 0 8px 0">Change Capacity</h4>
                 <div style="display:grid;gap:8px;margin-top:8px">
-                    <label>Capacity <input id="m_current_limit" readonly value="<?= htmlspecialchars($curLimit) ?>" style="width:100%;padding:8px;border-radius:6px;border:1px solid #ddd"></label>
-                    <label>Available Slots <input id="m_available_slots" readonly value="<?= $available_slots ?>" style="width:100%;padding:8px;border-radius:6px;border:1px solid #ddd"></label>
-
-                    <!-- Editable field required for submitting the change -->
-                    <label>Requested Capacity <input id="m_requested_limit" type="number" min="0" style="width:100%;padding:8px;border-radius:6px;border:1px solid #ddd" required></label>
+                    <div style="display:block;margin:0">
+                      <input id="m_requested_limit" type="number" min="0" style="width:100%;padding:8px;border-radius:6px;border:1px solid #ddd;box-sizing:border-box;" required aria-label="New capacity" placeholder="">
+                    </div>
                     
                     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:6px">
                         <button id="m_cancel" style="padding:8px 10px;border-radius:6px;border:1px solid #ccc;background:#fff;cursor:pointer">Cancel</button>
@@ -1083,7 +1081,7 @@ $late_dtr_res = $late_dtr->get_result();
     e.preventDefault();
     const requestedRaw = (mRequested.value || '').trim();
     if (requestedRaw === ''){
-      alert('Requested capacity is required.');
+      alert('Please enter the new capacity.');
       mRequested.focus();
       return;
     }
@@ -1094,12 +1092,12 @@ $late_dtr_res = $late_dtr->get_result();
       return;
     }
     if (requested < OCCUPIED){
-      alert('Requested capacity cannot be less than current number of OJTs (' + OCCUPIED + ').');
+      alert('New capacity cannot be less than current number of OJTs (' + OCCUPIED + ').');
       mRequested.focus();
       return;
     }
     if (requested === CURRENT_LIMIT){
-      alert('Requested capacity is the same as the current capacity. No change submitted.');
+      alert('New capacity is the same as the current capacity. No change submitted.');
       mRequested.focus();
       return;
     }
