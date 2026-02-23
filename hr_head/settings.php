@@ -131,6 +131,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             }
 
+            // ensure new email is unique across users and students (unless unchanged)
+            if (!$noChange && $email_post !== '' && $email_post !== ($cur_email ?? '')) {
+                // check users table (other users)
+                $dup = false;
+                $s1 = $conn->prepare('SELECT user_id FROM users WHERE email = ? AND user_id <> ? LIMIT 1');
+                if ($s1) {
+                    $s1->bind_param('si', $email_post, $user_id);
+                    $s1->execute();
+                    $r1 = $s1->get_result();
+                    if ($r1 && $r1->num_rows > 0) $dup = true;
+                    $s1->close();
+                }
+                // check students table
+                if (!$dup) {
+                    $s2 = $conn->prepare('SELECT student_id FROM students WHERE email = ? LIMIT 1');
+                    if ($s2) {
+                        $s2->bind_param('s', $email_post);
+                        $s2->execute();
+                        $r2 = $s2->get_result();
+                        if ($r2 && $r2->num_rows > 0) $dup = true;
+                        $s2->close();
+                    }
+                }
+                if ($dup) {
+                    $_SESSION['settings_flash'] = ['message' => 'Email address is already in use.', 'type' => 'error'];
+                    header('Location: settings.php');
+                    exit;
+                }
+            }
+
             if ($noChange) {
                 $_SESSION['settings_flash'] = ['message' => 'No changes to save.', 'type' => 'error'];
                 header('Location: settings.php');
