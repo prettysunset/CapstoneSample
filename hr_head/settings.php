@@ -542,6 +542,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             let currentValid = false;
             let checkTimer = null;
             const pwForm = document.getElementById('pwForm');
+            // initially prevent typing in new/confirm until current password is verified
+            if (newPw) newPw.disabled = true;
+            if (confPw) confPw.disabled = true;
 
             function checkCurrentServer(){
                 if (!curPw || !curPw.value) { currentValid = false; if(currentMsg) currentMsg.textContent=''; check(); return; }
@@ -551,13 +554,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         const valueSent = curPw.value.trim();
                         fetch('settings.php', {method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body: new URLSearchParams({action:'check_current', current_password: valueSent})})
                             .then(r=>r.json())
-                            .then(j=>{
-                                // ensure response applies to the current input (avoid race)
-                                if (curPw.value !== valueSent) return; 
-                                                currentValid = !!j.match;
-                                                if (currentMsg) currentMsg.textContent = currentValid ? '' : 'Current password does not match.';
-                                                check();
-                            }).catch(e=>{ if (curPw.value === valueSent) { currentValid = false; if (currentMsg) currentMsg.textContent=''; check(); } });
+                                .then(j=>{
+                                    // ensure response applies to the current input (avoid race)
+                                    if (curPw.value !== valueSent) return;
+                                    currentValid = !!j.match;
+                                    // enable/disable new password fields depending on current password validity
+                                    if (newPw) newPw.disabled = !currentValid;
+                                    if (confPw) confPw.disabled = !currentValid;
+                                    if (!currentValid) {
+                                        if (newPw) { newPw.value = ''; newPw.classList.remove('invalid'); }
+                                        if (confPw) { confPw.value = ''; confPw.classList.remove('invalid'); }
+                                    }
+                                    if (currentMsg) currentMsg.textContent = currentValid ? '' : 'Current password does not match.';
+                                    check();
+                                }).catch(e=>{ if (curPw.value === valueSent) { currentValid = false; if (newPw) newPw.disabled = true; if (confPw) confPw.disabled = true; if (currentMsg) currentMsg.textContent=''; check(); } });
                     }, 350);
             }
 

@@ -2072,6 +2072,23 @@ async function submitEdit(){
       openBtn.addEventListener('click', function(ev){ ev.preventDefault(); showSettings(); });
       settingsOverlay.addEventListener('click', function(e){ if (e.target === settingsOverlay) hideSettings(); });
     })();
+    // listen for updates from the settings iframe and patch the sidebar/profile in-place
+  (function(){
+    window.addEventListener('message', function(e){
+      try{
+        var d = e && e.data ? e.data : null;
+        if (!d || d.type !== 'profile-updated') return;
+        if (typeof d.avatar !== 'undefined' && d.avatar) {
+          var img = document.querySelector('.profile img');
+          if (img) img.src = d.avatar;
+        }
+        if (typeof d.name !== 'undefined') {
+          var h = document.querySelector('.profile h3');
+          if (h) h.textContent = d.name;
+        }
+      }catch(err){}
+    });
+  })();
   </script>
 
 <script>
