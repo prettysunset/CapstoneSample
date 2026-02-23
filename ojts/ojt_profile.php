@@ -252,8 +252,9 @@ if ($user_id) {
 <body>
     <!-- top-right outline icons: notifications, settings, logout -->
     <div id="top-icons" style="position:fixed;top:18px;right:28px;display:flex;gap:14px;z-index:1200;">
-        <a href="notifications.php" title="Notifications" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;">
+        <a id="btnNotif" href="#" title="Notifications" aria-haspopup="dialog" aria-expanded="false" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;position:relative;">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 17h5l-1.405-1.405A2.032 2.032 0 0 1 18 14.158V11a6 6 0 1 0-12 0v3.159c0 .538-.214 1.055-.595 1.436L4 17h5"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
+          <span class="notif-count" aria-hidden="true" style="position:absolute;top:-4px;right:-4px;min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:#ef4444;color:#fff;font-size:11px;line-height:18px;text-align:center;display:none;">0</span>
         </a>
         <button id="btnSettings" type="button" title="Settings" aria-label="Settings" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;background:transparent;border:0;box-shadow:none;cursor:pointer;">
            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06A2 2 0 1 1 2.28 16.8l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09c.7 0 1.3-.4 1.51-1A1.65 1.65 0 0 0 4.27 6.3L4.2 6.23A2 2 0 1 1 6 3.4l.06.06c.5.5 1.2.7 1.82.33.7-.4 1.51-.4 2.21 0 .62.37 1.32.17 1.82-.33L12.6 3.4a2 2 0 1 1 1.72 3.82l-.06.06c-.5.5-.7 1.2-.33 1.82.4.7.4 1.51 0 2.21-.37.62-.17 1.32.33 1.82l.06.06A2 2 0 1 1 19.4 15z"></path>
@@ -1328,8 +1329,9 @@ if ($user_id) {
         attachConfirm('btnLogout');
         attachConfirm('sidebar-logout');
         // keep small handlers for notif/settings
+        // notifications are handled via the shared notification overlay; remove legacy alert handler
         var n = document.getElementById('btnNotif');
-        if (n) n.addEventListener('click', function(e){ e.preventDefault(); alert('Walang bagong notification ngayon.'); });
+        if (n) n.addEventListener('click', function(e){ e.preventDefault(); /* noop - notifications handled elsewhere */ });
         // settings overlay is handled separately; do not navigate away here
       })();
     </script>
@@ -1467,6 +1469,93 @@ if ($user_id) {
                 window.addEventListener('hashchange', activateIfUploadRedirect);
                 document.addEventListener('DOMContentLoaded', function(){ setTimeout(activateIfUploadRedirect, 20); });
             })();
+
+            // Notification overlay (iframe to notif.php)
+(function(){
+  const notifBtn = document.getElementById('btnNotif');
+  if (!notifBtn) return;
+  const badge = notifBtn.querySelector('.notif-count');
+
+  let overlay = document.getElementById('notifOverlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'notifOverlay';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-hidden', 'true');
+    overlay.style.position = 'fixed';
+    overlay.style.inset = '0';
+    overlay.style.display = 'none';
+    overlay.style.alignItems = 'flex-start';
+    overlay.style.justifyContent = 'flex-end';
+    overlay.style.padding = '18px';
+    overlay.style.background = 'rgba(15, 23, 42, 0.25)';
+    overlay.style.zIndex = '10050';
+    overlay.innerHTML =
+      '<div style="width:360px;max-width:calc(100% - 32px);height:600px;max-height:calc(100vh - 36px);background:#fff;border-radius:16px;box-shadow:0 18px 45px rgba(15, 23, 42, 0.18);overflow:hidden;">' +
+      '<iframe src="notif.php?embed=1" title="Notifications" style="width:100%;height:100%;border:0;"></iframe>' +
+      '</div>';
+    document.body.appendChild(overlay);
+  }
+
+  notifBtn.setAttribute('aria-haspopup', 'dialog');
+  notifBtn.setAttribute('aria-expanded', 'false');
+
+  function setBadge(count) {
+    if (!badge) return;
+    const num = parseInt(count || 0, 10) || 0;
+    if (num > 0) {
+      badge.textContent = num;
+      badge.style.display = 'inline-flex';
+    } else {
+      badge.textContent = '0';
+      badge.style.display = 'none';
+    }
+  }
+
+  try {
+    const saved = localStorage.getItem('notifUnread');
+    if (saved !== null) setBadge(saved);
+  } catch (e) {
+    // ignore storage errors
+  }
+
+  window.addEventListener('message', function(e){
+    if (e && e.data && e.data.type === 'notif-count') {
+      setBadge(e.data.unread);
+    }
+  });
+
+  function openPanel() {
+    overlay.style.display = 'flex';
+    overlay.setAttribute('aria-hidden', 'false');
+    notifBtn.setAttribute('aria-expanded', 'true');
+  }
+
+  function closePanel() {
+    overlay.style.display = 'none';
+    overlay.setAttribute('aria-hidden', 'true');
+    notifBtn.setAttribute('aria-expanded', 'false');
+  }
+
+  window.closeNotifOverlay = closePanel;
+
+  notifBtn.addEventListener('click', function(e){
+    e.preventDefault();
+    if (overlay.style.display === 'flex') {
+      closePanel();
+    } else {
+      openPanel();
+    }
+  });
+
+  overlay.addEventListener('click', function(e){
+    if (e.target === overlay) closePanel();
+  });
+
+  document.addEventListener('keydown', function(e){
+    if (e.key === 'Escape') closePanel();
+  });
+})();
         </script>
 </body>
 </html>
