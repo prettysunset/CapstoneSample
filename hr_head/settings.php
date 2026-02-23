@@ -112,9 +112,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $fn = trim($_POST['first_name'] ?? '');
             $mn = trim($_POST['middle_name'] ?? '');
             $ln = trim($_POST['last_name'] ?? '');
-            $up = $conn->prepare('UPDATE users SET first_name = ?, middle_name = ?, last_name = ? WHERE user_id = ?');
+            $email_post = trim($_POST['email'] ?? '');
+
+            // Check for no-op: if nothing changed (and no avatar uploaded), skip update
+            $noChange = false;
+            $chk = $conn->prepare('SELECT first_name, middle_name, last_name, email FROM users WHERE user_id = ?');
+            if ($chk) {
+                $chk->bind_param('i', $user_id);
+                $chk->execute();
+                $cres = $chk->get_result()->fetch_assoc() ?: [];
+                $chk->close();
+                $cur_fn = $cres['first_name'] ?? '';
+                $cur_mn = $cres['middle_name'] ?? '';
+                $cur_ln = $cres['last_name'] ?? '';
+                $cur_email = $cres['email'] ?? '';
+                if (!$avatarUpdated && $fn === $cur_fn && $mn === $cur_mn && $ln === $cur_ln && $email_post === $cur_email) {
+                    $noChange = true;
+                }
+            }
+
+            if ($noChange) {
+                $_SESSION['settings_flash'] = ['message' => 'No changes to save.', 'type' => 'error'];
+                header('Location: settings.php');
+                exit;
+            }
+
+            $up = $conn->prepare('UPDATE users SET first_name = ?, middle_name = ?, last_name = ?, email = ? WHERE user_id = ?');
             if ($up) {
-                $up->bind_param('sssi', $fn, $mn, $ln, $user_id);
+                $up->bind_param('ssssi', $fn, $mn, $ln, $email_post, $user_id);
                 if ($up->execute()) {
                     // use POST-Redirect-GET so the latest values (and uploaded avatar) are reloaded from DB
                     $_SESSION['settings_flash'] = ['message' => 'Profile updated.', 'type' => 'success'];
@@ -139,13 +164,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } elseif ($new_password !== $confirm_password) {
             $message = 'New passwords do not match.'; $messageType = 'error';
         } elseif (
+            strlen($new_password) < 8 ||
             !preg_match('/[A-Z]/', $new_password) ||
-            !preg_match('/[a-z]/', $new_password) ||
-            !preg_match('/[0-9]/', $new_password) ||
-            !preg_match('/[^A-Za-z0-9]/', $new_password) ||
-            strlen($new_password) < 12
+            !preg_match('/[0-9]/', $new_password)
         ) {
-            $message = 'Password must be at least 12 characters and include uppercase, lowercase, number, and special character.'; $messageType = 'error';
+            $message = 'Password must be at least 8 characters and include at least one uppercase letter and one number.'; $messageType = 'error';
         } else {
             $stmt = $conn->prepare('SELECT password FROM users WHERE user_id = ?');
             if (!$stmt) {
@@ -237,7 +260,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         .pw-title,.profile-title{font-size:24px;font-weight:600;margin-bottom:18px;color:#111}
         .pw-card .field,.profile-card .field{margin-bottom:18px}
         .pw-card .label-row,.profile-card .label-row{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600;color:#111;margin-bottom:8px}
-        .pw-card .status-dot{width:14px;height:14px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;background:#dcfce7;color:#16a34a;font-size:10px}
+        /* status-dot removed */
         .pw-card .input-wrap,.profile-card .input-wrap{position:relative}
         .pw-card .input,.profile-card .input{width:100%;padding:12px 44px 12px 14px;border-radius:10px;border:1px solid #e5e7eb;outline:none;font-size:14px;transition:border 0.2s, box-shadow 0.2s;background:#fff}
         .pw-card .input:focus,.profile-card .input:focus{border-color:#3b82f6;box-shadow:0 0 0 3px rgba(59,130,246,0.15)}
@@ -267,7 +290,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <?php echo htmlspecialchars($message); ?>
         </div>
     </div>
-    <script>setTimeout(()=>{try{document.getElementById('settingsFullMsg')?.remove();}catch(e){}},2500);</script>
+    <script>
+        setTimeout(()=>{
+            try{
+                document.getElementById('settingsFullMsg')?.remove();
+                // if opened as an overlay inside a parent page, notify parent so it can update UI without a full reload
+                if (window.parent && window.parent !== window) {
+                    try{
+                        const payload = {
+                            type: 'profile-updated',
+                            name: <?php echo json_encode(trim(($first_name.' '.($middle_name ? $middle_name.' ' : '').$last_name))); ?>,
+                            avatar: <?php echo json_encode($avatarPath ?? ''); ?>
+                        };
+                        window.parent.postMessage(payload, '*');
+                    }catch(e){}
+                }
+            }catch(e){}
+        },2000);
+    </script>
     <?php endif; ?>
     <div class="outer" style="width:100%;max-width:1180px;margin:18px auto;padding:0 18px;">
         <div class="card-profile" role="region" aria-label="Profile Settings" style="background:transparent;">
@@ -327,7 +367,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                     <div class="field" style="max-width:520px">
                                         <div class="label-row"><span>Email Address</span></div>
                                         <div class="input-wrap">
-                                            <input id="emailAddr" class="input prefill-target readonly" type="email" name="email" value="<?php echo htmlspecialchars($email); ?>" readonly>
+                                            <input id="emailAddr" class="input prefill-target" type="email" name="email" value="<?php echo htmlspecialchars($email); ?>">
                                         </div>
                                     </div>
 
@@ -349,7 +389,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                     <div class="field">
                                         <div class="label-row">
                                             <span>Old Password</span>
-                                            <span class="status-dot">✓</span>
                                         </div>
                                         <div class="input-wrap">
                                             <input class="input" type="password" name="current_password" id="current_password" required>
@@ -376,12 +415,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                                 </svg>
                                             </button>
                                         </div>
-                                        <div class="helper-text" id="password_hint">Please add all necessary characters to create safe password.</div>
+                                        <div class="helper-text" id="password_hint">At least 8 characters, include one uppercase and one number.</div>
                                         <div class="rules">
-                                            <div class="rule" id="rule-length"><span class="bullet"></span>Minimum characters 12</div>
+                                            <div class="rule" id="rule-length"><span class="bullet"></span>Minimum characters 8</div>
                                             <div class="rule" id="rule-upper"><span class="bullet"></span>One uppercase character</div>
-                                            <div class="rule" id="rule-lower"><span class="bullet"></span>One lowercase character</div>
-                                            <div class="rule" id="rule-special"><span class="bullet"></span>One special character</div>
                                             <div class="rule" id="rule-number"><span class="bullet"></span>One number</div>
                                         </div>
                                     </div>
@@ -500,8 +537,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             const rules = {
                 length: document.getElementById('rule-length'),
                 upper: document.getElementById('rule-upper'),
-                lower: document.getElementById('rule-lower'),
-                special: document.getElementById('rule-special'),
                 number: document.getElementById('rule-number')
             };
             let currentValid = false;
@@ -519,9 +554,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             .then(j=>{
                                 // ensure response applies to the current input (avoid race)
                                 if (curPw.value !== valueSent) return; 
-                                currentValid = !!j.match;
-                                if (currentMsg) currentMsg.textContent = currentValid ? '' : 'Current password does not match.';
-                                check();
+                                                currentValid = !!j.match;
+                                                if (currentMsg) currentMsg.textContent = currentValid ? '' : 'Current password does not match.';
+                                                check();
                             }).catch(e=>{ if (curPw.value === valueSent) { currentValid = false; if (currentMsg) currentMsg.textContent=''; check(); } });
                     }, 350);
             }
@@ -533,19 +568,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             function check(){
                 const v = newPw && newPw.value ? newPw.value : '';
-                const hasLength = v.length >= 12;
+                const hasLength = v.length >= 8;
                 const hasUpper = /[A-Z]/.test(v);
-                const hasLower = /[a-z]/.test(v);
-                const hasSpecial = /[^A-Za-z0-9]/.test(v);
                 const hasNumber = /[0-9]/.test(v);
 
                 toggleRule(rules.length, hasLength);
                 toggleRule(rules.upper, hasUpper);
-                toggleRule(rules.lower, hasLower);
-                toggleRule(rules.special, hasSpecial);
                 toggleRule(rules.number, hasNumber);
 
-                const allValid = hasLength && hasUpper && hasLower && hasSpecial && hasNumber;
+                const allValid = hasLength && hasUpper && hasNumber;
                 if (newPw) newPw.classList.toggle('invalid', !allValid && v.length > 0);
                 if (pwHint) pwHint.style.visibility = allValid || v.length === 0 ? 'hidden' : 'visible';
 
@@ -617,6 +648,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     el.dataset.modified = '1';
                 });
             });
+            
             // auto-hide flash after 3 seconds
             const flash = document.getElementById('settingsFlash');
             if (flash){ setTimeout(()=>{ try{ flash.style.display='none' }catch(e){} }, 3000); }
@@ -646,6 +678,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         const el = document.getElementById(id);
                         if (el) el.value = '';
                     }
+                    
                 }catch(e){}
             }
 
@@ -689,8 +722,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <script>
         try{
             if (window.parent && window.parent !== window){
-                const pi = window.parent.document.querySelector('.profile img');
-                if (pi) pi.src = '<?php echo htmlspecialchars($avatarPath, ENT_QUOTES); ?>';
+                const payload = {
+                    type: 'profile-updated',
+                    name: <?php echo json_encode(trim(($first_name.' '.($middle_name ? $middle_name.' ' : '').$last_name))); ?>,
+                    avatar: <?php echo json_encode($avatarPath ?? ''); ?>
+                };
+                window.parent.postMessage(payload, '*');
             }
         }catch(e){}
     </script>
