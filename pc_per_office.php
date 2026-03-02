@@ -103,6 +103,54 @@ function mark_user_and_student_completed_if_done($conn, $user_id, $student_id) {
             if ($u) { $u->bind_param('i', $user_id); $u->execute(); $u->close(); }
             $s = $conn->prepare("UPDATE students SET status = 'completed', synced = 0 WHERE student_id = ?");
             if ($s) { $s->bind_param('i', $student_id); $s->execute(); $s->close(); }
+
+            // create notification: notify HR head, HR staff, the OJT user, and the office head(s)
+            try {
+                // student display name
+                $full = '';
+                $sn = $conn->prepare("SELECT CONCAT(IFNULL(first_name,''),' ',IFNULL(last_name,'')) AS full FROM students WHERE student_id = ? LIMIT 1");
+                if ($sn) { $sn->bind_param('i', $student_id); $sn->execute(); $sres = $sn->get_result(); if ($sres && $r = $sres->fetch_assoc()) $full = trim($r['full']); $sn->close(); }
+                if ($full === '') $full = 'OJT';
+
+                // office name of the OJT (from users table)
+                $officeName = '';
+                $ou = $conn->prepare("SELECT office_name FROM users WHERE user_id = ? LIMIT 1");
+                if ($ou) { $ou->bind_param('i', $user_id); $ou->execute(); $ou->bind_result($officeName); $ou->fetch(); $ou->close(); }
+
+                // preload HR lists
+                $hrStaff = [];
+                $resH = $conn->query("SELECT user_id FROM users WHERE role = 'hr_staff' AND status = 'active'");
+                if ($resH) { while ($rr = $resH->fetch_assoc()) $hrStaff[] = (int)$rr['user_id']; $resH->free(); }
+                $hrHead = [];
+                $resHH = $conn->query("SELECT user_id FROM users WHERE role = 'hr_head' AND status = 'active'");
+                if ($resHH) { while ($rr = $resHH->fetch_assoc()) $hrHead[] = (int)$rr['user_id']; $resHH->free(); }
+
+                // office heads (no status filter)
+                $officeHeads = [];
+                if (!empty($officeName)) {
+                    $oh = $conn->prepare("SELECT user_id FROM users WHERE role = 'office_head' AND office_name = ?");
+                    if ($oh) { $oh->bind_param('s', $officeName); $oh->execute(); $resOH = $oh->get_result(); while ($r = $resOH->fetch_assoc()) $officeHeads[] = (int)$r['user_id']; $oh->close(); }
+                }
+
+                // assemble recipients (HR head(s), HR staff(s), the OJT user, office head(s))
+                $recipients = [];
+                foreach ($hrHead as $u) $recipients[] = $u;
+                foreach ($hrStaff as $u) $recipients[] = $u;
+                $recipients[] = (int)$user_id;
+                foreach ($officeHeads as $u) $recipients[] = $u;
+                $recipients = array_values(array_unique(array_filter($recipients, function($v){ return intval($v) > 0; })));
+
+                if (!empty($recipients)) {
+                    $dateLabel = date('F j, Y');
+                    $msg = "OJT Completion: {$full} has successfully completed the required internship hours.";
+                    $ins = $conn->prepare("INSERT INTO notifications (message) VALUES (?)");
+                    if ($ins) { $ins->bind_param('s', $msg); $ins->execute(); $nid = $conn->insert_id; $ins->close();
+                        $ins2 = $conn->prepare("INSERT INTO notification_users (notification_id, user_id, is_read) VALUES (?, ?, 0)");
+                        if ($ins2) { foreach ($recipients as $uid) { $uI = (int)$uid; $ins2->bind_param('ii', $nid, $uI); $ins2->execute(); } $ins2->close(); }
+                    }
+                }
+            } catch (Exception $e) { /* ignore notification failures */ }
+
             return true;
         }
     } catch (Exception $e) {
