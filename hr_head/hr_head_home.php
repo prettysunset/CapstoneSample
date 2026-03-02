@@ -3,6 +3,95 @@ session_start();
 date_default_timezone_set('Asia/Manila');
 require_once __DIR__ . '/../conn.php';
 
+// AJAX handler: create notification when an application is approved
+// This lets the frontend call this page to insert notifications for HR staff
+// and office heads without modifying hr_actions.php.
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+  $ct = isset($_SERVER['CONTENT_TYPE']) ? trim($_SERVER['CONTENT_TYPE']) : '';
+  // accept JSON only for this handler
+  if (stripos($ct, 'application/json') !== false) {
+    $raw = file_get_contents('php://input');
+    $data = json_decode($raw, true);
+    if (is_array($data) && !empty($data['action']) && $data['action'] === 'create_approval_notification') {
+      header('Content-Type: application/json');
+      try {
+        $student_name = trim((string)($data['student_name'] ?? ''));
+        $office_id = isset($data['assigned_office_id']) ? intval($data['assigned_office_id']) : 0;
+        $office_name = '';
+        if ($office_id > 0) {
+          $s = $conn->prepare("SELECT office_name FROM offices WHERE office_id = ? LIMIT 1");
+          if ($s) {
+            $s->bind_param('i', $office_id);
+            $s->execute();
+            $s->bind_result($office_name);
+            $s->fetch();
+            $s->close();
+          }
+        }
+
+        // format date/time for message
+        $od = isset($data['orientation_date']) ? trim((string)$data['orientation_date']) : '';
+        $ot = isset($data['orientation_time']) ? trim((string)$data['orientation_time']) : '';
+        $dtPart = '';
+        if ($od !== '') {
+          $dtPart = $od;
+          if ($ot !== '') $dtPart .= ' ' . $ot;
+        }
+
+        $officeDisplay = $office_name ?: ($data['assigned_office_name'] ?? '');
+        $msg = 'Application Approved: ' . ($student_name ?: 'Applicant') . ' has been approved for ' . ($officeDisplay ?: 'the assigned office') . '.';
+        if ($dtPart !== '') $msg .= ' Orientation is scheduled on ' . $dtPart . '.';
+
+        // collect recipients: hr_staff (active) and office_head(s) for the office
+        $recipients = [];
+        $r = $conn->query("SELECT user_id FROM users WHERE role = 'hr_staff' AND status = 'active'");
+        if ($r) {
+          while ($rr = $r->fetch_assoc()) $recipients[] = (int)$rr['user_id'];
+          $r->free();
+        }
+
+        if (!empty($officeDisplay)) {
+          $oh = $conn->prepare("SELECT user_id FROM users WHERE role = 'office_head' AND office_name = ? AND status = 'active'");
+          if ($oh) {
+            $oh->bind_param('s', $officeDisplay);
+            $oh->execute();
+            $res = $oh->get_result();
+            while ($rr = $res->fetch_assoc()) $recipients[] = (int)$rr['user_id'];
+            $oh->close();
+          }
+        }
+
+        // dedupe
+        $recipients = array_values(array_unique(array_filter($recipients, function($v){ return $v > 0; })));
+
+        if (!empty($recipients)) {
+          $ins = $conn->prepare("INSERT INTO notifications (message) VALUES (?)");
+          if ($ins) {
+            $ins->bind_param('s', $msg);
+            $ins->execute();
+            $nid = $conn->insert_id;
+            $ins->close();
+
+            $ins2 = $conn->prepare("INSERT INTO notification_users (notification_id, user_id, is_read) VALUES (?, ?, 0)");
+            if ($ins2) {
+              foreach ($recipients as $uid) {
+                $ins2->bind_param('ii', $nid, $uid);
+                $ins2->execute();
+              }
+              $ins2->close();
+            }
+          }
+        }
+
+        echo json_encode(['success' => true]);
+      } catch (Exception $e) {
+        echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+      }
+      exit;
+    }
+  }
+}
+
 // require login
 if (!isset($_SESSION['user_id'])) {
     header("Location: ../login.php");
@@ -1607,6 +1696,25 @@ function sendApproval(){
                   if (res.debug) statusEl.textContent += ' See debug.';
                   console.warn(res.debug || res.error || '');
               }
+
+                    // create notifications for HR staff and office head(s)
+                    try {
+                      const studentName = (document.getElementById('modal_name') && document.getElementById('modal_name').textContent) ? document.getElementById('modal_name').textContent.trim() : '';
+                      const notifPayload = {
+                        action: 'create_approval_notification',
+                        student_name: studentName,
+                        assigned_office_id: payload.assigned_office_id || 0,
+                        assigned_office_name: (document.getElementById('modal_office_display') && document.getElementById('modal_office_display').value) ? document.getElementById('modal_office_display').value.trim() : '',
+                        orientation_date: payload.orientation_date || '',
+                        orientation_time: payload.orientation_time || ''
+                      };
+                      // fire-and-forget; don't block UI
+                      fetch(window.location.pathname, {
+                        method: 'POST',
+                        headers: {'Content-Type':'application/json'},
+                        body: JSON.stringify(notifPayload)
+                      }).catch(e => console.warn('Notification creation failed', e));
+                    } catch (e) { console.warn('Notification payload error', e); }
 
               // give user a short moment to see the message, then close modal and reload to reflect DB status change
               setTimeout(() => {
