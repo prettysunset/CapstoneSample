@@ -34,8 +34,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $ot = isset($data['orientation_time']) ? trim((string)$data['orientation_time']) : '';
         $dtPart = '';
         if ($od !== '') {
-          $dtPart = $od;
-          if ($ot !== '') $dtPart .= ' ' . $ot;
+          // build a parseable datetime; if time omitted use 00:00
+          $tsInput = $od . ' ' . ($ot !== '' ? $ot : '00:00');
+          $ts = strtotime($tsInput);
+          if ($ts !== false) {
+            $datePart = date('F j, Y', $ts); // e.g. February 2, 2026
+            $timePart = '';
+            if ($ot !== '') {
+              // format hour:minute AM/PM then inject dots: A.M. / P.M.
+              $timePart = date('g:i A', $ts); // e.g. 8:30 AM
+              $timePart = str_replace(['AM','PM'], ['A.M.','P.M.'], $timePart);
+            }
+            $dtPart = trim($datePart . ($timePart !== '' ? ' ' . $timePart : ''));
+          } else {
+            // fallback to raw values
+            $dtPart = $od . ($ot !== '' ? ' ' . $ot : '');
+          }
         }
 
         $officeDisplay = $office_name ?: ($data['assigned_office_name'] ?? '');

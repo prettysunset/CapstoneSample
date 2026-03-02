@@ -349,6 +349,118 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && strpos($_SERVER['CONTENT_TYPE'] ?? 
       }
       $movedStudentIds = array_values(array_unique(array_filter($movedStudentIds)));
 
+      // --- Create notifications for rescheduled students ---
+      try {
+        if (!empty($movedStudentIds) && isset($conn)) {
+          if (session_status() !== PHP_SESSION_ACTIVE) @session_start();
+          $actorUserId = isset($_SESSION['user_id']) ? (int)$_SESSION['user_id'] : null;
+          $actorRole = isset($_SESSION['role']) ? trim((string)$_SESSION['role']) : '';
+          if (empty($actorRole) && $actorUserId) {
+            $sr = $conn->prepare("SELECT role FROM users WHERE user_id = ? LIMIT 1");
+            if ($sr) { $sr->bind_param('i', $actorUserId); $sr->execute(); $sr->bind_result($actorRole); $sr->fetch(); $sr->close(); }
+          }
+
+          // fetch student info
+          $ids = array_map('intval', $movedStudentIds);
+          $in = implode(',', $ids);
+          $students = [];
+          $resS = $conn->query("SELECT student_id, user_id, first_name, last_name, email FROM students WHERE student_id IN ($in)");
+          if ($resS) { while ($r = $resS->fetch_assoc()) { $students[(int)$r['student_id']] = $r; } $resS->free(); }
+
+          // preload HR lists
+          $hrStaff = []; $resH = $conn->query("SELECT user_id FROM users WHERE role = 'hr_staff' AND status = 'active'"); if ($resH) { while ($rr = $resH->fetch_assoc()) $hrStaff[] = (int)$rr['user_id']; $resH->free(); }
+          $hrHead = []; $resHH = $conn->query("SELECT user_id FROM users WHERE role = 'hr_head' AND status = 'active'"); if ($resHH) { while ($rr = $resHH->fetch_assoc()) $hrHead[] = (int)$rr['user_id']; $resHH->free(); }
+
+          foreach ($students as $stuId => $sinfo) {
+            $full = trim(($sinfo['first_name'] ?? '') . ' ' . ($sinfo['last_name'] ?? '')) ?: 'Applicant';
+            $email = $sinfo['email'] ?? '';
+
+            // find OJT user account and office using students.user_id -> users.user_id
+            $ojtUsers = [];
+            $officeName = '';
+            $stuUserId = isset($sinfo['user_id']) ? (int)$sinfo['user_id'] : 0;
+            if ($stuUserId > 0) {
+              $q = $conn->prepare("SELECT user_id, office_name FROM users WHERE user_id = ? LIMIT 1");
+              if ($q) {
+                $q->bind_param('i', $stuUserId);
+                $q->execute();
+                $resQ = $q->get_result();
+                if ($resQ) { while ($rr = $resQ->fetch_assoc()) $ojtUsers[] = $rr; $resQ->free(); }
+                $q->close();
+              }
+            }
+            if (!empty($ojtUsers) && !empty($ojtUsers[0]['office_name'])) {
+              $officeName = $ojtUsers[0]['office_name'];
+            } else {
+              // try to resolve office from ojt_applications as a fallback (use latest application for the student)
+              try {
+                $appQ = $conn->prepare("SELECT office_preference1, office_preference2 FROM ojt_applications WHERE student_id = ? ORDER BY application_id DESC LIMIT 1");
+                if ($appQ) {
+                  $appQ->bind_param('i', $stuId);
+                  $appQ->execute();
+                  $appR = $appQ->get_result();
+                  if ($appR && $ar = $appR->fetch_assoc()) {
+                    $pref = $ar['office_preference1'] ?: $ar['office_preference2'];
+                    if (!empty($pref)) {
+                      // pref is likely an office_id — resolve office_name
+                      $os = $conn->prepare("SELECT office_name FROM offices WHERE office_id = ? LIMIT 1");
+                      if ($os) { $os->bind_param('i', $pref); $os->execute(); $os->bind_result($oname); $os->fetch(); $os->close(); if (!empty($oname)) $officeName = $oname; }
+                    }
+                  }
+                  $appQ->close();
+                }
+              } catch (Exception $e) { /* ignore fallback failures */ }
+            }
+
+            $recipients = [];
+            foreach ($ojtUsers as $ou) $recipients[] = (int)$ou['user_id'];
+
+            if ($officeName !== '') {
+              $oh = $conn->prepare("SELECT user_id FROM users WHERE role = 'office_head' AND office_name = ?");
+              if ($oh) { $oh->bind_param('s', $officeName); $oh->execute(); $resOH = $oh->get_result(); while ($r = $resOH->fetch_assoc()) $recipients[] = (int)$r['user_id']; $oh->close(); }
+            }
+
+            // HR notification selection per requirements
+            if ($actorRole === 'hr_head') {
+              foreach ($hrStaff as $u) $recipients[] = $u;
+            } else if ($actorRole === 'hr_staff') {
+              foreach ($hrHead as $u) $recipients[] = $u;
+            } else {
+              foreach ($hrStaff as $u) $recipients[] = $u;
+              foreach ($hrHead as $u) $recipients[] = $u;
+            }
+
+            // exclude actor
+            if ($actorUserId) { $recipients = array_filter($recipients, function($v) use ($actorUserId){ return intval($v) !== intval($actorUserId); }); }
+            $recipients = array_values(array_unique(array_filter($recipients, function($v){ return intval($v) > 0; })));
+
+            if (!empty($recipients)) {
+              // format datetime
+              $useT = $useTime ?? '';
+              $dtPart = '';
+              if (!empty($targetDate)) {
+                $tsInput = $targetDate . ' ' . ($useT !== '' ? $useT : '00:00');
+                $ts2 = strtotime($tsInput);
+                if ($ts2 !== false) {
+                  $dateLabel = date('F j, Y', $ts2);
+                  $timeLabel = '';
+                  if ($useT !== '') { $timeLabel = date('g:i A', $ts2); $timeLabel = str_replace(['AM','PM'], ['A.M.','P.M.'], $timeLabel); }
+                  $dtPart = trim($dateLabel . ($timeLabel !== '' ? ' at ' . $timeLabel : ''));
+                } else { $dtPart = $targetDate . ($useT !== '' ? ' at ' . $useT : ''); }
+              }
+
+              $msg = "Orientation Rescheduled: {$full}'s orientation is now scheduled on {$dtPart}.";
+
+              $ins = $conn->prepare("INSERT INTO notifications (message) VALUES (?)");
+              if ($ins) { $ins->bind_param('s', $msg); $ins->execute(); $nid = $conn->insert_id; $ins->close();
+                $ins2 = $conn->prepare("INSERT INTO notification_users (notification_id, user_id, is_read) VALUES (?, ?, 0)");
+                if ($ins2) { foreach ($recipients as $uid) { $uI = (int)$uid; $ins2->bind_param('ii', $nid, $uI); $ins2->execute(); } $ins2->close(); }
+              }
+            }
+          }
+        }
+      } catch (Exception $e) { error_log('Reschedule notification error: ' . $e->getMessage()); }
+
       // If the original session now has no assignments, delete it
       $deletedOriginal = false;
       try {
