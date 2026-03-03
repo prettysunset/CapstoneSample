@@ -1290,7 +1290,22 @@ if ($user_id) {
                                                     <tr>
                                                         <td style="padding:8px;border-top:1px solid #f1f4f8;color:#6b6f8b;"><?php echo !empty($ev['date_evaluated']) ? date('M j, Y', strtotime($ev['date_evaluated'])) : '-'; ?></td>
                                                         <td style="padding:8px;border-top:1px solid #f1f4f8;color:#2f3459;"><?php echo $ev['rating'] !== null ? htmlspecialchars($ev['rating']) : '-'; ?></td>
-                                                        <td style="padding:8px;border-top:1px solid #f1f4f8;color:#2f3459;"><?php echo htmlspecialchars($ev['rating_desc'] ?? '-'); ?></td>
+                                                        <td style="padding:8px;border-top:1px solid #f1f4f8;color:#2f3459;">
+                                                            <?php
+                                                            $rd_raw = $ev['rating_desc'] ?? '';
+                                                            $rd_display = '-';
+                                                            if (trim($rd_raw) !== '') {
+                                                                $parts = explode('|', $rd_raw, 2);
+                                                                if (count($parts) === 2) {
+                                                                    $after = trim($parts[1]);
+                                                                } else {
+                                                                    $after = trim($parts[0]);
+                                                                }
+                                                                $rd_display = $after !== '' ? $after : '-';
+                                                            }
+                                                            echo htmlspecialchars($rd_display);
+                                                            ?>
+                                                        </td>
                                                         <td style="padding:8px;border-top:1px solid #f1f4f8;color:#2f3459;"><?php echo !empty($ev['feedback']) ? nl2br(htmlspecialchars($ev['feedback'])) : '-'; ?></td>
                                                         <td style="padding:8px;border-top:1px solid #f1f4f8;color:#6b6f8b;">
                                                             <?php
