@@ -130,15 +130,41 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['action']) && $_POST[
 
         $status = ($valid_until && strtotime($valid_until) >= strtotime(date('Y-m-d'))) ? 'ACTIVE' : 'EXPIRED';
 
+        // create notifications for HR (exclude uploader), OJTs of the school, and office heads related to those OJTs
+        $uploader = (int)($_SESSION['user_id'] ?? 0);
+        $valid_display = $valid_until;
+        try { $dt = date_create($valid_until); if ($dt) $valid_display = date_format($dt, 'F j, Y'); } catch (Exception $e) {}
+        $msg = 'MOA Uploaded: The MOA with ' . $school . ' has been uploaded. Valid until ' . $valid_display . '.';
+
+        $recipients = [];
+        $r = $conn->query("SELECT user_id FROM users WHERE role IN ('hr_head','hr_staff') AND status = 'active'");
+        if ($r) { while ($rr = $r->fetch_assoc()) $recipients[] = (int)$rr['user_id']; $r->free(); }
+
+        $ojtStmt = $conn->prepare("SELECT u.user_id FROM users u JOIN students s ON s.user_id = u.user_id WHERE LOWER(TRIM(COALESCE(s.college,''))) = LOWER(TRIM(?)) AND u.role = 'ojt'");
+        if ($ojtStmt) { $ojtStmt->bind_param('s', $school); $ojtStmt->execute(); $res2 = $ojtStmt->get_result(); while ($rr = $res2->fetch_assoc()) $recipients[] = (int)$rr['user_id']; $ojtStmt->close(); }
+
+        $ohStmt = $conn->prepare("SELECT DISTINCT oh.user_id FROM users oh JOIN users ojt ON ojt.office_name = oh.office_name JOIN students s ON s.user_id = ojt.user_id WHERE oh.role = 'office_head' AND LOWER(TRIM(COALESCE(s.college,''))) = LOWER(TRIM(?))");
+        if ($ohStmt) { $ohStmt->bind_param('s', $school); $ohStmt->execute(); $res3 = $ohStmt->get_result(); while ($rr = $res3->fetch_assoc()) $recipients[] = (int)$rr['user_id']; $ohStmt->close(); }
+
+        $recipients = array_values(array_unique(array_filter($recipients, function($v) use ($uploader){ return $v > 0 && $v !== $uploader; })));
+
+        if (!empty($recipients)) {
+          $ins = $conn->prepare("INSERT INTO notifications (message) VALUES (?)");
+          if ($ins) { $ins->bind_param('s', $msg); $ins->execute(); $nid = $conn->insert_id; $ins->close();
+            $ins2 = $conn->prepare("INSERT INTO notification_users (notification_id, user_id, is_read) VALUES (?, ?, 0)");
+            if ($ins2) { foreach ($recipients as $uid) { $ins2->bind_param('ii', $nid, $uid); $ins2->execute(); } $ins2->close(); }
+          }
+        }
+
         header('Content-Type: application/json');
         echo json_encode(['success' => true, 'moa' => [
-            'moa_id' => (int)$insertId,
-            'school_name' => $school,
-            'moa_file' => $moa_file_path,
-            'date_signed' => $date_signed,
-            'valid_until' => $valid_until,
-            'students' => $students,
-            'status' => $status
+          'moa_id' => (int)$insertId,
+          'school_name' => $school,
+          'moa_file' => $moa_file_path,
+          'date_signed' => $date_signed,
+          'valid_until' => $valid_until,
+          'students' => $students,
+          'status' => $status
         ]]);
         exit;
     } else {
