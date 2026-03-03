@@ -131,7 +131,7 @@ function fetch_evaluations($conn){
   return $rows;
 }
 
-function fmtDate($d){ if (!$d) return '-'; $dt = date_create($d); return $dt ? $dt->format('M j, Y') : '-'; }
+function fmtDate($d){ if (!$d) return '-'; $dt = date_create($d); return $dt ? $dt->format('F j, Y') : '-'; }
 
 $students = fetch_students($conn);
 
