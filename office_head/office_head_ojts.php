@@ -226,14 +226,42 @@ $res = $stmt->get_result();
 while ($r = $res->fetch_assoc()) $ojts[] = $r;
 $stmt->close();
 
+// Override hours_completed with accurate sum from dtr (hours + minutes)
+if (!empty($ojts)) {
+  $qDtr = $conn->prepare("SELECT IFNULL(SUM(hours),0) AS th, IFNULL(SUM(minutes),0) AS tm FROM dtr WHERE student_id = ?");
+  if ($qDtr) {
+    foreach ($ojts as &$row) {
+      $sid = (int)($row['user_id'] ?? 0);
+      $qDtr->bind_param('i', $sid);
+      $qDtr->execute();
+      $dres = $qDtr->get_result();
+      $d = $dres ? $dres->fetch_assoc() : null;
+      $th = isset($d['th']) ? (int)$d['th'] : 0;
+      $tm = isset($d['tm']) ? (int)$d['tm'] : 0;
+      // normalize minutes into hours
+      $th += intdiv($tm, 60);
+      $rem = $tm % 60;
+      // numeric value used for comparisons (hours + fraction)
+      $row['hours_completed'] = $th + ($rem / 60);
+      // display as decimal-style minutes per request (e.g. 21 hours 4 minutes -> 21.4)
+      $row['hours_display'] = $th . '.' . $rem;
+      // keep raw parts if needed
+      $row['hours_part_h'] = $th;
+      $row['hours_part_m'] = $rem;
+    }
+    unset($row);
+    $qDtr->close();
+  }
+}
+
 // split into tabs:
 // - Completed: explicitly marked 'completed' (prefer this)
 // - For Evaluation: reached or surpassed required hours but not yet marked completed
 // - Active: everything else
 $for_eval = []; $active = []; $completedArr = [];
 foreach ($ojts as $r) {
-    $hc = (int)($r['hours_completed'] ?? 0);
-    $hr = (int)($r['hours_required'] ?? 0);
+    $hc = floatval($r['hours_completed'] ?? 0);
+    $hr = floatval($r['hours_required'] ?? 0);
     $student_status = strtolower(trim((string)($r['student_status'] ?? '')));
     $user_status = strtolower(trim((string)($r['user_status'] ?? '')));
 
@@ -280,6 +308,30 @@ if ($q) {
     $res = $q->get_result();
     while ($row = $res->fetch_assoc()) $completedArr[] = $row;
     $q->close();
+}
+
+// override completedArr hours with DTR sums (same decimal-style minutes display)
+if (!empty($completedArr)) {
+  $qDtr2 = $conn->prepare("SELECT IFNULL(SUM(hours),0) AS th, IFNULL(SUM(minutes),0) AS tm FROM dtr WHERE student_id = ?");
+  if ($qDtr2) {
+    foreach ($completedArr as &$c) {
+      $sid = (int)($c['user_id'] ?? 0);
+      $qDtr2->bind_param('i', $sid);
+      $qDtr2->execute();
+      $dres = $qDtr2->get_result();
+      $d = $dres ? $dres->fetch_assoc() : null;
+      $th = isset($d['th']) ? (int)$d['th'] : 0;
+      $tm = isset($d['tm']) ? (int)$d['tm'] : 0;
+      $th += intdiv($tm, 60);
+      $rem = $tm % 60;
+      $c['hours_completed'] = $th + ($rem / 60);
+      $c['hours_display'] = $th . '.' . $rem;
+      $c['hours_part_h'] = $th;
+      $c['hours_part_m'] = $rem;
+    }
+    unset($c);
+    $qDtr2->close();
+  }
 }
 ?>
 <!doctype html>
@@ -475,7 +527,10 @@ if ($q) {
                 <td><?php echo htmlspecialchars($o['school'] ?: '-'); ?></td>
                 <td><?php echo htmlspecialchars($o['course'] ?: '-'); ?></td>
                 <td><?php echo htmlspecialchars($o['year_level'] ?: '-'); ?></td>
-                <td><?php echo htmlspecialchars((int)$o['hours_completed'] . ' / ' . (int)$o['hours_required'] . ' hrs'); ?></td>
+                <td><?php
+                  $hc_display = isset($o['hours_display']) ? $o['hours_display'] : (int)$o['hours_completed'];
+                  echo htmlspecialchars($hc_display . ' / ' . (int)$o['hours_required'] . ' hrs');
+                ?></td>
                 <td>
                   <button class="view-btn icon-btn" data-id="<?php echo (int)$o['user_id']; ?>" title="View">
                     <svg viewBox="0 0 24 24" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -507,7 +562,10 @@ if ($q) {
                 <td><?php echo htmlspecialchars($o['school'] ?: '-'); ?></td>
                 <td><?php echo htmlspecialchars($o['course'] ?: '-'); ?></td>
                 <td><?php echo htmlspecialchars($o['year_level'] ?: '-'); ?></td>
-                <td><?php echo htmlspecialchars((int)$o['hours_completed'] . ' / ' . (int)$o['hours_required'] . ' hrs'); ?></td>
+                <td><?php
+                  $hc_display = isset($o['hours_display']) ? $o['hours_display'] : (int)$o['hours_completed'];
+                  echo htmlspecialchars($hc_display . ' / ' . (int)$o['hours_required'] . ' hrs');
+                ?></td>
                 <td style="white-space:nowrap">
                   <button class="view-btn icon-btn" data-id="<?php echo (int)$o['user_id']; ?>" title="View">
                     <svg viewBox="0 0 24 24" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -520,7 +578,7 @@ if ($q) {
                     data-name="<?php echo htmlspecialchars(trim($o['first_name'].' '.$o['last_name'])); ?>"
                     data-school="<?php echo htmlspecialchars($o['school'] ?: '-'); ?>"
                     data-course="<?php echo htmlspecialchars($o['course'] ?: '-'); ?>"
-                    data-hours="<?php echo htmlspecialchars((int)$o['hours_completed'] . ' / ' . (int)$o['hours_required'] . ' hrs'); ?>"
+                    data-hours="<?php $hc_display = isset($o['hours_display']) ? $o['hours_display'] : (int)$o['hours_completed']; echo htmlspecialchars($hc_display . ' / ' . (int)$o['hours_required'] . ' hrs'); ?>"
                     title="Evaluate">
                     <svg viewBox="0 0 24 24" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                       <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
@@ -550,7 +608,10 @@ if ($q) {
                 <td><?php echo htmlspecialchars($o['school'] ?: '-'); ?></td>
                 <td><?php echo htmlspecialchars($o['course'] ?: '-'); ?></td>
                 <td><?php echo htmlspecialchars($o['year_level'] ?: '-'); ?></td>
-                <td><?php echo htmlspecialchars((int)$o['hours_completed'] . ' / ' . (int)$o['hours_required'] . ' hrs'); ?></td>
+                <td><?php
+                  $hc_display = isset($o['hours_display']) ? $o['hours_display'] : (int)$o['hours_completed'];
+                  echo htmlspecialchars($hc_display . ' / ' . (int)$o['hours_required'] . ' hrs');
+                ?></td>
                 <td><?php echo htmlspecialchars($o['remarks'] ?? '-'); ?></td>
                 <td><?php
                   if (isset($o['school_eval']) && $o['school_eval'] !== null && $o['school_eval'] !== '') {
