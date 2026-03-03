@@ -132,11 +132,69 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         if ($success) {
-            echo json_encode(['success' => true, 'message' => 'Evaluation saved and statuses updated', 'rating' => $avgRounded, 'rating_text' => $ratingDesc]);
-            exit;
+          // create notifications: HR (hr_head + hr_staff) and the OJT (trainee)
+          // resolve trainee display name
+          $trainee_name = 'Trainee';
+          $sname = $conn->prepare("SELECT COALESCE(NULLIF(u.first_name,''), NULLIF(s.first_name,''), '') AS first_name, COALESCE(NULLIF(u.last_name,''), NULLIF(s.last_name,''), '') AS last_name FROM users u LEFT JOIN students s ON s.user_id = u.user_id WHERE u.user_id = ? LIMIT 1");
+          if ($sname) {
+            $sname->bind_param('i', $trainee);
+            $sname->execute();
+            $tr = $sname->get_result()->fetch_assoc();
+            $sname->close();
+            if ($tr) $trainee_name = trim(($tr['first_name'] ?? '') . ' ' . ($tr['last_name'] ?? '')) ?: 'Trainee';
+          }
+
+          // notify HR head and HR staff
+          $hrRecipients = [];
+          $r = $conn->query("SELECT user_id FROM users WHERE role IN ('hr_head','hr_staff') AND status = 'active'");
+          if ($r) {
+            while ($rr = $r->fetch_assoc()) $hrRecipients[] = (int)$rr['user_id'];
+            $r->free();
+          }
+          $hrRecipients = array_values(array_unique(array_filter($hrRecipients, function($v){ return $v > 0; })));
+
+          if (!empty($hrRecipients)) {
+            $msg_hr = 'Evaluation Submitted: The performance evaluation for ' . $trainee_name . ' has been submitted.';
+            $ins = $conn->prepare("INSERT INTO notifications (message) VALUES (?)");
+            if ($ins) {
+              $ins->bind_param('s', $msg_hr);
+              $ins->execute();
+              $nid = $conn->insert_id;
+              $ins->close();
+
+              $ins2 = $conn->prepare("INSERT INTO notification_users (notification_id, user_id, is_read) VALUES (?, ?, 0)");
+              if ($ins2) {
+                foreach ($hrRecipients as $uid) {
+                  $ins2->bind_param('ii', $nid, $uid);
+                  $ins2->execute();
+                }
+                $ins2->close();
+              }
+            }
+          }
+
+          // notify the trainee (OJT)
+          $msg_ojt = 'Evaluation Submitted: Your performance evaluation has been submitted.';
+          $insx = $conn->prepare("INSERT INTO notifications (message) VALUES (?)");
+          if ($insx) {
+            $insx->bind_param('s', $msg_ojt);
+            $insx->execute();
+            $nid2 = $conn->insert_id;
+            $insx->close();
+
+            $insu = $conn->prepare("INSERT INTO notification_users (notification_id, user_id, is_read) VALUES (?, ?, 0)");
+            if ($insu) {
+              $insu->bind_param('ii', $nid2, $trainee);
+              $insu->execute();
+              $insu->close();
+            }
+          }
+
+          echo json_encode(['success' => true, 'message' => 'Evaluation saved and statuses updated', 'rating' => $avgRounded, 'rating_text' => $ratingDesc]);
+          exit;
         } else {
-            echo json_encode(['success' => false, 'message' => 'DB operation failed']);
-            exit;
+          echo json_encode(['success' => false, 'message' => 'DB operation failed']);
+          exit;
         }
     }
 }
