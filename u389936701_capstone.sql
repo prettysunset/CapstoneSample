@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: 127.0.0.1
--- Generation Time: Feb 19, 2026 at 06:21 AM
+-- Generation Time: Mar 02, 2026 at 09:05 AM
 -- Server version: 10.4.32-MariaDB
 -- PHP Version: 8.0.30
 
@@ -75,10 +75,9 @@ CREATE TABLE `dtr` (
 --
 
 INSERT INTO `dtr` (`dtr_id`, `student_id`, `log_date`, `am_in`, `am_out`, `pm_in`, `pm_out`, `hours`, `minutes`, `synced`, `buffered_at`, `attempts`, `last_error`) VALUES
-(248, 81, '2026-02-07', '07:50', '12:00', '12:50', '16:40', 8, 0, 1, '2026-02-10 18:48:35', 1, NULL),
-(249, 81, '2026-02-08', '08:00', '12:00', NULL, NULL, 4, 0, 1, '2026-02-10 18:48:35', 1, NULL),
-(250, 80, '2026-02-11', '11:37', '11:40', '12:00', '12:02', 0, 5, 1, '2026-02-11 11:37:33', 4, NULL),
-(251, 80, '2026-02-16', NULL, NULL, '22:04', '22:04', 0, 0, 1, '2026-02-16 22:04:24', 2, NULL);
+(252, 80, '2026-03-05', '08:00', '12:00', '13:00', '17:00', 8, 0, 1, '2026-03-02 15:56:46', 0, NULL),
+(253, 80, '2026-03-06', '08:00', '12:00', '13:00', '17:00', 8, 0, 1, '2026-03-02 15:56:46', 0, NULL),
+(254, 80, '2026-03-09', '', '', '13:00', '', 0, 0, 0, '2026-03-02 15:56:46', 0, NULL);
 
 -- --------------------------------------------------------
 
@@ -196,6 +195,22 @@ CREATE TABLE `notifications` (
   `created_at` timestamp NOT NULL DEFAULT current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
+--
+-- Dumping data for table `notifications`
+--
+
+INSERT INTO `notifications` (`id`, `message`, `created_at`) VALUES
+(1, 'New application submitted by Tori Vega for City Accounting Office (also 2nd choice: City Budget Office).', '2026-02-19 05:35:42'),
+(2, 'New applicant: Trina  Vega – City Admin Office', '2026-02-19 06:21:00'),
+(3, 'New applicant: Mei Mei – City Admin Office', '2026-02-22 12:38:06'),
+(4, 'New applicant: Min min – City Budget Office / City Accounting Office', '2026-02-22 13:33:43'),
+(6, 'Application Approved: Min min has been approved for City Accounting Office. Orientation is scheduled on March 3, 2026 8:30 A.M..', '2026-03-02 05:39:21'),
+(7, 'Orientation Rescheduled: Min min\'s orientation is now scheduled on March 4, 2026 at 9:30 A.M..', '2026-03-02 06:34:57'),
+(8, 'Orientation Rescheduled: Min min\'s orientation is now scheduled on March 5, 2026 at 9:30 A.M..', '2026-03-02 06:39:45'),
+(9, 'Orientation Rescheduled: Min min\'s orientation is now scheduled on March 3, 2026 at 9:30 A.M..', '2026-03-02 06:45:32'),
+(10, 'Orientation Rescheduled: Min min\'s orientation is now scheduled on March 4, 2026 at 9:30 A.M..', '2026-03-02 07:03:12'),
+(11, 'Orientation Rescheduled: Min min\'s orientation is now scheduled on March 3, 2026 at 9:30 A.M..', '2026-03-02 07:11:02');
+
 -- --------------------------------------------------------
 
 --
@@ -208,6 +223,45 @@ CREATE TABLE `notification_users` (
   `user_id` int(11) NOT NULL,
   `is_read` tinyint(1) NOT NULL DEFAULT 0
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Dumping data for table `notification_users`
+--
+
+INSERT INTO `notification_users` (`id`, `notification_id`, `user_id`, `is_read`) VALUES
+(1, 1, 5, 1),
+(2, 1, 6, 1),
+(3, 1, 85, 0),
+(4, 1, 29, 1),
+(5, 1, 27, 1),
+(6, 2, 5, 1),
+(7, 2, 6, 1),
+(8, 2, 85, 0),
+(9, 2, 50, 1),
+(10, 3, 5, 1),
+(11, 3, 6, 1),
+(12, 3, 85, 0),
+(13, 3, 50, 1),
+(14, 4, 5, 1),
+(15, 4, 6, 1),
+(16, 4, 85, 0),
+(17, 4, 27, 1),
+(18, 4, 29, 0),
+(22, 6, 6, 1),
+(23, 6, 85, 0),
+(24, 6, 29, 0),
+(25, 7, 6, 1),
+(26, 7, 85, 0),
+(27, 8, 27, 0),
+(28, 8, 5, 1),
+(29, 9, 27, 0),
+(30, 9, 5, 1),
+(31, 10, 27, 0),
+(32, 10, 6, 1),
+(33, 10, 85, 0),
+(35, 11, 29, 0),
+(36, 11, 6, 1),
+(37, 11, 85, 0);
 
 -- --------------------------------------------------------
 
@@ -230,7 +284,7 @@ CREATE TABLE `offices` (
 --
 
 INSERT INTO `offices` (`office_id`, `office_name`, `current_limit`, `updated_limit`, `requested_limit`, `reason`, `status`) VALUES
-(8, 'City Budget Office', 1, 1, NULL, '', 'Approved'),
+(8, 'City Budget Office', 2, 2, NULL, '', 'Approved'),
 (9, 'City Accounting Office', 2, 2, NULL, '', 'Approved'),
 (14, 'City Admin Office', 2, 0, NULL, NULL, 'Approved');
 
@@ -302,7 +356,8 @@ INSERT INTO `office_requests` (`request_id`, `office_id`, `old_limit`, `new_limi
 (34, 8, NULL, 2, 'increased workload', 'rejected', '2026-01-15', '2026-01-19 13:04:41'),
 (35, 9, NULL, 6, 'increased workload', 'approved', '2026-01-15', '2026-02-10 14:18:30'),
 (39, 8, NULL, 0, '', 'approved', '2026-02-10', NULL),
-(41, 9, 0, 2, '', 'approved', '2026-02-10', '2026-02-10 14:18:30');
+(41, 9, 0, 2, '', 'approved', '2026-02-10', '2026-02-10 14:18:30'),
+(42, 8, 1, 2, '', 'approved', '2026-02-22', '2026-02-22 22:10:07');
 
 -- --------------------------------------------------------
 
@@ -386,7 +441,8 @@ INSERT INTO `orientation_sessions` (`session_id`, `session_date`, `session_time`
 (10, '2025-11-28', '08:30:00', 'CHRMO/3rd Floor', NULL),
 (11, '2026-01-23', '08:30:00', 'CHRMO/3rd Floor', NULL),
 (12, '2026-01-22', '08:30:00', 'CHRMO/3rd Floor', NULL),
-(13, '2026-02-09', '08:30:00', 'CHRMO/3rd Floor', NULL);
+(13, '2026-02-09', '08:30:00', 'CHRMO/3rd Floor', NULL),
+(19, '2026-03-03', '09:30:00', 'CHRMO/3rd Floor', '2026-03-04');
 
 -- --------------------------------------------------------
 
@@ -425,7 +481,8 @@ INSERT INTO `password_resets` (`id`, `user_id`, `email`, `otp`, `expires_at`, `u
 (14, 6, 'santiagojasminem@gmail.com', '500541', '2026-02-09 16:37:59', 0, '2026-02-09 15:34:59'),
 (15, 6, 'santiagojasminem@gmail.com', '100975', '2026-02-09 16:39:05', 0, '2026-02-09 15:36:05'),
 (16, 6, 'santiagojasminem@gmail.com', '688856', '2026-02-09 22:27:27', 1, '2026-02-09 21:24:27'),
-(17, 6, 'santiagojasminem@gmail.com', '566256', '2026-02-10 07:53:13', 1, '2026-02-10 06:50:13');
+(17, 6, 'santiagojasminem@gmail.com', '566256', '2026-02-10 07:53:13', 1, '2026-02-10 06:50:13'),
+(18, 6, 'santiagojasminem@gmail.com', '644533', '2026-02-23 04:36:21', 0, '2026-02-23 03:33:21');
 
 -- --------------------------------------------------------
 
@@ -528,17 +585,17 @@ CREATE TABLE `users` (
 --
 
 INSERT INTO `users` (`user_id`, `username`, `email`, `first_name`, `middle_name`, `last_name`, `avatar`, `force_password_change`, `password_changed_at`, `password`, `role`, `office_name`, `status`, `date_created`, `endorsement_printed`, `synced`) VALUES
-(5, 'hrhead', NULL, 'Cecilia', '', 'Ramos', '../uploads/avatars/user_5_1770536678.png', 0, NULL, '$2y$10$LoNbyhb0Hw7T2bbyvSz7zeI.GFgzNopEIZfdagHJYepMR9cPCOeOS', 'hr_head', NULL, 'active', '2025-10-12 13:34:28', 0, 1),
-(6, 'hrstaff', 'santiagojasminem@gmail.com', 'Andrea', NULL, 'Lopez', NULL, 0, NULL, '$2y$10$oGw41WGgvDH/0iwj/j.8j.ocBUGr8ZQ0Nh2zki9mZ3PKl8BZrbu8S', 'hr_staff', NULL, 'active', '2025-10-12 13:34:28', 0, 1),
-(27, 'headbudget', 'santiagojasminem0@gmail.com', 'Layla', NULL, 'Garcia', NULL, 0, NULL, '$2y$10$NeFYYHFfLdb3b3HW0L/CouNW7M71HzUUf6UYGkquqjJgLJO1DqACy', 'office_head', 'City Budget Office', 'active', '2025-11-07 09:58:55', 0, 1),
-(29, 'cbass610', 'santiagojasminem0@gmail.com', 'Charles', NULL, 'Bass', NULL, 0, NULL, '$2y$10$vP80RjBkvZ.V1kfGdozZ0eQTjEtdGnihTwUkgkgx8fZIStgU10PCO', 'office_head', 'City Accounting Office', 'active', '2025-11-08 07:58:24', 0, 1),
-(50, 'jdiamante370', 'jenny.robles1@bpc.edu.ph', 'Jimwell', NULL, 'Diamante', NULL, 0, NULL, '123456', 'office_head', 'City Admin Office', 'active', '2025-11-17 01:56:34', 0, 1),
+(5, 'hrhead', 'cecilia@gmail.com', 'Cecilia', '', 'Ramos', '../uploads/avatars/user_5_1770536678.png', 0, NULL, '$2y$10$SH3vw4WoYc6KrcSC2J0Qi.ht4DnCduuwl0yzAJ69xovLkNiGJg6G6', 'hr_head', NULL, 'active', '2025-10-12 13:34:28', 0, 1),
+(6, 'hrstaff', 'santiagojasminem@gmail.com', 'Andrea', NULL, 'Lopez', NULL, 0, NULL, '$2y$10$i2FWwB33v57nz8d6dSBLt.oLE7zkuU/c27MN9FG3YAlKTnxksQ4VG', 'hr_staff', NULL, 'active', '2025-10-12 13:34:28', 0, 1),
+(27, 'headbudget', 'layla@gmail.com', 'Layla', '', 'Garcia', NULL, 0, NULL, '$2y$10$QWidsmwj2042wtG/QwqppeiTglq1fmFqoL8JejgJtu6n8svNrdNf6', 'office_head', 'City Budget Office', 'active', '2025-11-07 09:58:55', 0, 1),
+(29, 'cbass610', 'santiagojasminem0@gmail.com', 'Charles', NULL, 'Bass', NULL, 0, NULL, '$2y$10$yq1airn1Bj28mFpXU1hnoO.yDPqGh/LRaBUE0aDIc8Jw5MWeyajhq', 'office_head', 'City Accounting Office', 'active', '2025-11-08 07:58:24', 0, 1),
+(50, 'jdiamante370', 'jenny.robles1@bpc.edu.ph', 'Jimwell', NULL, 'Diamante', NULL, 0, NULL, '$2y$10$lOwQ5A6gsVZAL.nPKgU1BemHcV5JLLN57PT5OOXgeZrlRjrKeTjQa', 'office_head', 'City Admin Office', 'active', '2025-11-17 01:56:34', 0, 1),
 (80, 'santiagojasminem', 'santiagojasminem01@gmail.com', 'Elisha', NULL, 'Lumanlan', NULL, 0, NULL, '$2y$10$zsMGuHusyuVSZmgcZAizYOJUbak3nOsyKPEtnCTkk515c3bzPtu86', 'ojt', NULL, 'ongoing', '2025-10-18 12:55:25', 1, 1),
 (81, 'santiagojasminem1', NULL, '', NULL, '', NULL, 0, NULL, '$2y$10$YIh5Evbp5YY2Yb.BO2swj.Vz.2kZKNp2LXY85Mouxfd7/FumwAQb.', 'ojt', NULL, 'approved', '2026-02-10 02:25:16', 1, 1),
 (82, 'jasmine.santiago', NULL, '', NULL, '', NULL, 0, NULL, '30d928f278', 'ojt', NULL, 'approved', '2026-02-10 19:21:22', 0, 1),
 (83, 'deserie.robles', NULL, '', NULL, '', NULL, 0, NULL, '$2y$10$56VQ7kNNyaCRR1eeclCglO1KZgf3kAYEFx.DcKX5C0n4wbT60kmQ.', 'ojt', NULL, 'approved', '2026-02-10 19:22:07', 0, 1),
 (84, 'narchibald845', NULL, 'Nate', NULL, 'Archibald', NULL, 0, NULL, '@3*cS6yX3A', 'office_head', NULL, 'active', '2026-02-10 19:25:32', 0, 1),
-(85, 'jrobles855', NULL, 'Jen', NULL, 'Robles', NULL, 0, NULL, '6qD&&K#saj', 'hr_staff', NULL, 'active', '2026-02-10 19:25:54', 0, 1),
+(85, 'jrobles855', NULL, 'Jen', NULL, 'Robles', NULL, 0, NULL, '$2y$10$xjJbwLzbqfIkoBj5gu3iFu6.QCZ1nfSQt1hryZksL1ABriMzAeOq6', 'hr_staff', NULL, 'active', '2026-02-10 19:25:54', 0, 1),
 (86, 'vpaulo1312', NULL, '', NULL, '', NULL, 0, NULL, '$2y$10$QF8ah/Azg76BHVco8AbJ..evRSJdF5R61YnBhPs59SuzHs7mOZNyK', 'ojt', NULL, 'approved', '2026-02-10 19:30:27', 0, 1);
 
 -- --------------------------------------------------------
@@ -725,7 +782,7 @@ ALTER TABLE `courses`
 -- AUTO_INCREMENT for table `dtr`
 --
 ALTER TABLE `dtr`
-  MODIFY `dtr_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=252;
+  MODIFY `dtr_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=255;
 
 --
 -- AUTO_INCREMENT for table `evaluations`
@@ -761,13 +818,13 @@ ALTER TABLE `moa`
 -- AUTO_INCREMENT for table `notifications`
 --
 ALTER TABLE `notifications`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=12;
 
 --
 -- AUTO_INCREMENT for table `notification_users`
 --
 ALTER TABLE `notification_users`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=38;
 
 --
 -- AUTO_INCREMENT for table `offices`
@@ -785,37 +842,37 @@ ALTER TABLE `office_courses`
 -- AUTO_INCREMENT for table `office_requests`
 --
 ALTER TABLE `office_requests`
-  MODIFY `request_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=42;
+  MODIFY `request_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=43;
 
 --
 -- AUTO_INCREMENT for table `ojt_applications`
 --
 ALTER TABLE `ojt_applications`
-  MODIFY `application_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=91;
+  MODIFY `application_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=95;
 
 --
 -- AUTO_INCREMENT for table `orientation_assignments`
 --
 ALTER TABLE `orientation_assignments`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=30;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=32;
 
 --
 -- AUTO_INCREMENT for table `orientation_sessions`
 --
 ALTER TABLE `orientation_sessions`
-  MODIFY `session_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=14;
+  MODIFY `session_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=20;
 
 --
 -- AUTO_INCREMENT for table `password_resets`
 --
 ALTER TABLE `password_resets`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=18;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=19;
 
 --
 -- AUTO_INCREMENT for table `students`
 --
 ALTER TABLE `students`
-  MODIFY `student_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=110;
+  MODIFY `student_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=114;
 
 --
 -- AUTO_INCREMENT for table `sync_queue`
@@ -827,7 +884,7 @@ ALTER TABLE `sync_queue`
 -- AUTO_INCREMENT for table `users`
 --
 ALTER TABLE `users`
-  MODIFY `user_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=87;
+  MODIFY `user_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=89;
 
 --
 -- AUTO_INCREMENT for table `weekly_journal`

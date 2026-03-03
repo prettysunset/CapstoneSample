@@ -194,17 +194,20 @@ try {
     // ensure local users table exists before trying
     $c = $local->query("SHOW TABLES LIKE 'users'");
     if ($c && $c->num_rows > 0) {
-        // ensure endorsement_printed column exists locally (best-effort)
-        try { $local->query("ALTER TABLE users ADD COLUMN IF NOT EXISTS endorsement_printed TINYINT(1) NOT NULL DEFAULT 0"); } catch (Exception $e) {}
+        // ensure endorsement_printed and office_name columns exist locally (best-effort)
+        try { 
+            $local->query("ALTER TABLE users ADD COLUMN IF NOT EXISTS endorsement_printed TINYINT(1) NOT NULL DEFAULT 0"); 
+            $local->query("ALTER TABLE users ADD COLUMN IF NOT EXISTS office_name VARCHAR(255) DEFAULT NULL");
+        } catch (Exception $e) {}
 
-        $ru = $remote->query("SELECT user_id, username, password, first_name, last_name, role, status, date_created, COALESCE(endorsement_printed,0) AS endorsement_printed FROM users");
+        $ru = $remote->query("SELECT user_id, username, password, first_name, last_name, role, status, date_created, COALESCE(endorsement_printed,0) AS endorsement_printed, COALESCE(office_name,'') AS office_name FROM users");
         if ($ru) {
             while ($ruRow = $ru->fetch_assoc()) {
                 $usersPulled++;
                 $ruid = isset($ruRow['user_id']) ? (int)$ruRow['user_id'] : null;
                 // check local existence
                 // fetch local endorsement flag and current password for comparison/update
-                $st = $local->prepare('SELECT endorsement_printed, password FROM users WHERE user_id = ? LIMIT 1');
+                $st = $local->prepare('SELECT endorsement_printed, password, office_name FROM users WHERE user_id = ? LIMIT 1');
                 if ($st) {
                     $st->bind_param('i', $ruid);
                     $st->execute();
@@ -238,10 +241,19 @@ try {
                             // ignore per-row password update errors
                         }
                     }
+                    // sync office_name if remote provides it and it's different
+                    $remoteOffice = $ruRow['office_name'] ?? '';
+                    $localOffice = isset($lr['office_name']) ? $lr['office_name'] : null;
+                    if ($remoteOffice !== null && $remoteOffice !== '' && $remoteOffice !== $localOffice) {
+                        try {
+                            $uo = $local->prepare('UPDATE users SET office_name = ? WHERE user_id = ? LIMIT 1');
+                            if ($uo) { $uo->bind_param('si', $remoteOffice, $ruid); $uo->execute(); $uo->close(); $usersUpdated++; }
+                        } catch (Exception $ex) { /* ignore per-row office update errors */ }
+                    }
                 } else {
                     // not found locally: insert minimal user row (best-effort)
                     try {
-                        $ins = $local->prepare('INSERT INTO users (user_id, username, password, first_name, last_name, role, status, date_created, endorsement_printed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
+                        $ins = $local->prepare('INSERT INTO users (user_id, username, password, first_name, last_name, role, status, date_created, endorsement_printed, office_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
                         if ($ins) {
                             $uid = $ruid;
                             $uname = $ruRow['username'] ?? '';
@@ -252,7 +264,8 @@ try {
                             $status = $ruRow['status'] ?? '';
                             $dc = $ruRow['date_created'] ?? null;
                             $ep = (int)($ruRow['endorsement_printed'] ?? 0);
-                            $ins->bind_param('isssssssi', $uid, $uname, $pwd, $fn, $ln, $role, $status, $dc, $ep);
+                            $office = $ruRow['office_name'] ?? '';
+                            $ins->bind_param('isssssssis', $uid, $uname, $pwd, $fn, $ln, $role, $status, $dc, $ep, $office);
                             $ok = $ins->execute();
                             $ins->close();
                             if ($ok) $usersCreated++;
@@ -479,7 +492,74 @@ try {
     // ignore ojt_applications pull errors
 }
 
-echo json_encode(['ok'=>true,'pushed'=>$pushed,'failed'=>$failed,'users_pulled'=>$usersPulled,'users_created'=>$usersCreated,'users_updated'=>$usersUpdated,'students_pulled'=>$studentsPulled,'students_created'=>$studentsCreated,'students_updated'=>$studentsUpdated,'students_errors'=>$studentsErrors,'apps_pulled'=>$appsPulled,'apps_created'=>$appsCreated,'apps_errors'=>$appsErrors]);
+// --- Push notifications and notification_users (best-effort) ---
+$pushedNotifs = 0; $failedNotifs = 0;
+try {
+    $localHasNotifSynced = false; $localHasNuSynced = false;
+    try {
+        $c = $local->query("SHOW COLUMNS FROM `notifications` LIKE 'synced'"); if ($c && $c->num_rows) $localHasNotifSynced = true;
+        $c = $local->query("SHOW COLUMNS FROM `notification_users` LIKE 'synced'"); if ($c && $c->num_rows) $localHasNuSynced = true;
+        if (!$localHasNotifSynced) { $local->query("ALTER TABLE notifications ADD COLUMN synced TINYINT(1) DEFAULT 0"); $c = $local->query("SHOW COLUMNS FROM `notifications` LIKE 'synced'"); if ($c && $c->num_rows) $localHasNotifSynced = true; }
+        if (!$localHasNuSynced) { $local->query("ALTER TABLE notification_users ADD COLUMN synced TINYINT(1) DEFAULT 0"); $c = $local->query("SHOW COLUMNS FROM `notification_users` LIKE 'synced'"); if ($c && $c->num_rows) $localHasNuSynced = true; }
+    } catch (Exception $e) { error_log('sync_push_http: notifications schema check/alter failed: ' . $e->getMessage()); }
+
+    if (!$localHasNotifSynced || !$localHasNuSynced) {
+        error_log('sync_push_http: notifications push skipped because local synced columns are not present');
+    } else {
+        error_log('sync_push_http: notifications schema detected, attempting to push unsynced notifications');
+        $query = "SELECT * FROM notifications WHERE COALESCE(synced,0) = 0 ORDER BY COALESCE(buffered_at, created_at, NOW()) LIMIT 100";
+        $rn = $local->query($query);
+        if ($rn === false) {
+            error_log('sync_push_http: notifications query failed: ' . $local->error);
+        } else {
+            error_log('sync_push_http: found unsynced notifications: ' . $rn->num_rows);
+            while ($nrow = $rn->fetch_assoc()) {
+                $localNid = isset($nrow['id']) ? (int)$nrow['id'] : (int)($nrow['notification_id'] ?? 0);
+                $message = isset($nrow['message']) ? $nrow['message'] : '';
+                error_log('sync_push_http: pushing notification local_id=' . $localNid . ' message_len=' . strlen($message));
+                try {
+                    $remote->begin_transaction();
+                    $ins = $remote->prepare('INSERT INTO notifications (message) VALUES (?)');
+                    if (!$ins) { error_log('sync_push_http: remote prepare failed (notif insert): ' . $remote->error); throw new Exception('Remote prepare failed (notif insert): ' . $remote->error); }
+                    $ins->bind_param('s', $message);
+                    $ok = $ins->execute();
+                    if (!$ok) { $ins->close(); throw new Exception('Remote insert failed: ' . $remote->error); }
+                    $remoteNid = $remote->insert_id; $ins->close();
+
+                    $ru = $local->prepare('SELECT id, notification_id, user_id, is_read FROM notification_users WHERE notification_id = ? AND COALESCE(synced,0) = 0');
+                    if ($ru === false) { error_log('sync_push_http: local prepare failed (select notification_users): ' . $local->error); throw new Exception('Local prepare failed (select notification_users): ' . $local->error); }
+                    $ru->bind_param('i', $localNid); $ru->execute(); $resu = $ru->get_result();
+                    if ($resu) {
+                        $ins2 = $remote->prepare('INSERT INTO notification_users (notification_id, user_id, is_read) VALUES (?, ?, ?)');
+                        if (!$ins2) { error_log('sync_push_http: remote prepare failed (notif_users insert): ' . $remote->error); throw new Exception('Remote prepare failed (notif_users insert): ' . $remote->error); }
+                        while ($ruser = $resu->fetch_assoc()) {
+                            $uid = (int)$ruser['user_id']; $is_read = isset($ruser['is_read']) ? (int)$ruser['is_read'] : 0;
+                            $ins2->bind_param('iii', $remoteNid, $uid, $is_read);
+                            $ok2 = $ins2->execute();
+                            if (!$ok2) { error_log('sync_push_http: remote execute failed (notif_users insert) for user ' . $uid . ': ' . $ins2->error); }
+                            else { error_log('sync_push_http: remote notification_user inserted remote_nid=' . $remoteNid . ' user=' . $uid); }
+                        }
+                        $ins2->close();
+                    }
+                    $ru->close();
+
+                    $remote->commit();
+
+                    if ($localNid) {
+                        $u = $local->prepare('UPDATE notifications SET synced = 1 WHERE id = ?'); if ($u) { $u->bind_param('i', $localNid); $u->execute(); $u->close(); }
+                        $u2 = $local->prepare('UPDATE notification_users SET synced = 1 WHERE notification_id = ?'); if ($u2) { $u2->bind_param('i', $localNid); $u2->execute(); $u2->close(); }
+                    }
+                    $pushedNotifs++;
+                } catch (Exception $e) {
+                    $remote->rollback(); $failedNotifs++; error_log('sync_push_http: notification push failed nid=' . $localNid . ' err=' . $e->getMessage());
+                }
+            }
+        }
+        error_log('sync_push_http: notifications pushed=' . $pushedNotifs . ' failed=' . $failedNotifs);
+    }
+} catch (Exception $e) { error_log('sync_push_http: notifications push error: ' . $e->getMessage()); }
+
+echo json_encode(['ok'=>true,'pushed'=>$pushed,'failed'=>$failed,'users_pulled'=>$usersPulled,'users_created'=>$usersCreated,'users_updated'=>$usersUpdated,'students_pulled'=>$studentsPulled,'students_created'=>$studentsCreated,'students_updated'=>$studentsUpdated,'students_errors'=>$studentsErrors,'apps_pulled'=>$appsPulled,'apps_created'=>$appsCreated,'apps_errors'=>$appsErrors,'notifications_pushed'=>$pushedNotifs,'notifications_failed'=>$failedNotifs]);
 $local->close(); $remote->close();
 exit;
 

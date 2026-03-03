@@ -223,6 +223,104 @@ try {
     error_log('sync_push: students pushed=' . $pushedStudents . ' failed=' . $failedStudents);
 } catch (Exception $e) { error_log('sync_push: users/students push error: ' . $e->getMessage()); }
 
+// --- Push notifications and notification_users (best-effort) ---
+try {
+    // check whether local schema has required sync columns; if ALTER fails we'll skip to avoid repeated SQL errors
+    $localHasNotifSynced = false; $localHasNuSynced = false;
+    try {
+        $c = $local->query("SHOW COLUMNS FROM `notifications` LIKE 'synced'"); if ($c && $c->num_rows) $localHasNotifSynced = true;
+        $c = $local->query("SHOW COLUMNS FROM `notification_users` LIKE 'synced'"); if ($c && $c->num_rows) $localHasNuSynced = true;
+        // try to add if missing (best-effort)
+        if (!$localHasNotifSynced) { $local->query("ALTER TABLE notifications ADD COLUMN synced TINYINT(1) DEFAULT 0"); $c = $local->query("SHOW COLUMNS FROM `notifications` LIKE 'synced'"); if ($c && $c->num_rows) $localHasNotifSynced = true; }
+        if (!$localHasNuSynced) { $local->query("ALTER TABLE notification_users ADD COLUMN synced TINYINT(1) DEFAULT 0"); $c = $local->query("SHOW COLUMNS FROM `notification_users` LIKE 'synced'"); if ($c && $c->num_rows) $localHasNuSynced = true; }
+    } catch (Exception $e) {
+        error_log('sync_push: notifications schema check/alter failed: ' . $e->getMessage());
+    }
+
+    if (!$localHasNotifSynced || !$localHasNuSynced) {
+        error_log('sync_push: notifications push skipped because local synced columns are not present');
+    } else {
+        error_log('sync_push: notifications schema detected, attempting to push unsynced notifications');
+        $pushedNotifs = 0; $failedNotifs = 0;
+        $query = "SELECT * FROM notifications WHERE COALESCE(synced,0) = 0 ORDER BY COALESCE(buffered_at, created_at, NOW()) LIMIT 100";
+        $rn = $local->query($query);
+        if ($rn === false) {
+            error_log('sync_push: notifications query failed: ' . $local->error);
+        } else {
+            error_log('sync_push: found unsynced notifications: ' . $rn->num_rows);
+            while ($nrow = $rn->fetch_assoc()) {
+                $localNid = isset($nrow['id']) ? (int)$nrow['id'] : (int)($nrow['notification_id'] ?? 0);
+                $message = isset($nrow['message']) ? $nrow['message'] : '';
+                error_log('sync_push: pushing notification local_id=' . $localNid . ' message_len=' . strlen($message));
+                try {
+                    $remote->begin_transaction();
+
+                    // insert notification remotely (let remote assign its own id)
+                    $ins = $remote->prepare('INSERT INTO notifications (message) VALUES (?)');
+                    if (!$ins) {
+                        error_log('sync_push: remote prepare failed (notif insert): ' . $remote->error);
+                        throw new Exception('Remote prepare failed (notif insert): ' . $remote->error);
+                    }
+                    $ins->bind_param('s', $message);
+                    $ok = $ins->execute();
+                    if (!$ok) {
+                        error_log('sync_push: remote execute failed (notif insert): ' . $ins->error);
+                        $ins->close();
+                        throw new Exception('Remote insert failed: ' . $remote->error);
+                    }
+                    $remoteNid = $remote->insert_id;
+                    $ins->close();
+                    error_log('sync_push: remote notification created id=' . $remoteNid);
+
+                    // fetch local notification_users rows for this notification
+                    $ru = $local->prepare('SELECT id, notification_id, user_id, is_read FROM notification_users WHERE notification_id = ? AND COALESCE(synced,0) = 0');
+                    if ($ru === false) {
+                        error_log('sync_push: local prepare failed (select notification_users): ' . $local->error);
+                        throw new Exception('Local prepare failed (select notification_users): ' . $local->error);
+                    }
+                    $ru->bind_param('i', $localNid);
+                    $ru->execute();
+                    $resu = $ru->get_result();
+                    if ($resu) {
+                        $ins2 = $remote->prepare('INSERT INTO notification_users (notification_id, user_id, is_read) VALUES (?, ?, ?)');
+                        if (!$ins2) {
+                            error_log('sync_push: remote prepare failed (notif_users insert): ' . $remote->error);
+                            throw new Exception('Remote prepare failed (notif_users insert): ' . $remote->error);
+                        }
+                        while ($ruser = $resu->fetch_assoc()) {
+                            $uid = (int)$ruser['user_id'];
+                            $is_read = isset($ruser['is_read']) ? (int)$ruser['is_read'] : 0;
+                            $ins2->bind_param('iii', $remoteNid, $uid, $is_read);
+                            $ok2 = $ins2->execute();
+                            if (!$ok2) {
+                                error_log('sync_push: remote execute failed (notif_users insert) for user ' . $uid . ': ' . $ins2->error);
+                            } else {
+                                error_log('sync_push: remote notification_user inserted remote_nid=' . $remoteNid . ' user=' . $uid);
+                            }
+                        }
+                        $ins2->close();
+                    }
+                    $ru->close();
+
+                    $remote->commit();
+
+                    // mark local notification and its user rows as synced
+                    if ($localNid) {
+                        $u = $local->prepare('UPDATE notifications SET synced = 1 WHERE id = ?');
+                        if ($u) { $u->bind_param('i', $localNid); $u->execute(); $u->close(); }
+                        $u2 = $local->prepare('UPDATE notification_users SET synced = 1 WHERE notification_id = ?');
+                        if ($u2) { $u2->bind_param('i', $localNid); $u2->execute(); $u2->close(); }
+                    }
+                    $pushedNotifs++;
+                } catch (Exception $e) {
+                    $remote->rollback(); $failedNotifs++; error_log('sync_push: notification push failed nid=' . $localNid . ' err=' . $e->getMessage());
+                }
+            }
+        }
+        error_log('sync_push: notifications pushed=' . $pushedNotifs . ' failed=' . $failedNotifs);
+    }
+} catch (Exception $e) { error_log('sync_push: notifications push error: ' . $e->getMessage()); }
+
 $local->close();
 $remote->close();
 

@@ -142,11 +142,35 @@ function mark_user_and_student_completed_if_done($conn, $user_id, $student_id) {
 
                 if (!empty($recipients)) {
                     $dateLabel = date('F j, Y');
-                    $msg = "OJT Completion: {$full} has successfully completed the required internship hours.";
-                    $ins = $conn->prepare("INSERT INTO notifications (message) VALUES (?)");
-                    if ($ins) { $ins->bind_param('s', $msg); $ins->execute(); $nid = $conn->insert_id; $ins->close();
-                        $ins2 = $conn->prepare("INSERT INTO notification_users (notification_id, user_id, is_read) VALUES (?, ?, 0)");
-                        if ($ins2) { foreach ($recipients as $uid) { $uI = (int)$uid; $ins2->bind_param('ii', $nid, $uI); $ins2->execute(); } $ins2->close(); }
+                    $msg = "OJT Completion: {$full} has successfully completed the required hours.";
+
+                    // Prefer inserting with local-only sync columns if present.
+                    $ins = $conn->prepare("INSERT INTO notifications (message, synced, buffered_at) VALUES (?, 0, NOW())");
+                    if (!$ins) {
+                        // fallback for schemas without the new columns
+                        $ins = $conn->prepare("INSERT INTO notifications (message) VALUES (?)");
+                    }
+
+                    if ($ins) {
+                        $ins->bind_param('s', $msg);
+                        $ins->execute();
+                        $nid = $conn->insert_id;
+                        $ins->close();
+
+                        // Try to insert notification_users with new columns, fall back if needed
+                        $ins2 = $conn->prepare("INSERT INTO notification_users (notification_id, user_id, is_read, synced, buffered_at) VALUES (?, ?, 0, 0, NOW())");
+                        if (!$ins2) {
+                            $ins2 = $conn->prepare("INSERT INTO notification_users (notification_id, user_id, is_read) VALUES (?, ?, 0)");
+                        }
+
+                        if ($ins2) {
+                            foreach ($recipients as $uid) {
+                                $uI = (int)$uid;
+                                $ins2->bind_param('ii', $nid, $uI);
+                                $ins2->execute();
+                            }
+                            $ins2->close();
+                        }
                     }
                 }
             } catch (Exception $e) { /* ignore notification failures */ }
