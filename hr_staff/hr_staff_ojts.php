@@ -423,7 +423,7 @@ if ($moa_q) {
         </button>
 
       <button id="btnSettings" type="button" title="Settings" aria-label="Settings" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;background:transparent;border:0;box-shadow:none;cursor:pointer;">
-           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06A2 2 0 1 1 2.28 16.8l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09c.7 0 1.3-.4 1.51-1A1.65 1.65 0 0 0 4.27 6.3L4.2 6.23A2 2 0 1 1 6 3.4l.06.06c.5.5 1.2.7 1.82.33.7-.4 1.51-.4 2.21 0 .62.37 1.32.17 1.82-.33L12.6 3.4a2 2 0 1 1 1.72 3.82l-.06.06c-.5.5-.7 1.2-.33 1.82.4.7.4 1.51 0 2.21-.37.62-.17 1.32.33 1.82l.06.06A2 2 0 1 1 19.4 15z"></path>
+           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06A2 2 0 1 1 2.28 16.8l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09c.7 0 1.3-.4 1.51-1A1.65 1.65 0 0 0 4.27 6.3L4.2 6.23A2 2 0 1 1 6 3.4l.06.06c.5.5 1.2.7 1.82.33.7-.4 1.51-.4 2.21 0 .62.37 1.32.17 1.82-.33L12.6 3.4a2 2 0 1 1 1.72 3.82l-.06.06c-.5.5-.7 1.2-.33 1.82.4.7.4 1.51 0 2.21-.37.62-.17 1.32.33 1.82l.06.06A2 2 0 1 1 19.4 15z"></path>
         </svg>
       </button>
       <a id="top-logout" href="../logout.php" title="Logout" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#2f3459;text-decoration:none;background:transparent;">
@@ -666,7 +666,7 @@ if ($moa_q) {
               <thead>
                 <tr style="background:#f3f4f6;color:#111">
                   <!-- moved DATE to be the first column -->
-                  <th rowspan="2" style="padding:10px;border:1px solid #eee;text-align:left">Date</th>
+                  <th rowspan="2" style="padding:10px;border:1px solid #eee;text-align:center;font-weight:700;text-transform:uppercase">Date</th>
                   <th colspan="2" style="padding:10px;border:1px solid #eee;text-align:center">A.M.</th>
                   <th colspan="2" style="padding:10px;border:1px solid #eee;text-align:center">P.M.</th>
                   <th rowspan="2" style="padding:10px;border:1px solid #eee;text-align:center">HOURS</th>
@@ -713,6 +713,38 @@ if ($moa_q) {
   window.officeNames = <?= json_encode(array_column($offices_for_requests, 'office_name', 'office_id'), JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_AMP|JSON_HEX_QUOT) ?> || {};
   // embed mapping user_id => users.status so the view modal can prefer the users table status
   window.userStatusMap = <?= json_encode(array_column($students ?? [], 'user_status', 'user_id'), JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_AMP|JSON_HEX_QUOT) ?> || {};
+  // embed mapping user_id => office_name (prefer users.office_name embedded from the query)
+  window.userOfficeMap = <?= json_encode(array_column($students ?? [], 'office_name', 'user_id'), JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_AMP|JSON_HEX_QUOT) ?> || {};
+  // embed office head lookup map: office_name => {name,email}
+  <?php
+    // build officeHeads map from users table for role 'office_head'
+    $officeHeads = [];
+    $ohStmt = $conn->prepare("SELECT first_name, middle_name, last_name, email, office_name FROM users WHERE role = 'office_head'");
+    if ($ohStmt) {
+        $ohStmt->execute();
+        $ohRes = $ohStmt->get_result();
+        while ($ohRow = $ohRes->fetch_assoc()) {
+            $on = trim($ohRow['office_name'] ?? '');
+            if ($on === '') continue;
+            $fullname = trim(($ohRow['first_name'] ?? '') . ' ' . ($ohRow['middle_name'] ?? '') . ' ' . ($ohRow['last_name'] ?? ''));
+            $officeHeads[$on] = [ 'name' => $fullname, 'email' => $ohRow['email'] ?? '' ];
+        }
+        $ohStmt->close();
+    }
+  ?>
+  window.officeHeadMap = <?= json_encode($officeHeads, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_AMP|JSON_HEX_QUOT) ?> || {};
+  // build a normalized map (lowercase, trimmed, collapsed spaces) for robust matching
+  (function(){
+    try {
+      window.normalizedOfficeHeadMap = {};
+      for (const k in window.officeHeadMap) {
+        if (!k) continue;
+        const nk = k.toString().trim().toLowerCase().replace(/\s+/g,' ');
+        if (!nk) continue;
+        window.normalizedOfficeHeadMap[nk] = window.officeHeadMap[k];
+      }
+    } catch (e) { window.normalizedOfficeHeadMap = {}; }
+  })();
 </script>
 
 <script>
@@ -972,7 +1004,15 @@ if ($moa_q) {
             statusBadgeEl.textContent = label;
           }
         })();
-        document.getElementById('view_department').textContent = d.office1 || d.office || '—';
+        // prefer the user's linked `users.office_name` when available (client-side map)
+        let assignedOffice = null;
+        try {
+          if (window.userOfficeMap && userId && window.userOfficeMap[userId]) {
+            assignedOffice = window.userOfficeMap[userId];
+          }
+        } catch (e) { assignedOffice = null; }
+        assignedOffice = assignedOffice || d.office1 || d.office || '';
+        document.getElementById('view_department').textContent = assignedOffice || '—';
 
         // avatar image if available
         if (d.picture){
@@ -1026,11 +1066,43 @@ if ($moa_q) {
           setDonut(pct);
         }
 
-        // assigned office block
-        document.getElementById('view_assigned_office').textContent = d.office1 || d.office || '—';
-        document.getElementById('view_office_head').textContent = d.office_head || d.office_head_name || '—';
+        // assigned office block - prefer user-assigned office then application prefs
+        document.getElementById('view_assigned_office').textContent = assignedOffice || '—';
+        // resolve office head: prefer client-side officeHeadMap (based on users.office_name),
+        // fall back to server-provided d.office_head only if no client-side match
+        let officeHeadName = '';
+        let officeHeadEmail = '';
+        if (assignedOffice) {
+          try {
+            const key = assignedOffice.toString().trim();
+            const norm = key.toLowerCase().replace(/\s+/g,' ');
+            if (window.officeHeadMap && window.officeHeadMap[key]) {
+              officeHeadName = window.officeHeadMap[key].name || '';
+              officeHeadEmail = window.officeHeadMap[key].email || '';
+            } else if (window.normalizedOfficeHeadMap && window.normalizedOfficeHeadMap[norm]) {
+              officeHeadName = window.normalizedOfficeHeadMap[norm].name || '';
+              officeHeadEmail = window.normalizedOfficeHeadMap[norm].email || '';
+            } else {
+              // final brute-force fallback: case-insensitive compare keys
+              for (const k in (window.officeHeadMap || {})) {
+                if (!k) continue;
+                if (k.toString().trim().toLowerCase() === key.toLowerCase()) {
+                  officeHeadName = window.officeHeadMap[k].name || '';
+                  officeHeadEmail = window.officeHeadMap[k].email || '';
+                  break;
+                }
+              }
+            }
+          } catch (e) { /* ignore */ }
+        }
+
+        // fallback to server-supplied values if client-side lookup failed
+        officeHeadName = officeHeadName || d.office_head || d.office_head_name || '';
+        officeHeadEmail = officeHeadEmail || d.office_head_email || d.office_contact || '';
+
+        document.getElementById('view_office_head').textContent = officeHeadName || '—';
         // show office head email (fall back to legacy office_contact if server didn't provide email)
-        document.getElementById('view_office_contact').textContent = d.office_head_email || d.office_contact || '—';
+        document.getElementById('view_office_contact').textContent = officeHeadEmail || d.office_contact || '—';
 
         // attachments (existing attachments from application)
         const attRoot = document.getElementById('view_attachments_list');
@@ -1179,10 +1251,21 @@ if ($moa_q) {
             }
 
             tbody.innerHTML = '';
+            // helper to format YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS -> MM-DD-YYYY
+            const formatDateCell = (raw) => {
+              if (!raw) return '';
+              try {
+                const d = raw.toString().split('T')[0];
+                const parts = d.split('-');
+                if (parts.length === 3) return `${parts[1]}-${parts[2]}-${parts[0]}`;
+                return raw;
+              } catch (e) { return raw; }
+            };
+
             matched.forEach(r => {
               const tr = document.createElement('tr');
               tr.innerHTML = `
-                <td style="padding:8px">${r.log_date || ''}</td>
+                <td style="padding:8px;text-align:center">${formatDateCell(r.log_date) || ''}</td>
                 <td style="padding:8px;text-align:center">${r.am_in || ''}</td>
                 <td style="padding:8px;text-align:center">${r.am_out || ''}</td>
                 <td style="padding:8px;text-align:center">${r.pm_in || ''}</td>
@@ -1504,6 +1587,23 @@ if ($moa_q) {
 
     openBtn.addEventListener('click', function(ev){ ev.preventDefault(); showSettings(); });
     settingsOverlay.addEventListener('click', function(e){ if (e.target === settingsOverlay) hideSettings(); });
+  })();
+  // listen for updates from the settings iframe and patch the sidebar/profile in-place
+  (function(){
+    window.addEventListener('message', function(e){
+      try{
+        var d = e && e.data ? e.data : null;
+        if (!d || d.type !== 'profile-updated') return;
+        if (typeof d.avatar !== 'undefined' && d.avatar) {
+          var img = document.querySelector('.profile img');
+          if (img) img.src = d.avatar;
+        }
+        if (typeof d.name !== 'undefined') {
+          var h = document.querySelector('.profile h3');
+          if (h) h.textContent = d.name;
+        }
+      }catch(err){}
+    });
   })();
 </script>
 <script>
