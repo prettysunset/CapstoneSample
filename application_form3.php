@@ -122,7 +122,13 @@ if (!empty($_SESSION['af2']['school'])) {
 }
 
 // <-- Add: load saved AF3 (if any) so we can pre-fill fields on load
+// load saved AF3 (if any) so we can pre-fill fields on load
 $af3 = $_SESSION['af3'] ?? [];
+
+// If user clicked an office on offices.php, pre-select it as 1st choice unless user already has AF3 saved
+if (empty($af3['first_choice']) && !empty($_SESSION['selected_office_id'])) {
+  $af3['first_choice'] = intval($_SESSION['selected_office_id']);
+}
 
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
     // If user clicked Previous: save AF3 fields to session and go back to AF2
@@ -786,7 +792,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
           <h3>OFFICE</h3>
 
           <fieldset>
-            <select id="first_choice" name="first_choice" required>
+            <?php $locked_office = !empty($_SESSION['selected_office_id']); ?>
+            <select id="first_choice" name="first_choice" required <?= $locked_office ? 'disabled' : '' ?>>
               <option value="" disabled <?= empty($af3['first_choice']) ? 'selected' : '' ?>>1st choice*</option>
               <?php foreach ($offices as $o): ?>
                 <option value="<?= (int)$o['office_id'] ?>" <?= (isset($af3['first_choice']) && (int)$af3['first_choice'] === (int)$o['office_id']) ? 'selected' : '' ?>>
@@ -794,6 +801,9 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 </option>
               <?php endforeach; ?>
             </select>
+            <?php if ($locked_office): ?>
+              <input type="hidden" name="first_choice" value="<?= (int)$af3['first_choice'] ?>">
+            <?php endif; ?>
 
             <select id="second_choice" name="second_choice">
               <option value="" <?= empty($af3['second_choice']) ? 'selected' : '' ?>>2nd choice (optional)</option>

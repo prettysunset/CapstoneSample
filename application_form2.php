@@ -104,6 +104,13 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
           // preserve posted values in local $af2 for re-rendering the form below
           $af2 = $posted_af2;
         } else {
+          // persist any selected office/course coming from hidden inputs
+          if (isset($_POST['selected_office_id']) && $_POST['selected_office_id'] !== '') {
+            $_SESSION['selected_office_id'] = intval($_POST['selected_office_id']);
+          }
+          if (isset($_POST['selected_course']) && $_POST['selected_course'] !== '') {
+            $_SESSION['selected_course'] = trim($_POST['selected_course']);
+          }
           // all checks passed -> persist and continue
           $_SESSION['af2'] = $posted_af2;
           header("Location: application_form3.php");
@@ -113,6 +120,17 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
 // Pre-fill form fields if session data exists
 $af2 = isset($_SESSION['af2']) ? $_SESSION['af2'] : [];
+// If the user clicked a course on offices.php, use it to prefill AF2 when AF2 not provided yet
+if (empty($af2['course']) && !empty($_SESSION['selected_course'])) {
+  $af2['course'] = $_SESSION['selected_course'];
+  // try to resolve course_id from loaded $courses
+  foreach ($courses as $c) {
+    if (strcasecmp(trim($c['course_name']), trim($af2['course'])) === 0) {
+      $af2['course_id'] = (int)$c['course_id'];
+      break;
+    }
+  }
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -275,6 +293,9 @@ $af2 = isset($_SESSION['af2']) ? $_SESSION['af2'] : [];
         </div>
 
         <form method="POST" novalidate id="af2Form">
+          <!-- carried selections from offices.php -->
+          <input type="hidden" name="selected_office_id" value="<?= isset($_SESSION['selected_office_id']) ? htmlspecialchars((string)$_SESSION['selected_office_id']) : '' ?>">
+          <input type="hidden" name="selected_course" value="<?= isset($_SESSION['selected_course']) ? htmlspecialchars($_SESSION['selected_course']) : '' ?>">
           <h3>YOUR SCHOOL INFORMATION</h3>
 
           <input
@@ -291,20 +312,28 @@ $af2 = isset($_SESSION['af2']) ? $_SESSION['af2'] : [];
           <input type="text" name="school_address" placeholder="School Address *" required value="<?= isset($af2['school_address']) ? htmlspecialchars($af2['school_address']) : '' ?>">
 
           <fieldset class="field-course-year">
-            <select name="course" id="courseSelect" class="course-select" required>
-              <option value="" disabled <?= !isset($af2['course_id']) ? 'selected' : '' ?>>Select Course *</option>
-              <?php foreach ($courses as $c): 
-                $sel = '';
-                if (isset($af2['course_id']) && $af2['course_id'] !== null) {
-                  if ((int)$af2['course_id'] === (int)$c['course_id']) $sel = 'selected';
-                } else {
-                  // fallback: match by name if id not set
-                  if (isset($af2['course']) && $af2['course'] !== '' && $af2['course'] === $c['course_name']) $sel = 'selected';
-                }
+              <?php $locked_course = !empty($_SESSION['selected_course']); ?>
+              <?php if ($locked_course): 
+                  $locked_name = htmlspecialchars($_SESSION['selected_course']);
+                  $locked_id = isset($af2['course_id']) ? (int)$af2['course_id'] : '';
               ?>
-                <option value="<?= (int)$c['course_id'] ?>" <?= $sel ?>><?= htmlspecialchars($c['course_name'] . ($c['course_code'] ? " ({$c['course_code']})" : '')) ?></option>
-              <?php endforeach; ?>
-            </select>
+                <input type="hidden" name="course" value="<?= $locked_id !== '' ? $locked_id : $locked_name ?>">
+                <div style="padding:10px;border-radius:8px;background:#f8fafc;border:1px solid #e6eef8;"><?= $locked_name ?></div>
+              <?php else: ?>
+                <select name="course" id="courseSelect" class="course-select" required>
+                  <option value="" disabled <?= !isset($af2['course_id']) ? 'selected' : '' ?>>Select Course *</option>
+                  <?php foreach ($courses as $c): 
+                    $sel = '';
+                    if (isset($af2['course_id']) && $af2['course_id'] !== null) {
+                      if ((int)$af2['course_id'] === (int)$c['course_id']) $sel = 'selected';
+                    } else {
+                      if (isset($af2['course']) && $af2['course'] !== '' && $af2['course'] === $c['course_name']) $sel = 'selected';
+                    }
+                  ?>
+                    <option value="<?= (int)$c['course_id'] ?>" <?= $sel ?>><?= htmlspecialchars($c['course_name'] . ($c['course_code'] ? " ({$c['course_code']})" : '')) ?></option>
+                  <?php endforeach; ?>
+                </select>
+              <?php endif; ?>
             <div id="courseAvailabilityMsg" style="color:#b91c1c;display:none;margin-top:6px;font-size:0.95rem;">No available office for the selected course.</div>
             <select name="year_level" class="year-select" required>
               <option value="" disabled <?= !isset($af2['year_level']) ? 'selected' : '' ?>>Year Level *</option>

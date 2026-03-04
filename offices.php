@@ -227,34 +227,31 @@ td {
     font-size: 15px;
 }
 
-/* Hover Effect */
+/* Hover Effect: remove row hover; keep rows static */
 tr:hover td {
-    background-color: rgba(74,111,243,0.05);
+    background-color: transparent;
 }
 
-/* Status Colors (updated: add colored stroke/border for Open/Full) */
+/* Status Colors - plain text style (no button appearance) */
 .status{
     font-weight:600;
-    display:inline-block;
-    padding:6px 10px;
-    border-radius:999px;
+    display:inline;
+    padding:0;
+    border-radius:0;
     font-size:13px;
     box-sizing:border-box;
-    border:2px solid transparent; /* default stroke */
+    border:none;
+    background:transparent;
 }
 
-/* Open: green text + green stroke + subtle green bg */
+/* Open: green text only */
 .status.open{
-    color:#0b7a3a; /* dark green text */
-    background: rgba(16,185,129,0.06); /* subtle green tint */
-    border-color:#10b981; /* green stroke */
+    color:#0b7a3a;
 }
 
-/* Full: red text + red stroke + subtle red bg */
+/* Full: red text only */
 .status.full{
-    color:#b91c1c; /* dark red text */
-    background: rgba(220,38,38,0.04); /* subtle red tint */
-    border-color:#ef4444; /* red stroke */
+    color:#b91c1c;
 }
 
 /* Course badges */
@@ -267,6 +264,21 @@ tr:hover td {
     font-size:13px;
     margin:2px 4px 2px 0;
     border:1px solid rgba(52,66,101,0.06);
+}
+/* Clickable course badge styles */
+a.course-badge{
+    text-decoration:none;
+    cursor:pointer;
+    transition:background-color 0.15s ease,color 0.15s ease;
+}
+a.course-badge:hover{
+    background: rgba(74,111,243,0.12);
+    color: #1f3ffb;
+}
+/* Non-clickable course badges (disabled) */
+span.course-badge[aria-disabled="true"]{
+    cursor:default;
+    opacity:0.95;
 }
 </style>
 </head>
@@ -294,7 +306,7 @@ tr:hover td {
         <?php else: ?>
             <!-- search bar above the table -->
             <div style="width:100%;max-width:900px;margin:0 auto 12px;display:block;">
-                <input id="officeSearch" type="search" placeholder="Search office / slots / status" aria-label="Search offices"
+                <input id="officeSearch" type="search" placeholder="Search" aria-label="Search offices"
                        style="width:100%;padding:8px 10px;border:1px solid #e6e9fb;border-radius:8px;background:#fff;box-sizing:border-box;">
             </div>
 
@@ -326,17 +338,21 @@ tr:hover td {
 
                     if ($cap === null) {
                         $availableDisplay = '—';
+                        $availableNum = null;
                         $statusLabel = 'Open';
-                        $statusClass = 'status-open';
+                        $statusClass = 'status open';
+                        $isClickable = true;
                     } else {
                         $availableNum = max(0, $cap - $filled);
                         $availableDisplay = $availableNum;
                         if ($availableNum === 0) {
                             $statusLabel = 'Full';
-                            $statusClass = 'status-full';
+                            $statusClass = 'status full';
+                            $isClickable = false;
                         } else {
                             $statusLabel = 'Open';
-                            $statusClass = 'status-open';
+                            $statusClass = 'status open';
+                            $isClickable = true;
                         }
                     }
                 ?>
@@ -349,7 +365,11 @@ tr:hover td {
                                     echo '—';
                                 } else {
                                     foreach ($courseList as $cn) {
-                                        echo '<span class="course-badge">'.htmlspecialchars($cn).'</span> ';
+                                        if (!empty($isClickable)) {
+                                            echo '<a class="course-badge" href="application_form1.php?office_id=' . intval($officeId) . '&course=' . urlencode($cn) . '">'.htmlspecialchars($cn).'</a> ';
+                                        } else {
+                                            echo '<span class="course-badge" aria-disabled="true">'.htmlspecialchars($cn).'</span> ';
+                                        }
                                     }
                                 }
                             ?>

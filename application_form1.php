@@ -3,6 +3,15 @@ session_start();
 // DB connection for server-side checks
 require_once 'conn.php';
 
+// If user arrived here by clicking a course on `offices.php`, persist selection to session
+if (isset($_GET['office_id'])) {
+  $_SESSION['selected_office_id'] = intval($_GET['office_id']);
+}
+if (isset($_GET['course'])) {
+  // course passed as name from offices.php
+  $_SESSION['selected_course'] = trim($_GET['course']);
+}
+
 // Inline AJAX responder for client-side pre-submit check
 if (isset($_GET['ajax_check_email'])) {
   header('Content-Type: application/json; charset=utf-8');
@@ -124,6 +133,13 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
           // fall through to re-render form with preserved values and error
         } else {
           // no duplicate and contacts differ -> save and proceed
+          // Persist any selected office/course coming from hidden inputs (or earlier GET)
+          if (isset($_POST['selected_office_id']) && $_POST['selected_office_id'] !== '') {
+            $_SESSION['selected_office_id'] = intval($_POST['selected_office_id']);
+          }
+          if (isset($_POST['selected_course']) && $_POST['selected_course'] !== '') {
+            $_SESSION['selected_course'] = trim($_POST['selected_course']);
+          }
           $_SESSION['af1'] = $af1;
           header("Location: application_form2.php");
           exit;
@@ -356,6 +372,9 @@ $af1 = isset($_SESSION['af1']) ? $_SESSION['af1'] : [];
         </div>
 
         <form id="ojtForm" method="POST" novalidate>
+          <!-- carry through selected course/office from offices.php (if present) -->
+          <input type="hidden" name="selected_office_id" value="<?= isset($_SESSION['selected_office_id']) ? htmlspecialchars((string)$_SESSION['selected_office_id']) : '' ?>">
+          <input type="hidden" name="selected_course" value="<?= isset($_SESSION['selected_course']) ? htmlspecialchars($_SESSION['selected_course']) : '' ?>">
           <fieldset>
             <input type="text" name="first_name" placeholder="First Name *" required value="<?= isset($af1['first_name']) ? htmlspecialchars($af1['first_name']) : '' ?>">
             <input type="text" name="middle_name" placeholder="Middle Name" value="<?= isset($af1['middle_name']) ? htmlspecialchars($af1['middle_name']) : '' ?>">
@@ -710,9 +729,17 @@ $af1 = isset($_SESSION['af1']) ? $_SESSION['af1'] : [];
             // network error: allow submit so server-side defensive check can run
           }
 
-          // no duplicate found (or AJAX failed) -> proceed with normal POST
-          isDirty = false; // clear unsaved flag
-          form.submit();
+            // no duplicate found (or AJAX failed) -> proceed with normal POST
+            // persist any selected course/office from hidden inputs into session so AF2/AF3 can prefill
+            try {
+              const so = document.querySelector('input[name="selected_office_id"]');
+              const sc = document.querySelector('input[name="selected_course"]');
+              if (so && so.value) {
+                // keep as hidden input so server receives it
+              }
+            } catch(e){}
+            isDirty = false; // clear unsaved flag
+            form.submit();
         });
       }
     })();
