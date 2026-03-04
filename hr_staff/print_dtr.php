@@ -143,8 +143,10 @@ $student_name = trim(($student['first_name'] ?? '') . ' ' . ($student['last_name
     .small{font-size:10px}
     .table-dtr{width:100%;border-collapse:collapse;font-size:9px; page-break-inside:auto; table-layout:fixed}
     .table-dtr th, .table-dtr td{border:1px solid #000;padding:1px 2px;text-align:center;overflow:hidden;white-space:nowrap}
+    /* ensure background colors are honored when printing */
+    .sheet, .table-dtr, .table-dtr td { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     .table-dtr thead th{background:transparent;font-weight:700;font-size:7px;padding:0px 1px}
-    .table-dtr tbody tr.weekend td:first-child{background:#bfbfbf}
+    .table-dtr tbody tr.weekend td:first-child{background-color:#bfbfbf}
     .table-dtr thead tr:first-child th{font-size:8px}
     .table-dtr thead th.small{font-size:7px}
     /* equal widths for DAY, A.M. Arrival/Departure, P.M. Arrival/Departure, Hours, Minutes */
