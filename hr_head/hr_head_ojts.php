@@ -1299,7 +1299,14 @@ if ($moa_q) {
                 }
               }catch(e){ orientation = ''; }
 
-              const userStatus = (d.status || '').toString().trim().toLowerCase();
+              // Prefer the `users.status` value when available in the embedded map
+              let _userStatusRaw = (d.status || '');
+              try {
+                if (window.userStatusMap && userId && (window.userStatusMap[userId] !== undefined && window.userStatusMap[userId] !== null)) {
+                  _userStatusRaw = window.userStatusMap[userId];
+                }
+              } catch (e) { /* ignore */ }
+              const userStatus = (_userStatusRaw || '').toString().trim().toLowerCase();
               const totalRequired = (s.total_hours_required !== undefined && s.total_hours_required !== null) ? Number(s.total_hours_required) : ((d.total_hours_required !== undefined && d.total_hours_required !== null) ? Number(d.total_hours_required) : null);
 
               // compute hours_rendered from rows if available, else use provided
@@ -1380,8 +1387,47 @@ if ($moa_q) {
                 }
               } else {
                 // completed or other statuses
-                if (totalRequired && hrsRendered >= totalRequired) {
-                  // use DTR first/last
+                if (userStatus === 'completed') {
+                  // For completed users: robustly compute earliest/latest DTR dates
+                  // by parsing dates (avoid string comparison pitfalls). Do NOT fallback to remarks.
+                  let firstDate = null, lastDate = null;
+                  try {
+                    const candidateRows = (Array.isArray(rows) ? rows.filter(r => {
+                      try {
+                        const ids = [r.student_id, r.user_id, r.userid, r.userId, r.userIdRaw];
+                        for (const candidate of ids) {
+                          if (candidate !== undefined && candidate !== null && String(candidate) === String(userId)) return true;
+                        }
+                      } catch (e) {}
+                      return false;
+                    }) : []);
+                    const searchRows = (candidateRows.length ? candidateRows : (rowsMatched || []));
+
+                    function toDate(dstr){
+                      if (!dstr) return null;
+                      try {
+                        const s = dstr.toString().split('T')[0];
+                        const dt = new Date(s + 'T00:00:00');
+                        return isNaN(dt.getTime()) ? null : dt;
+                      } catch(e){ return null; }
+                    }
+
+                    if (searchRows && searchRows.length) {
+                      searchRows.forEach(rr => {
+                        const dt = toDate(rr.log_date);
+                        if (!dt) return;
+                        if (!firstDate || dt < firstDate) firstDate = dt;
+                        if (!lastDate || dt > lastDate) lastDate = dt;
+                      });
+                    }
+                  } catch (e) { console.warn('completed date calc error', e); }
+
+                  if (firstDate) orientation_display = fmt(firstDate.toISOString().slice(0,10));
+                  if (lastDate) expected_display = fmt(lastDate.toISOString().slice(0,10));
+                  // debug log to help diagnose mismatches
+                  try { console.log('computeAndUpdateDates: completed debug', { userId: userId, first: firstDate ? firstDate.toISOString().slice(0,10) : null, last: lastDate ? lastDate.toISOString().slice(0,10) : null, matchedCount: (rowsMatched||[]).length }); } catch(e){}
+                } else if (totalRequired && hrsRendered >= totalRequired) {
+                  // use DTR first/last when required hours are met
                   let first = null, last = null;
                   if (rowsMatched && rowsMatched.length){
                     rowsMatched.forEach(rr => { if (rr.log_date){ if (!first || rr.log_date < first) first = rr.log_date; if (!last || rr.log_date > last) last = rr.log_date; } });

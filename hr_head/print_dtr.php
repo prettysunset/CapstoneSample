@@ -41,14 +41,17 @@ if (!$student) {
 
 $student_id = (int)$student['id'];
 
-// resolve office name if we have office preference
-if (isset($office_pref) && $office_pref > 0) {
-    $r = $conn->prepare("SELECT office_name FROM offices WHERE office_id = ? LIMIT 1");
-    $r->bind_param('i', $office_pref);
-    $r->execute();
-    $orow = $r->get_result()->fetch_assoc();
-    $r->close();
-    if ($orow) $office_name = $orow['office_name'];
+// ALWAYS base office on the users table: use the user linked to this student
+// (students.user_id -> users.office_name). Do NOT use office_preference1.
+$stmt = $conn->prepare("SELECT u.office_name FROM students s LEFT JOIN users u ON s.user_id = u.user_id WHERE s.student_id = ? LIMIT 1");
+if ($stmt) {
+  $stmt->bind_param('i', $student_id);
+  $stmt->execute();
+  $rn = $stmt->get_result()->fetch_assoc();
+  $stmt->close();
+  if (!empty($rn['office_name'])) {
+    $office_name = $rn['office_name'];
+  }
 }
 
 // determine target month/year if not provided: use latest dtr row or current month
@@ -112,15 +115,8 @@ if (!empty($office_name)) {
     if ($ohr) $office_head_name = trim(($ohr['first_name'] ?? '') . ' ' . ($ohr['middle_name'] ?? '') . ' ' . ($ohr['last_name'] ?? ''));
 }
 
-// fallback to office_heads_backup if available
-if (empty($office_head_name) && isset($office_pref) && $office_pref>0) {
-    $b = $conn->prepare("SELECT full_name FROM office_heads_backup WHERE office_id = ? LIMIT 1");
-    $b->bind_param('i', $office_pref);
-    $b->execute();
-    $br = $b->get_result()->fetch_assoc();
-    $b->close();
-    if ($br && !empty($br['full_name'])) $office_head_name = $br['full_name'];
-}
+// No fallback to office_preference1: do not use office_pref to determine office head.
+// If an office head cannot be found via users.office_name, leave $office_head_name empty.
 
 // final name
 $student_name = trim(($student['first_name'] ?? '') . ' ' . ($student['last_name'] ?? '')) ?: 'N/A';
