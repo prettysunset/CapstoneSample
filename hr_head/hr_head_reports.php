@@ -365,7 +365,6 @@ $evaluations = fetch_evaluations($conn);
               <option value="">Status</option>
               <option value="evaluated">Evaluated</option>
               <option value="rejected">Rejected</option>
-              <option value="deactivated">Deactivated</option>
             </select>
           </div>
 
