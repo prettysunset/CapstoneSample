@@ -151,15 +151,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         #editor .journal-template .title { text-align: center; font-weight: 700; font-size: 19px; }
         #editor .journal-template .title-main { text-align: center; font-weight: 700; font-size: 42px; margin-bottom: 22px; }
         #editor .journal-template .meta-line { margin: 3px 0; }
-        #editor .journal-template .journal-table { width: 100%; border-collapse: collapse; margin-top: 18px; }
+        #editor .journal-template .journal-table { width: 100%; border-collapse: collapse; margin-top: 18px; table-layout: fixed; }
         #editor .journal-template .journal-table th,
-        #editor .journal-template .journal-table td { border: 1px solid #222; padding: 4px 6px; vertical-align: top; }
+        #editor .journal-template .journal-table td { border: 1px solid #222; padding: 4px 6px; vertical-align: top; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
+        #editor .journal-template .journal-table th { border: 1px solid #222; padding: 4px 6px; }
         #editor .journal-template .journal-table th { text-align: center; font-weight: 400; }
         #editor .journal-template .learning { margin-top: 18px; }
         #editor .journal-template .sign-row { display: flex; justify-content: space-between; margin-top: 24px; }
         #editor .journal-template .sign-col { width: 46%; }
         #editor .journal-template .sign-name { margin-top: 38px; }
         #editor .journal-template .doc-title { margin-top: 20px; text-align: center; font-size: 40px; font-weight: 700; }
+        #editor .journal-template .editable-inline {
+            display: inline-block;
+            max-width: 72%;
+            min-height: 1.2em;
+            vertical-align: top;
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+            word-break: break-word;
+        }
+        #editor .journal-template .editable-cell {
+            min-height: 52px;
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+            word-break: break-word;
+        }
         /* resizer box & handle */
         .img-resizer { position:absolute;border:2px dashed rgba(47,52,89,0.6); box-sizing:border-box; z-index:40; }
         .img-resizer .handle { position:absolute;width:12px;height:12px;background:#fff;border:2px solid #2f3459;border-radius:2px;right:-8px;bottom:-8px;cursor:nwse-resize; }
@@ -280,10 +296,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <div class="title">[course]</div>
                 <div class="title-main">OJT - Weekly Journal</div>
 
-                <div class="meta-line">Student\'s Name: <span contenteditable="true">' . htmlspecialchars($templateStudentName, ENT_QUOTES) . '</span></div>
-                <div class="meta-line">Company Name: <span contenteditable="true">' . htmlspecialchars($templateCompany, ENT_QUOTES) . '</span></div>
-                <div class="meta-line">Supervisor\'s Name: <span contenteditable="true">' . htmlspecialchars($templateSupervisor, ENT_QUOTES) . '</span></div>
-                <div class="meta-line">Inclusive Date: <span contenteditable="true">' . htmlspecialchars(($defaultFrom && $defaultTo) ? ($defaultFrom . ' to ' . $defaultTo) : '', ENT_QUOTES) . '</span></div>
+                <div class="meta-line">Student\'s Name: <span class="editable-inline" contenteditable="true">' . htmlspecialchars($templateStudentName, ENT_QUOTES) . '</span></div>
+                <div class="meta-line">Company Name: <span class="editable-inline" contenteditable="true">' . htmlspecialchars($templateCompany, ENT_QUOTES) . '</span></div>
+                <div class="meta-line">Supervisor\'s Name: <span class="editable-inline" contenteditable="true">' . htmlspecialchars($templateSupervisor, ENT_QUOTES) . '</span></div>
+                <div class="meta-line">Inclusive Date: <span class="editable-inline" contenteditable="true">' . htmlspecialchars(($defaultFrom && $defaultTo) ? ($defaultFrom . ' to ' . $defaultTo) : '', ENT_QUOTES) . '</span></div>
 
                 <table class="journal-table">
                     <thead>
@@ -298,51 +314,51 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <tbody>
                         <tr>
                             <td>Monday<br>' . htmlspecialchars($date1, ENT_QUOTES) . '</td>
-                            <td></td>
-                            <td></td>
-                            <td></td>
-                            <td></td>
+                            <td class="editable-cell" contenteditable="true"></td>
+                            <td class="editable-cell" contenteditable="true"></td>
+                            <td class="editable-cell" contenteditable="true"></td>
+                            <td class="editable-cell" contenteditable="true"></td>
                         </tr>
                         <tr>
                             <td>Tuesday<br>' . htmlspecialchars($date2, ENT_QUOTES) . '</td>
-                            <td></td>
-                            <td></td>
-                            <td></td>
-                            <td></td>
+                            <td class="editable-cell" contenteditable="true"></td>
+                            <td class="editable-cell" contenteditable="true"></td>
+                            <td class="editable-cell" contenteditable="true"></td>
+                            <td class="editable-cell" contenteditable="true"></td>
                         </tr>
                         <tr>
                             <td>Wednesday<br>' . htmlspecialchars($date3, ENT_QUOTES) . '</td>
-                            <td></td>
-                            <td></td>
-                            <td></td>
-                            <td></td>
+                            <td class="editable-cell" contenteditable="true"></td>
+                            <td class="editable-cell" contenteditable="true"></td>
+                            <td class="editable-cell" contenteditable="true"></td>
+                            <td class="editable-cell" contenteditable="true"></td>
                         </tr>
                         <tr>
                             <td>Thursday<br>' . htmlspecialchars($date4, ENT_QUOTES) . '</td>
-                            <td></td>
-                            <td></td>
-                            <td></td>
-                            <td></td>
+                            <td class="editable-cell" contenteditable="true"></td>
+                            <td class="editable-cell" contenteditable="true"></td>
+                            <td class="editable-cell" contenteditable="true"></td>
+                            <td class="editable-cell" contenteditable="true"></td>
                         </tr>
                         <tr>
                             <td colspan="2"></td>
                             <td style="text-align:right;">Total Hours:</td>
-                            <td contenteditable="true"> </td>
-                            <td></td>
+                            <td class="editable-cell" contenteditable="true"> </td>
+                            <td class="editable-cell" contenteditable="true"></td>
                         </tr>
                     </tbody>
                 </table>
 
-                <div class="learning">Point of Learning: <span contenteditable="true"></span></div>
+                <div class="learning">Point of Learning: <span class="editable-inline" contenteditable="true"></span></div>
 
                 <div class="sign-row">
                     <div class="sign-col">
                         <div>Prepared by:</div>
-                        <div class="sign-name" contenteditable="true">' . htmlspecialchars($templateStudentName, ENT_QUOTES) . '</div>
+                        <div class="sign-name editable-inline" contenteditable="true">' . htmlspecialchars($templateStudentName, ENT_QUOTES) . '</div>
                     </div>
                     <div class="sign-col" style="text-align:right;">
                         <div>Noted by:</div>
-                        <div class="sign-name" contenteditable="true">' . htmlspecialchars($templateSupervisor, ENT_QUOTES) . '</div>
+                        <div class="sign-name editable-inline" contenteditable="true">' . htmlspecialchars($templateSupervisor, ENT_QUOTES) . '</div>
                     </div>
                 </div>
 
