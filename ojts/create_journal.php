@@ -21,6 +21,51 @@ if ($tmp) {
 }
 
 $error = '';
+
+$student_name = '';
+$assigned_office = '';
+$supervisor_name = '';
+
+if (!empty($student_id)) {
+    $st = $conn->prepare("SELECT first_name, last_name FROM students WHERE student_id = ? LIMIT 1");
+    if ($st) {
+        $st->bind_param('i', $student_id);
+        $st->execute();
+        $sr = $st->get_result()->fetch_assoc();
+        $st->close();
+        if ($sr) {
+            $student_name = trim(($sr['first_name'] ?? '') . ' ' . ($sr['last_name'] ?? ''));
+        }
+    }
+
+    $qa = $conn->prepare("SELECT remarks FROM ojt_applications WHERE student_id = ? ORDER BY date_updated DESC, application_id DESC LIMIT 1");
+    if ($qa) {
+        $qa->bind_param('i', $student_id);
+        $qa->execute();
+        $ar = $qa->get_result()->fetch_assoc();
+        $qa->close();
+        if ($ar && !empty($ar['remarks']) && preg_match('/Assigned Office:\s*([^|]+)/i', (string)$ar['remarks'], $mOffice)) {
+            $assigned_office = trim((string)$mOffice[1]);
+        }
+    }
+
+    if ($assigned_office !== '') {
+        $ao = trim((string)preg_replace('/\bOffice\b/i', '', $assigned_office));
+        $aoLower = strtolower($ao);
+        $like = '%' . $aoLower . '%';
+
+        $oh = $conn->prepare("SELECT first_name, last_name FROM users WHERE role = 'office_head' AND (LOWER(office_name) LIKE ? OR LOWER(office_name) = ?) LIMIT 1");
+        if ($oh) {
+            $oh->bind_param('ss', $like, $aoLower);
+            $oh->execute();
+            $ohr = $oh->get_result()->fetch_assoc();
+            $oh->close();
+            if ($ohr) {
+                $supervisor_name = trim(($ohr['first_name'] ?? '') . ' ' . ($ohr['last_name'] ?? ''));
+            }
+        }
+    }
+}
 // Handle POST save
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $week = trim((string)($_POST['week_coverage'] ?? ''));
@@ -101,6 +146,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         #editor{min-height:320px;border:1px solid #e6e9f2;padding:12px;border-radius:6px;background:#fff;overflow:auto}
         /* ensure images are constrained but adjustable */
         #editor img { max-width:100%; height:auto; cursor:default }
+        #editor .journal-template { max-width: 840px; margin: 0 auto; font-family: "Times New Roman", serif; color: #111; font-size: 18px; line-height: 1.25; position: relative; }
+        #editor .journal-template .header-line { border-top: 2px solid #4b6b4d; margin: 8px 0 28px; }
+        #editor .journal-template .title { text-align: center; font-weight: 700; font-size: 19px; }
+        #editor .journal-template .title-main { text-align: center; font-weight: 700; font-size: 42px; margin-bottom: 22px; }
+        #editor .journal-template .meta-line { margin: 3px 0; }
+        #editor .journal-template .journal-table { width: 100%; border-collapse: collapse; margin-top: 18px; }
+        #editor .journal-template .journal-table th,
+        #editor .journal-template .journal-table td { border: 1px solid #222; padding: 4px 6px; vertical-align: top; }
+        #editor .journal-template .journal-table th { text-align: center; font-weight: 400; }
+        #editor .journal-template .learning { margin-top: 18px; }
+        #editor .journal-template .sign-row { display: flex; justify-content: space-between; margin-top: 24px; }
+        #editor .journal-template .sign-col { width: 46%; }
+        #editor .journal-template .sign-name { margin-top: 38px; }
+        #editor .journal-template .doc-title { margin-top: 20px; text-align: center; font-size: 40px; font-weight: 700; }
         /* resizer box & handle */
         .img-resizer { position:absolute;border:2px dashed rgba(47,52,89,0.6); box-sizing:border-box; z-index:40; }
         .img-resizer .handle { position:absolute;width:12px;height:12px;background:#fff;border:2px solid #2f3459;border-radius:2px;right:-8px;bottom:-8px;cursor:nwse-resize; }
@@ -184,6 +243,115 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         ?>
 
+        <?php
+        $templateStudentName = $student_name !== '' ? $student_name : '';
+        $templateCompany = $assigned_office !== '' ? $assigned_office : '';
+        $templateSupervisor = $supervisor_name !== '' ? $supervisor_name : '';
+
+        $date1 = '';
+        $date2 = '';
+        $date3 = '';
+        $date4 = '';
+        if (!empty($defaultFrom)) {
+            try {
+                $d1 = new DateTime($defaultFrom);
+                $d2 = (clone $d1)->modify('+1 day');
+                $d3 = (clone $d1)->modify('+2 day');
+                $d4 = (clone $d1)->modify('+3 day');
+                $date1 = $d1->format('F j, Y');
+                $date2 = $d2->format('F j, Y');
+                $date3 = $d3->format('F j, Y');
+                $date4 = $d4->format('F j, Y');
+            } catch (Exception $e) {
+                $date1 = '';
+                $date2 = '';
+                $date3 = '';
+                $date4 = '';
+            }
+        }
+
+        $defaultTemplateHtml = '
+            <div class="journal-template">
+                <div style="font-size:15px;color:#3f6f47;font-weight:700;line-height:1.2;">Republic of the Philippines</div>
+                <div style="font-size:15px;color:#3f6f47;font-weight:700;line-height:1.2;">Provincial Government of Bulacan</div>
+                <div style="font-size:24px;color:#5d9e61;font-weight:700;line-height:1.15;">[school name]</div>
+                <div class="header-line"></div>
+
+                <div class="title">[course]</div>
+                <div class="title-main">OJT - Weekly Journal</div>
+
+                <div class="meta-line">Student\'s Name: <span contenteditable="true">' . htmlspecialchars($templateStudentName, ENT_QUOTES) . '</span></div>
+                <div class="meta-line">Company Name: <span contenteditable="true">' . htmlspecialchars($templateCompany, ENT_QUOTES) . '</span></div>
+                <div class="meta-line">Supervisor\'s Name: <span contenteditable="true">' . htmlspecialchars($templateSupervisor, ENT_QUOTES) . '</span></div>
+                <div class="meta-line">Inclusive Date: <span contenteditable="true">' . htmlspecialchars(($defaultFrom && $defaultTo) ? ($defaultFrom . ' to ' . $defaultTo) : '', ENT_QUOTES) . '</span></div>
+
+                <table class="journal-table">
+                    <thead>
+                        <tr>
+                            <th style="width:18%;">Date</th>
+                            <th style="width:30%;">Work Description</th>
+                            <th style="width:24%;">Remarks</th>
+                            <th style="width:14%;">No. of Hours</th>
+                            <th style="width:14%;">Signature</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>Monday<br>' . htmlspecialchars($date1, ENT_QUOTES) . '</td>
+                            <td></td>
+                            <td></td>
+                            <td></td>
+                            <td></td>
+                        </tr>
+                        <tr>
+                            <td>Tuesday<br>' . htmlspecialchars($date2, ENT_QUOTES) . '</td>
+                            <td></td>
+                            <td></td>
+                            <td></td>
+                            <td></td>
+                        </tr>
+                        <tr>
+                            <td>Wednesday<br>' . htmlspecialchars($date3, ENT_QUOTES) . '</td>
+                            <td></td>
+                            <td></td>
+                            <td></td>
+                            <td></td>
+                        </tr>
+                        <tr>
+                            <td>Thursday<br>' . htmlspecialchars($date4, ENT_QUOTES) . '</td>
+                            <td></td>
+                            <td></td>
+                            <td></td>
+                            <td></td>
+                        </tr>
+                        <tr>
+                            <td colspan="2"></td>
+                            <td style="text-align:right;">Total Hours:</td>
+                            <td contenteditable="true"> </td>
+                            <td></td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <div class="learning">Point of Learning: <span contenteditable="true"></span></div>
+
+                <div class="sign-row">
+                    <div class="sign-col">
+                        <div>Prepared by:</div>
+                        <div class="sign-name" contenteditable="true">' . htmlspecialchars($templateStudentName, ENT_QUOTES) . '</div>
+                    </div>
+                    <div class="sign-col" style="text-align:right;">
+                        <div>Noted by:</div>
+                        <div class="sign-name" contenteditable="true">' . htmlspecialchars($templateSupervisor, ENT_QUOTES) . '</div>
+                    </div>
+                </div>
+
+                <div class="doc-title">Documentation</div>
+                <div style="min-height:260px;"></div>
+            </div>
+        ';
+        ?>
+
         <form id="frm" method="post" enctype="multipart/form-data">
             <div class="row">
                 <label class="small">Week label</label>
@@ -204,7 +372,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 </label>
             </div>
 
-            <div id="editor" contenteditable="true" aria-label="Journal editor"></div>
+            <div id="editor" contenteditable="true" aria-label="Journal editor"><?php echo $defaultTemplateHtml; ?></div>
 
             <!-- image input is inside the toolbar label above; removed duplicate visible file input -->
 
@@ -426,6 +594,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         inpTo.value = suggested;
                     }
                     inpTo.min = this.value;
+                } catch(e) {}
+
+                // update template date labels inside editor
+                try {
+                    var ed = document.getElementById('editor');
+                    if (ed && ed.innerHTML.indexOf('journal-template') !== -1) {
+                        var m = new Date(this.value + 'T00:00:00');
+                        var labels = ['Monday', 'Tuesday', 'Wednesday', 'Thursday'];
+                        var rows = ed.querySelectorAll('.journal-table tbody tr');
+                        for (var i = 0; i < 4 && i < rows.length; i++) {
+                            var dd = new Date(m.getTime());
+                            dd.setDate(m.getDate() + i);
+                            var txt = dd.toLocaleDateString('en-US', { month:'long', day:'numeric', year:'numeric' });
+                            var firstCell = rows[i].querySelector('td');
+                            if (firstCell) firstCell.innerHTML = labels[i] + '<br>' + txt;
+                        }
+                    }
                 } catch(e) {}
             });
 
