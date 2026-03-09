@@ -483,9 +483,96 @@ if (!empty($completedArr)) {
     -moz-appearance: textfield;
     appearance: textfield;
   }
+  /* View modal styles (from HR head) */
+  .view-overlay { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(16,24,40,0.28); z-index: 9999; padding: 18px; }
+  /* lock page when modal open */
+  body.modal-open { overflow: hidden; height: 100%; }
+
+  .view-card {
+    width: 880px;
+    max-width: 94vw;
+    border-radius: 20px;
+    background: transparent;
+    box-shadow: 0 22px 60px rgba(16,24,40,0.28);
+    overflow: visible;
+    position: relative;
+    padding: 18px;
+    font-family: 'Poppins', sans-serif;
+    max-height: 80vh;
+    display:flex;
+    flex-direction:column;
+  }
+
+  .view-inner {
+    background:#fff;
+    border-radius:14px;
+    padding:18px;
+    box-shadow: none;
+    border: 1px solid rgba(231,235,241,0.9);
+    min-height: 460px;
+    max-height: calc(80vh - 36px);
+    display:flex;
+    flex-direction:column;
+    overflow:hidden; /* panel will scroll, not whole page */
+  }
+  .view-panel { flex:1 1 auto; min-height:360px; box-sizing:border-box; overflow:auto; padding-top:8px; }
+  .view-close { position: absolute; right: 18px; top: 18px; width:36px;height:36px;border-radius:50%;background:#fff;border:0;box-shadow:0 6px 18px rgba(16,24,40,0.06);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:18px; z-index:10010; }
+  .view-header { display:flex; gap:18px; align-items:center; margin-bottom:6px; }
+  .view-avatar { width:96px;height:96px;border-radius:50%;background:#eceff3;flex:0 0 96px; display:flex;align-items:center;justify-content:center; overflow:hidden; }
+  .view-avatar img{ width:100%; height:100%; object-fit:cover; display:block; }
+  .view-name { font-size:20px; font-weight:800; color:#222e50; margin:0 0 6px 0; letter-spacing:0.2px; }
+  .view-submeta { font-size:13px; color:#6b7280; display:flex; gap:12px; align-items:center; }
+  .view-tools { display:flex; gap:12px; align-items:center; margin-top:8px; }
+  .view-tabs { display:flex; gap:20px; align-items:center; margin-top:10px; padding-bottom:10px; }
+  .view-tab { padding:6px 10px; cursor:pointer; border-radius:6px; color:#6b7280; font-weight:700; font-size:13px; }
+  .view-tab.active { color:#1f2937; border-bottom:3px solid #344154; }
+  .view-body { display:flex; gap:18px; margin-top:8px; align-items:flex-start; }
+  .view-left { flex:1; padding:14px; border-radius:10px; min-width:320px; }
+  .view-right { width:340px; min-width:260px; padding:14px; }
+  .info-row{ display:flex; gap:10px; padding:6px 0; align-items:flex-start; }
+  .info-label{ width:110px; font-weight:700; color:#222e50; font-size:13px; }
+  .info-value{ color:#111827; font-weight:800; font-size:13px; line-height:1.1; }
+  .emergency{ margin-top:12px; padding-top:8px; border-top:1px solid #eef2f6; }
+  .donut { width:100px; height:100px; display:grid; place-items:center; }
+  .donut svg { transform:rotate(-90deg); }
+  /* lightweight on-page debug banner (temporary) */
+  #oh-debug { position: fixed; left: 12px; bottom: 12px; background: rgba(16,24,40,0.9); color: #fff; padding:8px 10px; border-radius:8px; font-size:12px; z-index:12000; max-width:44vw; max-height:30vh; overflow:auto; box-shadow:0 6px 18px rgba(0,0,0,0.3); }
+  #oh-debug .ln { margin:2px 0; }
 </style>
 </head>
 <body>
+<script>
+// Safe stub so click handlers don't fail if the full implementation hasn't loaded
+if (!window.openViewModal) {
+  window.openViewModal = function(appId, userId, preRendered, preRequired) {
+    try { console.log('stub openViewModal', { appId: appId, userId: userId }); } catch (e) {}
+    try { if (window.ohDebugLog) window.ohDebugLog('stub openViewModal uid='+userId); } catch (e) {}
+    var overlay = document.getElementById('viewOverlay');
+    if (overlay) { overlay.style.display = 'flex'; overlay.setAttribute('aria-hidden','false'); }
+    // ensure default tab visible
+    try{
+      if (overlay){
+        // deactivate tabs
+        Array.from(overlay.querySelectorAll('.view-tab')).forEach(t=>t.classList.remove('active'));
+        const first = overlay.querySelector('.view-tab[data-tab="info"]') || overlay.querySelector('.view-tab');
+        if (first) first.classList.add('active');
+        Array.from(overlay.querySelectorAll('.view-panel')).forEach(p=>p.style.display='none');
+        const panel = overlay.querySelector('#panel-info'); if (panel) panel.style.display='block';
+      }
+    }catch(e){}
+    // best-effort: try to fetch basic user info if backend endpoint is reachable
+    try {
+      if (typeof fetch === 'function' && parseInt(userId,10) > 0) {
+        fetch('../hr_actions.php', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'get_user', user_id: parseInt(userId,10) }) })
+          .then(function(r){ return r.json(); })
+          .then(function(j){ if (j && j.success && j.data && j.data.student) {
+            var s = j.data.student; var n = ((s.first_name||'') + ' ' + (s.last_name||'')).trim(); var nameEl = document.getElementById('view_name'); if (nameEl) nameEl.textContent = n || nameEl.textContent;
+          }}).catch(function(){/* ignore */});
+      }
+    } catch (e) {}
+  };
+}
+</script>
 
 <div class="sidebar">
   <div style="text-align:center;padding:18px 12px 8px;">
@@ -530,6 +617,8 @@ if (!empty($completedArr)) {
 
   <div style="position:absolute;bottom:20px;width:100%;text-align:center;font-weight:700;padding-bottom:6px">OJT-MS</div>
 </div>
+
+<div id="oh-debug" aria-hidden="false" style="display:none"></div>
 
 <div class="main">
   <!-- top-right outline icons: notifications, settings, logout — moved inside .main to match office_head_home.php -->
@@ -590,7 +679,7 @@ if (!empty($completedArr)) {
                   echo htmlspecialchars($hc_display . ' / ' . (int)$o['hours_required'] . ' hrs');
                 ?></td>
                 <td>
-                  <button class="view-btn icon-btn" data-id="<?php echo (int)$o['user_id']; ?>" title="View">
+                  <button class="view-btn icon-btn" data-id="<?php echo (int)$o['user_id']; ?>" title="View" onclick="(window.openViewModal||function(){}) (0, <?php echo (int)$o['user_id']; ?>)">
                     <svg viewBox="0 0 24 24" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                       <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
                       <circle cx="12" cy="12" r="3"></circle>
@@ -625,7 +714,7 @@ if (!empty($completedArr)) {
                   echo htmlspecialchars($hc_display . ' / ' . (int)$o['hours_required'] . ' hrs');
                 ?></td>
                 <td style="white-space:nowrap">
-                  <button class="view-btn icon-btn" data-id="<?php echo (int)$o['user_id']; ?>" title="View">
+                  <button class="view-btn icon-btn" data-id="<?php echo (int)$o['user_id']; ?>" title="View" onclick="(window.openViewModal||function(){}) (0, <?php echo (int)$o['user_id']; ?>)">
                     <svg viewBox="0 0 24 24" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                       <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
                       <circle cx="12" cy="12" r="3"></circle>
@@ -679,7 +768,7 @@ if (!empty($completedArr)) {
                   }
                 ?></td>
                 <td>
-                  <button class="view-btn icon-btn" data-id="<?php echo (int)$o['user_id']; ?>" title="View">
+                  <button class="view-btn icon-btn" data-id="<?php echo (int)$o['user_id']; ?>" title="View" onclick="(window.openViewModal||function(){}) (0, <?php echo (int)$o['user_id']; ?>)">
                     <svg viewBox="0 0 24 24" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                       <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
                       <circle cx="12" cy="12" r="3"></circle>
@@ -1198,6 +1287,377 @@ if (!empty($completedArr)) {
       }catch(err){}
     });
   })();
+</script>
+<!-- View Application Modal (copied/adapted from hr_head to provide same view behavior) -->
+<?php
+// load MOA rows for client-side matching
+$moa_rows = [];
+$moa_q = $conn->query("SELECT school_name, moa_file FROM moa");
+if ($moa_q) {
+    while ($r = $moa_q->fetch_assoc()) {
+        $sn = trim($r['school_name'] ?? '');
+        $mf = trim($r['moa_file'] ?? '');
+        if ($sn === '' || $mf === '') continue;
+        $moa_rows[] = ['school_name' => $sn, 'moa_file' => $mf];
+    }
+    $moa_q->free();
+}
+
+// build officeHeads map from users table for role 'office_head'
+$officeHeads = array();
+$ohStmt = $conn->prepare("SELECT first_name, middle_name, last_name, email, office_name FROM users WHERE role = 'office_head'");
+if ($ohStmt) {
+  $ohStmt->execute();
+  $ohRes = $ohStmt->get_result();
+  if ($ohRes) {
+    while ($ohRow = $ohRes->fetch_assoc()) {
+      $on = isset($ohRow['office_name']) ? trim($ohRow['office_name']) : '';
+      if ($on === '') continue;
+      $fn = (isset($ohRow['first_name']) ? $ohRow['first_name'] : '');
+      $mn = (isset($ohRow['middle_name']) ? $ohRow['middle_name'] : '');
+      $ln = (isset($ohRow['last_name']) ? $ohRow['last_name'] : '');
+      $fullname = trim($fn . ' ' . $mn . ' ' . $ln);
+      $email = isset($ohRow['email']) ? $ohRow['email'] : '';
+      $officeHeads[$on] = array('name' => $fullname, 'email' => $email);
+    }
+    $ohRes->free();
+  }
+  $ohStmt->close();
+}
+
+// build user maps from the loaded OJT arrays so client can prefer users.status and office_name
+$allUsers = array_merge($ojts, $for_eval, $completedArr);
+$userStatusMap = [];
+$userOfficeMap = [];
+foreach ($allUsers as $u) {
+    if (isset($u['user_id'])) {
+        $uid = (int)$u['user_id'];
+        $userStatusMap[$uid] = $u['user_status'] ?? $u['student_status'] ?? '';
+        $userOfficeMap[$uid] = $u['office_name'] ?? '';
+    }
+}
+?>
+<div id="viewOverlay" class="view-overlay" aria-hidden="true" style="display:none;">
+  <div class="view-card" role="dialog" aria-modal="true" aria-labelledby="viewTitle">
+    <button class="view-close" aria-label="Close modal" onclick="window.closeViewModal && window.closeViewModal()">✕</button>
+
+    <!-- inner white container -->
+    <div class="view-inner">
+      <div class="view-header">
+        <div class="view-avatar" id="view_avatar"> <!-- image inserted via JS --> </div>
+        <div class="view-meta">
+          <h2 class="view-name" id="view_name">Name Surname</h2>
+          <div class="view-submeta" id="view_statusline">
+            <span id="view_status_badge" style="display:inline-flex;align-items:center;gap:8px;font-weight:700;color:inherit">—</span>
+            <span id="view_department" style="display:flex;align-items:center;gap=6px;color:#6b7280">Office</span>
+          </div>
+
+          <div class="view-tools" aria-hidden="true">
+            <button class="tool-link" id="printDTR">Print DTR</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="view-tabs" role="tablist" aria-label="View tabs">
+        <div class="view-tab active" data-tab="info" onclick="switchViewTab(event)">Information</div>
+        <div class="view-tab" data-tab="late" onclick="switchViewTab(event)">DTR</div>
+        <div class="view-tab" data-tab="atts" onclick="switchViewTab(event)">Attachments</div>
+        <div class="view-tab" data-tab="eval" onclick="switchViewTab(event)">Evaluation</div>
+      </div>
+
+      <div id="panel-info" class="view-panel" style="display:block;">
+        <div class="view-body">
+          <div class="view-left">
+            <div style="display:flex;gap:12px;">
+              <div style="flex:1">
+                <div class="info-row"><div class="info-label">Age</div><div class="info-value" id="view_age">—</div></div>
+                <div class="info-row"><div class="info-label">Birthday</div><div class="info-value" id="view_birthday">—</div></div>
+                <div class="info-row"><div class="info-label">Address</div><div class="info-value" id="view_address">—</div></div>
+                <div class="info-row"><div class="info-label">Phone</div><div class="info-value" id="view_phone">—</div></div>
+                <div class="info-row"><div class="info-label">Email</div><div class="info-value" id="view_email">—</div></div>
+              </div>
+            </div>
+
+            <div style="height:14px"></div>
+
+            <div style="border-top:1px solid #f1f5f9;padding-top:12px;">
+              <div class="info-row"><div class="info-label">College/University</div><div class="info-value" id="view_college">—</div></div>
+              <div class="info-row"><div class="info-label">Course</div><div class="info-value" id="view_course">—</div></div>
+              <div class="info-row"><div class="info-label">Year level</div><div class="info-value" id="view_year">—</div></div>
+              <div class="info-row"><div class="info-label">School Address</div><div class="info-value" id="view_school_address">—</div></div>
+              <div class="info-row"><div class="info-label">OJT Adviser</div><div class="info-value" id="view_adviser">—</div></div>
+            </div>
+
+            <div class="emergency">
+              <div style="font-weight:700;margin-bottom:8px">Emergency Contact</div>
+              <div class="info-row"><div class="info-label" style="width:120px">Name</div><div class="info-value" id="view_emg_name">—</div></div>
+              <div class="info-row"><div class="info-label">Relationship</div><div class="info-value" id="view_emg_rel">—</div></div>
+              <div class="info-row"><div class="info-label">Contact Number</div><div class="info-value" id="view_emg_contact">—</div></div>
+            </div>
+          </div>
+
+            <div class="view-right">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <div style="font-weight:700">Progress</div>
+            </div>
+
+            <div class="progress-wrap" style="display:flex;flex-direction:row;gap:16px;align-items:center;justify-content:flex-start;margin-top:14px;">
+              <div class="donut" id="view_donut" style="position:relative;flex:0 0 auto;">
+              <svg width="120" height="120" viewBox="0 0 120 120">
+                <circle cx="60" cy="60" r="48" stroke="#eef2f6" stroke-width="18" fill="none"></circle>
+                <circle id="donut_fore" cx="60" cy="60" r="48" stroke="#10b981" stroke-width="18" stroke-linecap="round" fill="none" stroke-dasharray="302" stroke-dashoffset="302"></circle>
+              </svg>
+              <div id="view_percent" style="position:absolute;inset:0;display:grid;place-items:center;font-weight:800;color:#111827;font-size:16px;pointer-events:none">0%</div>
+              </div>
+
+              <div style="flex:1;min-width:0;max-width:320px;margin-left:12px;">
+              <div style="font-size:14px;font-weight:700" id="view_hours_text">0 out of — hours</div>
+              <div style="font-size:12px;color:#6b7280;margin-top:6px;white-space:pre-line" id="view_dates">Date Started: — 
+              Expected End Date: —</div>
+              </div>
+            </div>
+
+            <div class="assigned" id="view_assigned" style="margin-top:18px;display:flex;flex-direction:column;gap:8px;text-align:left;">
+              <div style="font-weight:700">Assigned Office:</div>
+              <div id="view_assigned_office">—</div>
+
+              <div style="margin-top:6px;font-weight:700">Office Head:</div>
+              <div id="view_office_head">—</div>
+
+              <div style="margin-top:6px;font-weight:700">Email:</div>
+              <div id="view_office_contact">—</div>
+            </div>
+
+            </div>
+        </div> <!-- .view-body -->
+      </div> <!-- #panel-info -->
+
+      <div id="panel-late" class="view-panel" style="display:none;padding:12px 6px;">
+        <div style="background:#fff;border-radius:10px;padding:12px;border:1px solid #eef2f6;">
+          <div style="overflow:auto">
+            <table aria-label="DTR" style="width:100%;border-collapse:collapse;font-size:14px">
+              <thead>
+                <tr style="background:#f3f4f6;color:#111">
+                  <th rowspan="2" style="padding:10px;border:1px solid #eee;text-align:center;font-weight:700;text-transform:uppercase">Date</th>
+                  <th colspan="2" style="padding:10px;border:1px solid #eee;text-align:center">A.M.</th>
+                  <th colspan="2" style="padding:10px;border:1px solid #eee;text-align:center">P.M.</th>
+                  <th rowspan="2" style="padding:10px;border:1px solid #eee;text-align:center">HOURS</th>
+                    <th rowspan="2" style="padding:10px;border:1px solid #eee;text-align:center">MINUTES</th>
+                </tr>
+                <tr style="background:#f3f4f6;color:#111">
+                  <th style="padding:8px;border:1px solid #eee;text-align:center;font-weight:700">ARRIVAL</th>
+                  <th style="padding:8px;border:1px solid #eee;text-align:center;font-weight:700">DEPARTURE</th>
+                  <th style="padding:8px;border:1px solid #eee;text-align:center;font-weight:700">ARRIVAL</th>
+                  <th style="padding:8px;border:1px solid #eee;text-align:center;font-weight:700">DEPARTURE</th>
+                </tr>
+              </thead>
+              <tbody id="late_dtr_tbody">
+                <tr class="empty">
+                  <td colspan="7" style="padding:18px;text-align:center;color:#6b7280"></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div id="panel-atts" class="view-panel" style="display:none;padding:12px 6px;">
+        <div id="attachments_full" style="background:#fff;border-radius:10px;padding:12px;border:1px solid #eef2f6;min-height:160px;">
+          <div id="view_attachments_list" style="display:flex;flex-direction:column;gap:8px;"></div>
+        </div>
+      </div>
+
+      <div id="panel-eval" class="view-panel" style="display:none;padding:12px 6px;">
+        <div style="background:#fff;border-radius:10px;padding:12px;border:1px solid #eef2f6;min-height:160px;color:#6b7280" id="eval_full">
+          Evaluation content here.
+        </div>
+      </div>
+     </div> <!-- .view-inner -->
+   </div> <!-- .view-card -->
+ </div> <!-- #viewOverlay -->
+
+    <script>
+      (function(){
+        const overlay = document.getElementById('viewOverlay');
+        if (!overlay) return;
+        // local tab wiring for the modal to ensure tabs switch even if other scripts fail
+        const tabs = Array.from(overlay.querySelectorAll('.view-tab'));
+        const panels = Array.from(overlay.querySelectorAll('.view-panel'));
+        tabs.forEach(t => {
+          t.addEventListener('click', function(ev){
+            const name = t.getAttribute('data-tab');
+            if (!name) return;
+            tabs.forEach(x=>x.classList.remove('active'));
+            t.classList.add('active');
+            panels.forEach(p=>p.style.display = 'none');
+            const panel = overlay.querySelector('#panel-' + name);
+            if (panel) panel.style.display = 'block';
+          });
+        });
+        // close button wiring
+        const closeBtn = overlay.querySelector('.view-close');
+        if (closeBtn) closeBtn.addEventListener('click', function(){ overlay.style.display='none'; overlay.setAttribute('aria-hidden','true'); });
+      })();
+    </script>
+
+<script>
+  window.moaBySchool = <?php echo json_encode($moa_rows, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_AMP|JSON_HEX_QUOT); ?>;
+</script>
+<script>
+  window.userStatusMap = <?= json_encode($userStatusMap, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_AMP|JSON_HEX_QUOT) ?> || {};
+  window.userOfficeMap = <?= json_encode($userOfficeMap, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_AMP|JSON_HEX_QUOT) ?> || {};
+  window.officeHeadMap = <?= json_encode($officeHeads, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_AMP|JSON_HEX_QUOT) ?> || {};
+  (function(){ try { window.normalizedOfficeHeadMap = {}; for (const k in window.officeHeadMap) { if (!k) continue; const nk = k.toString().trim().toLowerCase().replace(/\s+/g,' '); if (!nk) continue; window.normalizedOfficeHeadMap[nk] = window.officeHeadMap[k]; } } catch (e) { window.normalizedOfficeHeadMap = {}; } })();
+</script>
+
+<script>
+// reproduce the openViewModal + helpers from hr_head so Office Head view behaves the same
+(function(){
+  function positionNoop(){}
+  // switchViewTab reused
+  function switchViewTab(e){
+    // support being called with an Event or a tab name string
+    const tab = (typeof e === 'string') ? e : (e.currentTarget ? e.currentTarget.getAttribute('data-tab') : (e.target ? (e.target.getAttribute && e.target.getAttribute('data-tab')) || (e.target.closest ? (e.target.closest('.view-tab') ? e.target.closest('.view-tab').getAttribute('data-tab') : null) : null) : null));
+    if (!tab) return;
+    // update active tab button
+    document.querySelectorAll('.view-tab').forEach(t=>t.classList.remove('active'));
+    const btn = document.querySelector('.view-tab[data-tab="'+tab+'"]'); if (btn) btn.classList.add('active');
+    // hide all panels and show the selected one
+    document.querySelectorAll('.view-panel').forEach(p=>p.style.display='none');
+    const panel = document.getElementById('panel-' + tab); if (panel) panel.style.display = 'block';
+  }
+  window.switchViewTab = switchViewTab;
+  // attach robust listeners and remove inline onclicks to avoid duplicate handlers
+  try {
+    document.querySelectorAll('.view-tab').forEach(t=>{
+      try{ t.removeAttribute && t.removeAttribute('onclick'); }catch(e){}
+      t.addEventListener && t.addEventListener('click', switchViewTab);
+    });
+  } catch(e) {}
+
+  window.showViewOverlay = function(){ const o=document.getElementById('viewOverlay'); if(o){ o.style.display='flex'; o.setAttribute('aria-hidden','false'); } };
+  window.closeViewModal = function(){ const o=document.getElementById('viewOverlay'); if(o){ o.style.display='none'; o.setAttribute('aria-hidden','true'); } };
+
+  // on-page debug logger
+  window.ohDebugLog = function(msg){ try{ const el = document.getElementById('oh-debug'); if (!el) return; el.style.display='block'; const ln = document.createElement('div'); ln.className = 'ln'; ln.textContent = typeof msg === 'string' ? msg : JSON.stringify(msg); el.appendChild(ln); if (el.childNodes.length > 40) el.removeChild(el.childNodes[0]); }catch(e){} };
+
+  (function(){ const overlay = document.getElementById('viewOverlay'); if (!overlay) return; overlay.addEventListener('click', function(e){ if (e.target === overlay) window.closeViewModal(); }); document.addEventListener('keydown', function(ev){ if (ev.key === 'Escape') window.closeViewModal(); }); })();
+
+  function setDonut(percent){ percent = Math.max(0, Math.min(100, Number(percent) || 0)); const circle = document.getElementById('donut_fore'); const radius = 48; const circumference = 2 * Math.PI * radius; const offset = circumference - (percent / 100) * circumference; try{ circle.style.strokeDasharray = circumference; circle.style.strokeDashoffset = offset; }catch(e){} document.getElementById('view_percent').textContent = Math.round(percent) + '%'; }
+
+  window.openViewModal = async function(appId, userId, preRendered, preRequired){
+    try{ console.log('openViewModal called', { appId: appId, userId: userId, time: new Date().toISOString() }); if (window.ohDebugLog) window.ohDebugLog('openViewModal called uid='+userId); }catch(e){}
+    showViewOverlay();
+    ['view_name','view_age','view_birthday','view_address','view_phone','view_email','view_college','view_course','view_year','view_school_address','view_adviser','view_emg_name','view_emg_rel','view_emg_contact','view_hours_text','view_dates','view_assigned_office','view_office_head','view_office_contact','view_attachments_list'].forEach(id=>{ const el=document.getElementById(id); if(el) el.textContent='—'; });
+    const avatarEl = document.getElementById('view_avatar'); if (avatarEl) avatarEl.innerHTML='👤';
+
+    try{
+      console.log('openViewModal: fetching details for', { appId: appId, userId: userId });
+      let payload;
+      if (parseInt(appId,10) > 0) payload = { action:'get_application', application_id: parseInt(appId,10) };
+      else if (parseInt(userId,10) > 0) payload = { action:'get_user', user_id: parseInt(userId,10) };
+      else { alert('No application or user id available.'); closeViewModal(); return; }
+
+      const res = await fetch('../hr_actions.php', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+      const json = await res.json(); if (!json.success) { alert('Failed to load details'); closeViewModal(); return; }
+      const d = json.data; const s = d.student || {};
+
+      document.getElementById('view_name').textContent = ((s.first_name||'') + ' ' + (s.last_name||'')).trim() || 'N/A';
+      // status badge: prefer embedded userStatusMap
+      (function(){ const statusBadgeEl = document.getElementById('view_status_badge'); let stRaw = (d.status || ''); try{ if (window.userStatusMap && userId && (window.userStatusMap[userId] !== undefined && window.userStatusMap[userId] !== null)) stRaw = window.userStatusMap[userId]; }catch(e){} const st = (stRaw||'').toString().trim().toLowerCase(); if (!st) statusBadgeEl.style.display='none'; else { let label = st.charAt(0).toUpperCase()+st.slice(1); statusBadgeEl.style.display='inline-flex'; statusBadgeEl.style.color=''; statusBadgeEl.textContent = label; }})();
+
+      let assignedOffice = null; try{ if (window.userOfficeMap && userId && window.userOfficeMap[userId]) assignedOffice = window.userOfficeMap[userId]; }catch(e){ assignedOffice = null; }
+      assignedOffice = assignedOffice || d.office1 || d.office || '';
+      document.getElementById('view_department').textContent = assignedOffice || '—';
+
+      if (d.picture){ avatarEl.innerHTML=''; const img = document.createElement('img'); img.src = '../' + d.picture; img.alt = 'avatar'; avatarEl.appendChild(img); }
+
+      document.getElementById('view_age').textContent = s.age || '—';
+      document.getElementById('view_birthday').textContent = s.birthday || (s.birthdate||'—');
+      document.getElementById('view_address').textContent = s.address || s.school_address || '—';
+      document.getElementById('view_phone').textContent = s.contact_number || '—';
+      document.getElementById('view_email').textContent = s.email || '—';
+
+      document.getElementById('view_college').textContent = s.college || '—';
+      document.getElementById('view_course').textContent = s.course || '—';
+      document.getElementById('view_year').textContent = s.year_level || '—';
+      document.getElementById('view_school_address').textContent = s.school_address || '—';
+      document.getElementById('view_adviser').textContent = (s.ojt_adviser || '') + (s.adviser_contact ? ' | ' + s.adviser_contact : '');
+
+      if (s.emg_name || s.emg_contact || s.emergency_name || s.emergency_contact) {
+        document.getElementById('view_emg_name').textContent = s.emg_name || s.emergency_name || '—';
+        document.getElementById('view_emg_rel').textContent = s.emg_relation || s.emergency_relation || '—';
+        document.getElementById('view_emg_contact').textContent = s.emg_contact || s.emergency_contact || '—';
+      }
+
+      const rendered = Number(s.hours_rendered || d.hours_rendered || 0);
+      const requiredRaw = (s.total_hours_required !== undefined && s.total_hours_required !== null) ? s.total_hours_required : (d.total_hours_required !== undefined && d.total_hours_required !== null ? d.total_hours_required : null);
+      const required = Number(requiredRaw || 0);
+      const requiredDisplay = requiredRaw === null ? '—' : String(required);
+      if (typeof preRendered !== 'undefined' && preRendered !== null) {
+        const hoursElImmediate = document.getElementById('view_hours_text');
+        const reqDispImmediate = (preRequired === null || preRequired === undefined) ? requiredDisplay : String(preRequired);
+        if (hoursElImmediate) hoursElImmediate.textContent = `${preRendered} out of ${reqDispImmediate} hours`;
+        const pctImmediate = (preRequired !== null && preRequired !== undefined && preRequired > 0) ? (Number(preRendered) / Number(preRequired) * 100) : 0;
+        setDonut(pctImmediate);
+      } else {
+        document.getElementById('view_hours_text').textContent = `${rendered} out of ${requiredDisplay} hours`;
+        document.getElementById('view_dates').textContent = `Date Started: —\nExpected End Date: —`;
+        const pct = (requiredRaw !== null && required > 0) ? (rendered / required * 100) : 0;
+        setDonut(pct);
+      }
+
+      document.getElementById('view_assigned_office').textContent = assignedOffice || '—';
+      let officeHeadName = '';
+      let officeHeadEmail = '';
+      if (assignedOffice) {
+        try{
+          const key = assignedOffice.toString().trim(); const norm = key.toLowerCase().replace(/\s+/g,' ');
+          if (window.officeHeadMap && window.officeHeadMap[key]) { officeHeadName = window.officeHeadMap[key].name || ''; officeHeadEmail = window.officeHeadMap[key].email || ''; }
+          else if (window.normalizedOfficeHeadMap && window.normalizedOfficeHeadMap[norm]) { officeHeadName = window.normalizedOfficeHeadMap[norm].name || ''; officeHeadEmail = window.normalizedOfficeHeadMap[norm].email || ''; }
+          else { for (const k in (window.officeHeadMap || {})) { if (!k) continue; if (k.toString().trim().toLowerCase() === key.toLowerCase()) { officeHeadName = window.officeHeadMap[k].name || ''; officeHeadEmail = window.officeHeadMap[k].email || ''; break; } } }
+        }catch(e){}
+      }
+      officeHeadName = officeHeadName || d.office_head || d.office_head_name || '';
+      officeHeadEmail = officeHeadEmail || d.office_head_email || d.office_contact || '';
+      document.getElementById('view_office_head').textContent = officeHeadName || '—';
+      document.getElementById('view_office_contact').textContent = officeHeadEmail || d.office_contact || '—';
+
+      const attRoot = document.getElementById('view_attachments_list'); if (attRoot) attRoot.innerHTML = '';
+      const attachments = [ {label:'Letter of Intent', file:d.letter_of_intent}, {label:'Endorsement', file:d.endorsement_letter}, {label:'Resume', file:d.resume}, {label:'MOA (application)', file:d.moa_file}, {label:'Picture', file:d.picture} ].filter(a=>a && a.file);
+      if (d.school_moa && !attachments.some(a=>a.file===d.school_moa)) attachments.push({label:'MOA', file:d.school_moa});
+
+      (function(){ try{ const schoolRaw = (s.college || s.school_name || s.school || s.school_address || '').toString().trim(); if (!schoolRaw || !Array.isArray(window.moaBySchool) || !window.moaBySchool.length) return; const normalize = txt => (txt||'').toString().toLowerCase().replace(/[^\w\s]/g,' ').replace(/\s+/g,' ').trim(); const sNorm = normalize(schoolRaw); for(const entry of window.moaBySchool){ if(!entry||!entry.school_name) continue; const eNorm = normalize(entry.school_name); if (!eNorm) continue; if (eNorm === sNorm || eNorm.includes(sNorm) || sNorm.includes(eNorm)) { if (!attachments.some(a=>a.file===entry.moa_file)) attachments.push({ label: 'MOA', file: entry.moa_file }); break; } } }catch(ex){} }());
+
+      attachments.forEach(a=>{ const filePath = (a.file||'').toString().trim(); if(!filePath) return; let href; if (/^https?:\/\//i.test(filePath) || filePath.startsWith('/')) href = filePath; else if (/^uploads[\/\\]/i.test(filePath)) href = '../' + filePath.replace(/^\/+/, ''); else href = '../uploads/' + filePath.replace(/^\/+/, ''); const row = document.createElement('div'); row.style.display='flex'; row.style.justifyContent='space-between'; row.style.alignItems='center'; row.style.padding='6px 0'; const lbl = document.createElement('div'); lbl.style.fontSize='14px'; lbl.style.fontWeight='600'; lbl.textContent = a.label || (href.split('/').pop() || 'Attachment'); const actions = document.createElement('div'); actions.style.display='flex'; actions.style.gap='8px'; const viewBtn = document.createElement('a'); viewBtn.href = href; viewBtn.target = '_blank'; viewBtn.rel = 'noopener noreferrer'; viewBtn.className = 'tool-link'; viewBtn.textContent = 'View'; const dlBtn = document.createElement('a'); dlBtn.href = href; dlBtn.download = ''; dlBtn.className = 'tool-link'; dlBtn.textContent = 'Download'; actions.appendChild(viewBtn); actions.appendChild(dlBtn); row.appendChild(lbl); row.appendChild(actions); if (attRoot) attRoot.appendChild(row); });
+
+      (async function(){ try{ const tbody = document.getElementById('late_dtr_tbody'); if (!tbody) return; tbody.innerHTML = '<tr class="empty"><td colspan="7" style="padding:18px;text-align:center;color:#6b7280">Loading...</td></tr>'; const today = new Date().toISOString().slice(0,10); const resp = await fetch('../hr_actions.php', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action: 'get_dtr_by_range', from: '1900-01-01', to: today, user_id: parseInt(userId,10) }) }); const jr = await resp.json(); if (!jr || !jr.success) { tbody.innerHTML = '<tr class="empty"><td colspan="7" style="padding:18px;text-align:center;color:#6b7280">Unable to load DTR.</td></tr>'; return; } const rows = Array.isArray(jr.rows) ? jr.rows : []; const nameNorm = ((s.first_name||'') + ' ' + (s.last_name||'')).toLowerCase().trim(); const officeNorm = (d.office1 || d.office || '').toString().toLowerCase().trim(); const matched = rows.filter(r => { try { const rids = [r.student_id, r.user_id, r.userid, r.userId, r.userIdRaw]; for (const candidate of rids) { if (candidate !== undefined && candidate !== null && String(candidate) === String(userId)) return true; } } catch (err) {} const rName = ((r.first_name||'') + ' ' + (r.last_name||'')).toLowerCase().trim(); const rOffice = (r.office || '').toString().toLowerCase().trim(); if (nameNorm && rName) { if (rName === nameNorm) return true; if (rName.includes(nameNorm) || nameNorm.includes(rName)) return true; } if (officeNorm && rOffice) { if (rOffice === officeNorm) return true; if (rOffice.includes(officeNorm) || officeNorm.includes(rOffice)) return true; } return false; }); if (!matched.length) { tbody.innerHTML = '<tr class="empty"><td colspan="7" style="padding:18px;text-align:center;color:#6b7280">No DTR records found.</td></tr>'; computeAndUpdateDates([]); return; } tbody.innerHTML = ''; const formatDateCell = (raw) => { if (!raw) return ''; try { const d = raw.toString().split('T')[0]; const parts = d.split('-'); if (parts.length === 3) return `${parts[1]}-${parts[2]}-${parts[0]}`; return raw; } catch (e) { return raw; } }; matched.forEach(r => { const tr = document.createElement('tr'); tr.innerHTML = ` <td style="padding:8px;text-align:center">${formatDateCell(r.log_date) || ''}</td> <td style="padding:8px;text-align:center">${r.am_in || ''}</td> <td style="padding:8px;text-align:center">${r.am_out || ''}</td> <td style="padding:8px;text-align:center">${r.pm_in || ''}</td> <td style="padding:8px;text-align:center">${r.pm_out || ''}</td> <td style="padding:8px;text-align:center">${r.hours != null ? r.hours : ''}</td> <td style="padding:8px;text-align:center">${r.minutes != null ? r.minutes : ''}</td> `; tbody.appendChild(tr); }); (function computeAndUpdateDates(rowsMatched){ function fmt(dstr){ if (!dstr) return '—'; const dt = new Date(dstr + 'T00:00:00'); if (isNaN(dt.getTime())) return '—'; const months = ['January','February','March','April','May','June','July','August','September','October','November','December']; return months[dt.getMonth()] + ' ' + dt.getDate() + ', ' + dt.getFullYear(); } let orientation = ''; try{ const rem = (d.remarks || '').toString(); const m = rem.match(/Orientation\/Start:\s*([0-9]{4}-[0-9]{2}-[0-9]{2})/i); if (m && m[1]) orientation = m[1]; else { const m2 = rem.match(/Orientation\/Start:\s*([^|]+)/i); if (m2 && m2[1]) orientation = m2[1].trim(); } }catch(e){ orientation = ''; } let _userStatusRaw = (d.status || ''); try { if (window.userStatusMap && userId && (window.userStatusMap[userId] !== undefined && window.userStatusMap[userId] !== null)) { _userStatusRaw = window.userStatusMap[userId]; } } catch (e) { } const userStatus = (_userStatusRaw || '').toString().trim().toLowerCase(); const totalRequired = (s.total_hours_required !== undefined && s.total_hours_required !== null) ? Number(s.total_hours_required) : ((d.total_hours_required !== undefined && d.total_hours_required !== null) ? Number(d.total_hours_required) : null); let hrsRendered = Number(s.hours_rendered || d.hours_rendered || 0); if (rowsMatched && rowsMatched.length) { let sum = 0; rowsMatched.forEach(rr => { sum += (Number(rr.hours || 0) + (Number(rr.minutes || 0)/60)); }); hrsRendered = sum; } try { const requiredDisplayLocal = (totalRequired === null || totalRequired === undefined) ? '—' : String(totalRequired); const rounded = Math.round(hrsRendered * 100) / 100; const hoursEl = document.getElementById('view_hours_text'); if (hoursEl) hoursEl.textContent = `${rounded} out of ${requiredDisplayLocal} hours`; const pctLocal = (totalRequired !== null && totalRequired > 0) ? (hrsRendered / totalRequired * 100) : 0; setDonut(pctLocal); } catch (e) { console.warn('Failed to update hours/progress in view modal', e); } function addBusinessDays(startDateStr, daysNeeded){ let dt = new Date(startDateStr + 'T00:00:00'); if (isNaN(dt.getTime())) return null; let counted = 0; while (counted < daysNeeded){ const dow = dt.getDay(); if (dow >=1 && dow <=5) counted++; if (counted >= daysNeeded) break; dt.setDate(dt.getDate() + 1); } return dt; } let orientation_display = '-'; let expected_display = '-'; if (userStatus === 'approved') { orientation_display = '-'; expected_display = '-'; } else if (userStatus === 'ongoing') { let earliest = null; if (rowsMatched && rowsMatched.length){ rowsMatched.forEach(rr => { if (rr.log_date){ if (earliest === null || rr.log_date < earliest) earliest = rr.log_date; } }); } if (earliest) { orientation_display = fmt(earliest); const remaining = Math.max(0, (Number(totalRequired || 0) - hrsRendered)); const hoursPerDay = 8; const daysNeeded = Math.ceil(remaining / hoursPerDay); if (daysNeeded <= 0) { expected_display = orientation_display; } else { const dt = addBusinessDays(earliest, daysNeeded); expected_display = dt ? fmt(dt.toISOString().slice(0,10)) : '—'; } } else { if (orientation && /^\d{4}-\d{2}-\d{2}$/.test(orientation)){ orientation_display = fmt(orientation); const remaining = Math.max(0, (Number(totalRequired || 0) - hrsRendered)); const hoursPerDay = 8; const daysNeeded = Math.ceil(remaining / hoursPerDay); if (daysNeeded <= 0) expected_display = orientation_display; else { const dt = addBusinessDays(orientation, daysNeeded); expected_display = dt ? fmt(dt.toISOString().slice(0,10)) : '—'; } } else { orientation_display = '-'; expected_display = '-'; } } } else { if (userStatus === 'completed') { let firstDate = null, lastDate = null; try { const candidateRows = (Array.isArray(rows) ? rows.filter(r => { try { const ids = [r.student_id, r.user_id, r.userid, r.userId, r.userIdRaw]; for (const candidate of ids) { if (candidate !== undefined && candidate !== null && String(candidate) === String(userId)) return true; } } catch (e) {} return false; }) : []); const searchRows = (candidateRows.length ? candidateRows : (rowsMatched || [])); function toDate(dstr){ if (!dstr) return null; try { const s = dstr.toString().split('T')[0]; const dt = new Date(s + 'T00:00:00'); return isNaN(dt.getTime()) ? null : dt; } catch(e){ return null; } } if (searchRows && searchRows.length) { searchRows.forEach(rr => { const dt = toDate(rr.log_date); if (!dt) return; if (!firstDate || dt < firstDate) firstDate = dt; if (!lastDate || dt > lastDate) lastDate = dt; }); } } catch (e) { console.warn('completed date calc error', e); } if (firstDate) orientation_display = fmt(firstDate.toISOString().slice(0,10)); if (lastDate) expected_display = fmt(lastDate.toISOString().slice(0,10)); try { console.log('computeAndUpdateDates: completed debug', { userId: userId, first: firstDate ? firstDate.toISOString().slice(0,10) : null, last: lastDate ? lastDate.toISOString().slice(0,10) : null, matchedCount: (rowsMatched||[]).length }); } catch(e){} } else if (totalRequired && hrsRendered >= totalRequired) { let first = null, last = null; if (rowsMatched && rowsMatched.length){ rowsMatched.forEach(rr => { if (rr.log_date){ if (!first || rr.log_date < first) first = rr.log_date; if (!last || rr.log_date > last) last = rr.log_date; } }); } if (first) orientation_display = fmt(first); if (last) expected_display = fmt(last); } else { if (orientation && /^\d{4}-\d{2}-\d{2}$/.test(orientation)){ orientation_display = fmt(orientation); const remaining = Math.max(0, (Number(totalRequired || 0) - hrsRendered)); const hoursPerDay = 8; const daysNeeded = Math.ceil(remaining / hoursPerDay); if (daysNeeded <= 0) expected_display = orientation_display; else { const dt = addBusinessDays(orientation, daysNeeded); expected_display = dt ? fmt(dt.toISOString().slice(0,10)) : '—'; } } else { orientation_display = (orientation ? orientation : '-'); expected_display = '-'; } } document.getElementById('view_dates').textContent = `Date Started: ${orientation_display}\nExpected End Date: ${expected_display}`; })(matched);
+        } catch (ex) { console.warn('View modal DTR fetch error', ex); const tbody = document.getElementById('late_dtr_tbody'); if (tbody) tbody.innerHTML = '<tr class="empty"><td colspan="7" style="padding:18px;text-align:center;color:#6b7280">Failed to load DTR.</td></tr>'; }
+      })();
+
+      document.getElementById('printDTR').onclick = function(){ window.open('print_dtr.php?id=' + encodeURIComponent(appId),'_blank'); };
+
+    }catch(err){ console.error('openViewModal error', err); try{ alert('Failed to load details — check console for error.'); }catch(e){}; closeViewModal(); }
+  };
+})();
+</script>
+<script>
+  // wire existing view buttons (delegated)
+  document.addEventListener('click', function(e){
+    try {
+      const btn = e.target && e.target.closest && e.target.closest('.view-btn');
+      if (!btn) return;
+      const uid = btn.getAttribute('data-id');
+      console.log('view-btn clicked', { uid: uid, timestamp: new Date().toISOString() }); if (window.ohDebugLog) window.ohDebugLog('view-btn clicked uid='+uid);
+      if (!uid) return;
+      if (window.openViewModal) {
+        try { window.openViewModal(0, uid, null, null); }
+        catch (err) { console.error('openViewModal threw', err); }
+      } else {
+        console.warn('openViewModal is not defined at click time');
+      }
+    } catch (ex) { console.error('delegated view-btn handler error', ex); }
+  });
 </script>
 </body>
 </html>
