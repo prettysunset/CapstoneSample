@@ -106,7 +106,7 @@ function fetch_evaluations($conn){
   $check2 = $conn->query("SHOW COLUMNS FROM evaluations LIKE 'school_eval'");
   if ($check2) { $hasSchoolEval = $check2->num_rows > 0; $check2->free(); }
 
-  $cols = "e.eval_id, e.rating, e.feedback, e.date_evaluated";
+  $cols = "e.eval_id, e.rating, e.feedback, e.hiring, e.date_evaluated";
   if ($hasRatingDesc) $cols .= ", e.rating_desc";
   if ($hasSchoolEval) $cols .= ", e.school_eval";
   $cols .= ", s.first_name AS student_first, s.last_name AS student_last, u.first_name AS eval_first, u.last_name AS eval_last";
@@ -424,21 +424,21 @@ $evaluations = fetch_evaluations($conn);
           <table class="tbl" id="tblEvaluations">
             <thead>
               <tr>
-                  <th style="text-align:center">Date Evaluated</th>
-                  <th style="text-align:center">Student Name</th>
-                  <th style="text-align:center">Rating</th>
-                  <th style="text-align:center">School Grade</th>
-                  <th style="text-align:center">Feedback</th>
-                  <th style="text-align:center">Evaluator</th>
-                  <th style="text-align:center">View</th>
-                  <th style="text-align:center">Print Certificate</th>
-                </tr>
+                      <th style="text-align:center">Date Evaluated</th>
+                      <th style="text-align:center">Student Name</th>
+                      <th style="text-align:center">Rating</th>
+                      <th style="text-align:center">School Grade</th>
+                      <th style="text-align:center">Hiring Decision</th>
+                      <th style="text-align:center">Evaluator</th>
+                      <th style="text-align:center">View</th>
+                      <th style="text-align:center">Print Certificate</th>
+                    </tr>
             </thead>
             <tbody>
               <?php if (empty($evaluations)): ?>
                 <tr><td colspan="8" class="empty">No evaluations found.</td></tr>
               <?php else: foreach ($evaluations as $e): ?>
-                <tr data-search="<?= htmlspecialchars(strtolower(($e['student_first'] ?? '') . ' ' . ($e['student_last'] ?? '') . ' ' . ($e['eval_first'] ?? '') . ' ' . ($e['eval_last'] ?? '') . ' ' . ($e['feedback'] ?? ''))) ?>">
+                <tr data-search="<?= htmlspecialchars(strtolower(($e['student_first'] ?? '') . ' ' . ($e['student_last'] ?? '') . ' ' . ($e['eval_first'] ?? '') . ' ' . ($e['eval_last'] ?? '') . ' ' . ($e['hiring'] ?? ''))) ?>">
                   <td style="text-align:center"><?= htmlspecialchars(fmtDate($e['date_evaluated'] ?? '')) ?></td>
                   <td style="text-align:center"><?= htmlspecialchars(trim(($e['student_first'] ?? '') . ' ' . ($e['student_last'] ?? ''))) ?: 'N/A' ?></td>
                   <td style="text-align:center"><?= htmlspecialchars($e['rating_desc'] ?? '') ?></td>
@@ -449,7 +449,10 @@ $evaluations = fetch_evaluations($conn);
                         echo '-';
                       }
                   ?></td>
-                  <td style="text-align:center"><?= htmlspecialchars($e['feedback'] ?? '') ?></td>
+                  <td style="text-align:center"><?php
+                      $h = isset($e['hiring']) ? $e['hiring'] : null;
+                      echo $h ? htmlspecialchars($h) : '-';
+                  ?></td>
                   <td style="text-align:center"><?= htmlspecialchars(trim(($e['eval_first'] ?? '') . ' ' . ($e['eval_last'] ?? ''))) ?: 'N/A' ?></td>
                   <td style="text-align:center">
                     <button class="view-btn" data-eval-id="<?= htmlspecialchars($e['eval_id'] ?? '') ?>" title="View Evaluation" style="background:none;border:none;cursor:pointer;color:#0b74de;">

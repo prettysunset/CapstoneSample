@@ -23,7 +23,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $evaluator_id = isset($_SESSION['user_id']) ? (int)$_SESSION['user_id'] : 0;
         $trainee = (int)$data['trainee_id'];
         $scores = $data['scores'] ?? [];
-        $remarks = trim((string)($data['remarks'] ?? ''));
+        // collect overall assessment fields submitted from modal
+        $strengths = trim((string)($data['overall_strengths'] ?? ''));
+        $improvements = trim((string)($data['improvement_areas'] ?? ''));
+        $other_comments = trim((string)($data['other_comments'] ?? ''));
+        $hire_decision = trim((string)($data['hire_decision'] ?? ''));
+
+        // require these fields
+        if ($strengths === '' || $improvements === '' || $other_comments === '' || $hire_decision === '') {
+          echo json_encode(['success' => false, 'message' => 'Please complete all Overall Assessment fields']);
+          exit;
+        }
+
+        // combine into feedback text stored in evaluations.feedback
+        $remarks = "Strengths: " . $strengths . "\n\nAreas for improvement: " . $improvements . "\n\nOther comments: " . $other_comments . "\n\nHire decision: " . $hire_decision;
         $school_eval_raw = isset($data['school_eval']) ? $data['school_eval'] : null;
 
         // resolve student_id (students.user_id = trainee)
@@ -93,19 +106,67 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $conn->begin_transaction();
         $success = false;
 
-        $ins = $conn->prepare("INSERT INTO evaluations (student_id, rating, rating_desc, feedback, school_eval, date_evaluated, user_id) VALUES (?, ?, ?, ?, ?, NOW(), ?)");
+        // insert evaluation row and store overall text fields separately
+        $ins = $conn->prepare("INSERT INTO evaluations (student_id, rating, rating_desc, feedback, school_eval, strengths, improvement, comments, hiring, date_evaluated, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?)");
         if ($ins) {
-            // bind: int, double (nullable), string, string, int
-          $ins->bind_param("idssdi", $student_id, $ratingValue, $ratingDesc, $remarks, $school_eval, $evaluator_id);
-            $insOk = $ins->execute();
-            $ins->close();
+          // bind types: i (student_id), d (ratingValue), s (ratingDesc), s (feedback), d (school_eval), s (strengths), s (improvements), s (other_comments), s (hire_decision), i (evaluator_id)
+          $ins->bind_param("idssdssssi", $student_id, $ratingValue, $ratingDesc, $remarks, $school_eval, $strengths, $improvements, $other_comments, $hire_decision, $evaluator_id);
+          $insOk = $ins->execute();
+          $eval_insert_id = $conn->insert_id;
+          $ins->close();
         } else {
-            echo json_encode(['success' => false, 'message' => 'DB prepare failed (evaluations insert)']);
-            $conn->rollback();
-            exit;
+          echo json_encode(['success' => false, 'message' => 'DB prepare failed (evaluations insert)']);
+          $conn->rollback();
+          exit;
         }
 
         if ($insOk) {
+            // insert individual question responses into evaluation_responses
+            $respOk = true;
+            $eval_id = isset($eval_insert_id) ? (int)$eval_insert_id : 0;
+            if ($eval_id > 0) {
+              $insRespScore = $conn->prepare("INSERT INTO evaluation_responses (eval_id, question_key, question_order, score) VALUES (?, ?, ?, ?)");
+              $insRespNull  = $conn->prepare("INSERT INTO evaluation_responses (eval_id, question_key, question_order, score) VALUES (?, ?, ?, NULL)");
+              if ($insRespScore && $insRespNull) {
+                foreach ($scores as $qkey => $qval) {
+                  $qorder = null;
+                  if (preg_match('/(\\d+)$/', $qkey, $m)) $qorder = (int)$m[1];
+                  $orderVal = $qorder ?? 0;
+
+                  if ($qval === null || (is_string($qval) && strtoupper($qval) === 'NA') || $qval === '') {
+                    $insRespNull->bind_param('isi', $eval_id, $qkey, $orderVal);
+                    if (!$insRespNull->execute()) { $respOk = false; break; }
+                  } else {
+                    if (!is_numeric($qval)) {
+                      $insRespNull->bind_param('isi', $eval_id, $qkey, $orderVal);
+                      if (!$insRespNull->execute()) { $respOk = false; break; }
+                    } else {
+                      $scoreInt = intval($qval);
+                      if ($scoreInt < 1 || $scoreInt > 5) {
+                        $insRespNull->bind_param('isi', $eval_id, $qkey, $orderVal);
+                        if (!$insRespNull->execute()) { $respOk = false; break; }
+                      } else {
+                        $insRespScore->bind_param('isii', $eval_id, $qkey, $orderVal, $scoreInt);
+                        if (!$insRespScore->execute()) { $respOk = false; break; }
+                      }
+                    }
+                  }
+                }
+                $insRespScore->close();
+                $insRespNull->close();
+              } else {
+                $respOk = false;
+              }
+            } else {
+              $respOk = false;
+            }
+
+            if (!$respOk) {
+              $conn->rollback();
+              echo json_encode(['success' => false, 'message' => 'Failed to save individual responses']);
+              exit;
+            }
+
             // update students.status => mark evaluated
             $u1 = $conn->prepare("UPDATE students SET status = 'evaluated' WHERE student_id = ?");
             $u1Ok = true;
@@ -155,9 +216,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
           if (!empty($hrRecipients)) {
             $msg_hr = 'Evaluation Submitted: The performance evaluation for ' . $trainee_name . ' has been submitted.';
-            $ins = $conn->prepare("INSERT INTO notifications (message) VALUES (?)");
+            $now = date('Y-m-d H:i:s');
+            $ins = $conn->prepare("INSERT INTO notifications (message, created_at) VALUES (?, ?)");
             if ($ins) {
-              $ins->bind_param('s', $msg_hr);
+              $ins->bind_param('ss', $msg_hr, $now);
               $ins->execute();
               $nid = $conn->insert_id;
               $ins->close();
@@ -175,9 +237,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
           // notify the trainee (OJT)
           $msg_ojt = 'Evaluation Submitted: Your performance evaluation has been submitted.';
-          $insx = $conn->prepare("INSERT INTO notifications (message) VALUES (?)");
+          $now = date('Y-m-d H:i:s');
+          $insx = $conn->prepare("INSERT INTO notifications (message, created_at) VALUES (?, ?)");
           if ($insx) {
-            $insx->bind_param('s', $msg_ojt);
+            $insx->bind_param('ss', $msg_ojt, $now);
             $insx->execute();
             $nid2 = $conn->insert_id;
             $insx->close();
@@ -757,7 +820,6 @@ if (!empty($completedArr)) {
             <td style="padding:10px;border:1px solid #eef1f6;vertical-align:middle;"><?= htmlspecialchars($text) ?></td>
             <?php for ($s = 5; $s >= 1; $s--): ?>
               <td style="padding:6px;border:1px solid #eef1f6;text-align:center;">
-                <!-- numeric columns show no text by default; data-score holds value -->
                 <button type="button" class="score-cell" data-key="<?= $key ?>" data-score="<?= $s ?>"
                   aria-label="Score <?= $s ?>"
                   style="width:36px;height:30px;border-radius:4px;border:1px solid #cfd6ea;background:#fff;cursor:pointer">
@@ -765,7 +827,104 @@ if (!empty($completedArr)) {
               </td>
             <?php endfor; ?>
             <td style="padding:6px;border:1px solid #eef1f6;text-align:center;">
-              <!-- keep N/A visible by default -->
+              <button type="button" class="score-cell" data-key="<?= $key ?>" data-score="NA"
+                aria-label="Not applicable"
+                style="width:44px;height:30px;border-radius:4px;border:1px solid #cfd6ea;background:#fff;cursor:pointer">
+                N/A
+              </button>
+            </td>
+          </tr>
+          <?php endforeach; ?>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Additional Skill table -->
+    <div style="overflow:auto;margin-top:6px;">
+      <table id="skillGrid" style="width:100%;border-collapse:collapse;font-size:14px;margin-bottom:8px;">
+        <thead>
+          <tr style="background:#2f3459;color:#fff;">
+            <th style="padding:8px;border:1px solid #e6e9f2;text-align:left">Skill</th>
+            <th style="padding:8px;border:1px solid #e6e9f2;text-align:center;width:48px">5</th>
+            <th style="padding:8px;border:1px solid #e6e9f2;text-align:center;width:48px">4</th>
+            <th style="padding:8px;border:1px solid #e6e9f2;text-align:center;width:48px">3</th>
+            <th style="padding:8px;border:1px solid #e6e9f2;text-align:center;width:48px">2</th>
+            <th style="padding:8px;border:1px solid #e6e9f2;text-align:center;width:48px">1</th>
+            <th style="padding:8px;border:1px solid #e6e9f2;text-align:center;width:60px">N/A</th>
+          </tr>
+        </thead>
+        <tbody>
+          <?php
+            $skills = [
+              'Communication (Oral & Written): Expresses ideas clearly, professionally, and actively listens to others.',
+              'Teamwork & Collaboration: Works cooperatively with supervisors and colleagues; contributes positively to the team.',
+              'Problem-Solving: Analyzes situations, identifies problems, and suggests logical solutions.',
+              'Critical Thinking: Gathers and evaluates information to make sound judgments.',
+              'Initiative & Resourcefulness: Seeks new responsibilities, asks relevant questions, and works independently when appropriate.'
+            ];
+            foreach ($skills as $idx => $text):
+              $key = 's' . ($idx+1);
+          ?>
+          <tr data-key="<?= $key ?>">
+            <td style="padding:10px;border:1px solid #eef1f6;vertical-align:middle;"><?= htmlspecialchars($text) ?></td>
+            <?php for ($s = 5; $s >= 1; $s--): ?>
+              <td style="padding:6px;border:1px solid #eef1f6;text-align:center;">
+                <button type="button" class="score-cell" data-key="<?= $key ?>" data-score="<?= $s ?>"
+                  aria-label="Score <?= $s ?>"
+                  style="width:36px;height:30px;border-radius:4px;border:1px solid #cfd6ea;background:#fff;cursor:pointer">
+                </button>
+              </td>
+            <?php endfor; ?>
+            <td style="padding:6px;border:1px solid #eef1f6;text-align:center;">
+              <button type="button" class="score-cell" data-key="<?= $key ?>" data-score="NA"
+                aria-label="Not applicable"
+                style="width:44px;height:30px;border-radius:4px;border:1px solid #cfd6ea;background:#fff;cursor:pointer">
+                N/A
+              </button>
+            </td>
+          </tr>
+          <?php endforeach; ?>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Additional Trait table -->
+    <div style="overflow:auto;margin-top:6px;">
+      <table id="traitGrid" style="width:100%;border-collapse:collapse;font-size:14px;margin-bottom:8px;">
+        <thead>
+          <tr style="background:#2f3459;color:#fff;">
+            <th style="padding:8px;border:1px solid #e6e9f2;text-align:left">Trait</th>
+            <th style="padding:8px;border:1px solid #e6e9f2;text-align:center;width:48px">5</th>
+            <th style="padding:8px;border:1px solid #e6e9f2;text-align:center;width:48px">4</th>
+            <th style="padding:8px;border:1px solid #e6e9f2;text-align:center;width:48px">3</th>
+            <th style="padding:8px;border:1px solid #e6e9f2;text-align:center;width:48px">2</th>
+            <th style="padding:8px;border:1px solid #e6e9f2;text-align:center;width:48px">1</th>
+            <th style="padding:8px;border:1px solid #e6e9f2;text-align:center;width:60px">N/A</th>
+          </tr>
+        </thead>
+        <tbody>
+          <?php
+            $traits = [
+              'Punctuality & Attendance: Adheres to the agreed-upon work schedule and informs the supervisor of any absences.',
+              'Professional Conduct: Observes company policies, follows instructions, and maintains confidentiality.',
+              'Attitude & Receptiveness: Maintains a positive attitude and accepts constructive feedback gracefully.',
+              'Time Management: Prioritizes tasks effectively to manage workload.',
+              'Professional Appearance: Adheres to the company\'s dress code and grooming standards.'
+            ];
+            foreach ($traits as $idx => $text):
+              $key = 't' . ($idx+1);
+          ?>
+          <tr data-key="<?= $key ?>">
+            <td style="padding:10px;border:1px solid #eef1f6;vertical-align:middle;"><?= htmlspecialchars($text) ?></td>
+            <?php for ($s = 5; $s >= 1; $s--): ?>
+              <td style="padding:6px;border:1px solid #eef1f6;text-align:center;">
+                <button type="button" class="score-cell" data-key="<?= $key ?>" data-score="<?= $s ?>"
+                  aria-label="Score <?= $s ?>"
+                  style="width:36px;height:30px;border-radius:4px;border:1px solid #cfd6ea;background:#fff;cursor:pointer">
+                </button>
+              </td>
+            <?php endfor; ?>
+            <td style="padding:6px;border:1px solid #eef1f6;text-align:center;">
               <button type="button" class="score-cell" data-key="<?= $key ?>" data-score="NA"
                 aria-label="Not applicable"
                 style="width:44px;height:30px;border-radius:4px;border:1px solid #cfd6ea;background:#fff;cursor:pointer">
@@ -779,9 +938,25 @@ if (!empty($completedArr)) {
     </div>
 
     <div style="margin-top:10px;">
-      <label style="display:block;margin-bottom:6px;font-weight:600">Feedback (optional)</label>
-      <textarea id="evalRemarks" rows="3" style="width:100%;padding:8px;border-radius:6px;border:1px solid #ddd"></textarea>
+      <h3 style="margin:0 0 6px 0;">Overall Assessment & Recommendations</h3>
+
+      <label style="display:block;margin-top:8px;margin-bottom:6px;font-weight:700">What are the trainee's most significant strengths?</label>
+      <textarea id="overallStrengths" rows="3" style="width:100%;padding:8px;border-radius:6px;border:1px solid #ddd" required></textarea>
+
+      <label style="display:block;margin-top:8px;margin-bottom:6px;font-weight:700">What specific areas require improvement?</label>
+      <textarea id="improvementAreas" rows="3" style="width:100%;padding:8px;border-radius:6px;border:1px solid #ddd" required></textarea>
+
+      <label style="display:block;margin-top:8px;margin-bottom:6px;font-weight:700">Do you have other comments on the trainee's overall performance?</label>
+      <textarea id="otherComments" rows="3" style="width:100%;padding:8px;border-radius:6px;border:1px solid #ddd" required></textarea>
+
+      <label style="display:block;margin-top:8px;margin-bottom:6px;font-weight:700">Would you consider hiring this trainee for a full-time position (if one were available)?</label>
+      <div style="display:flex;gap:12px;align-items:center;margin-bottom:6px">
+        <label style="display:inline-flex;align-items:center;gap:6px"><input type="radio" name="hireDecision" value="Yes"> Yes</label>
+        <label style="display:inline-flex;align-items:center;gap:6px"><input type="radio" name="hireDecision" value="Maybe"> Maybe</label>
+        <label style="display:inline-flex;align-items:center;gap:6px"><input type="radio" name="hireDecision" value="No"> No</label>
+      </div>
     </div>
+
 
     <div class="eval-divider">
       <label style="display:block;margin-bottom:6px;font-weight:700">School Evaluation Grade</label>
@@ -848,7 +1023,11 @@ if (!empty($completedArr)) {
       b.style.color = '#000';
       b.textContent = ''; // empty by default (including N/A)
     });
-    document.getElementById('evalRemarks').value = '';
+    // reset overall assessment fields
+    const osEl = document.getElementById('overallStrengths'); if (osEl) osEl.value = '';
+    const iaEl = document.getElementById('improvementAreas'); if (iaEl) iaEl.value = '';
+    const ocEl = document.getElementById('otherComments'); if (ocEl) ocEl.value = '';
+    document.querySelectorAll('input[name="hireDecision"]').forEach(r => r.checked = false);
     // reset school grade
     const gradeEl = document.getElementById('evalSchoolGrade'); if (gradeEl) gradeEl.value = '';
 
@@ -869,7 +1048,12 @@ if (!empty($completedArr)) {
     if (!traineeId) { alert('Trainee ID not set'); return; }
 
     // build payload
-    const payload = { trainee_id: traineeId, remarks: (document.getElementById('evalRemarks').value || '').trim(), scores: {} };
+    const payload = { trainee_id: traineeId, scores: {} };
+    payload.overall_strengths = (document.getElementById('overallStrengths').value || '').trim();
+    payload.improvement_areas = (document.getElementById('improvementAreas').value || '').trim();
+    payload.other_comments = (document.getElementById('otherComments').value || '').trim();
+    const hireSel = document.querySelector('input[name="hireDecision"]:checked');
+    payload.hire_decision = hireSel ? hireSel.value : '';
     // include school evaluation grade
     const gradeEl = document.getElementById('evalSchoolGrade');
     const gradeValRaw = gradeEl ? (gradeEl.value || '').toString().trim() : '';
@@ -887,6 +1071,16 @@ if (!empty($completedArr)) {
     });
     if (!allRated) {
       alert('Please rate all competencies (choose 5/4/3/2/1 or N/A) before submitting.');
+      return;
+    }
+
+    // REQUIRE: overall assessment fields must be provided
+    if (!payload.overall_strengths || !payload.improvement_areas || !payload.other_comments) {
+      alert('Please complete the Overall Assessment textboxes.');
+      return;
+    }
+    if (!payload.hire_decision) {
+      alert('Please select a hire decision (Yes / Maybe / No).');
       return;
     }
 
