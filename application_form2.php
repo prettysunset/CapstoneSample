@@ -11,6 +11,14 @@ if ($rc) {
     $rc->free();
 }
 
+// load schools for datalist suggestions and offers_5th_year flag
+$schools = [];
+$rs = $conn->query("SELECT school_id, school_name, offers_5th_year FROM schools ORDER BY school_name");
+if ($rs) {
+  while ($r = $rs->fetch_assoc()) $schools[] = $r;
+  $rs->free();
+}
+
 // --- NEW: compute availability per course (true if any related office has available slots) ---
 $courseAvailability = [];
 if (!empty($courses)) {
@@ -86,6 +94,24 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
           'adviser_contact'=> $_POST['adviser_contact'] ?? ''
         ];
 
+        // server-side: if school matches a known school and it does NOT offer 5th year,
+        // prevent selecting year_level = 5
+        $school_offers_5th = null;
+        if (trim($posted_af2['school']) !== '') {
+          $s2 = $conn->prepare("SELECT offers_5th_year FROM schools WHERE LOWER(school_name) = LOWER(?) LIMIT 1");
+          if ($s2) {
+            $s2->bind_param('s', $posted_af2['school']);
+            $s2->execute();
+            $s2->store_result();
+            if ($s2->num_rows > 0) {
+              $s2->bind_result($school_offers_5th);
+              $s2->fetch();
+              $school_offers_5th = (int)$school_offers_5th;
+            }
+            $s2->close();
+          }
+        }
+
         // If user clicked Previous: persist posted AF2 to session and go back to AF1
         if (isset($_POST['action']) && $_POST['action'] === 'prev') {
           $_SESSION['af2'] = $posted_af2;
@@ -104,6 +130,11 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
           // preserve posted values in local $af2 for re-rendering the form below
           $af2 = $posted_af2;
         } else {
+          // if matched school does not offer 5th year, block selection of 5th year
+          if ($school_offers_5th !== null && $school_offers_5th === 0 && isset($posted_af2['year_level']) && (string)$posted_af2['year_level'] === '5') {
+            $error_no_5th = 'The selected school does not offer 5th Year. Please choose another year level.';
+            $af2 = $posted_af2;
+          } else {
           // persist any selected office/course coming from hidden inputs
           if (isset($_POST['selected_office_id']) && $_POST['selected_office_id'] !== '') {
             $_SESSION['selected_office_id'] = intval($_POST['selected_office_id']);
@@ -115,6 +146,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
           $_SESSION['af2'] = $posted_af2;
           header("Location: application_form3.php");
           exit;
+          }
         }
 }
 
@@ -373,25 +405,31 @@ const AF1_CONTACT = <?= json_encode(preg_replace('/[^0-9]/', '', (isset($_SESSIO
 const AF1_EMG_CONTACT = <?= json_encode(preg_replace('/[^0-9]/', '', (isset($_SESSION['af1']['emg_contact']) ? $_SESSION['af1']['emg_contact'] : ''))) ?> || '';
 
 (function(){
-  const schools = [
-    "Bulacan Polytechnic College",
-    "Bulacan State University",
-    "La Consolacion University Philippines",
-    "Centro Escolar University – Malolos Campus",
-    "ABE International Business College – Malolos",
-    "STI College – Malolos",
-    "Baliuag University",
-    "College of Our Lady of Mercy of Pulilan Foundation",
-    "Meycauayan College",
-    "St. Mary’s College of Meycauayan",
-    "Immaculate Conception International College of Arts and Technology",
-    "Asian Institute of Computer Studies – Malolos",
-    "AMA Computer College – Malolos",
-    "Philippine College of Science and Technology – Bulacan Branch"
-  ];
+  // server-provided schools list and offers map
+  const schoolsData = <?= json_encode($schools, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT) ?> || [];
+  const schools = schoolsData.map(s => s.school_name);
+  const schoolOffers = {};
+  schoolsData.forEach(s => { schoolOffers[String(s.school_name).toLowerCase()] = Number(s.offers_5th_year); });
 
   const input = document.getElementById('schoolInput');
   const datalist = document.getElementById('schoolsList');
+
+  // expose function for other scripts / server-triggered calls
+  window.update5thYearVisibility = function(schoolName) {
+    const ysel = document.querySelector('.year-select');
+    if (!ysel) return;
+    const opt5 = Array.from(ysel.options).find(o => String(o.value) === '5');
+    const key = (schoolName || '').trim().toLowerCase();
+    const offers = key && (schoolOffers[key] !== undefined) ? schoolOffers[key] : null;
+    if (offers === 0) {
+      if (opt5) { opt5.hidden = true; opt5.disabled = true; }
+      if (ysel.value === '5') {
+        ysel.value = '';
+      }
+    } else {
+      if (opt5) { opt5.hidden = false; opt5.disabled = false; }
+    }
+  };
 
   function populateList(filter) {
     datalist.innerHTML = '';
@@ -432,16 +470,23 @@ const AF1_EMG_CONTACT = <?= json_encode(preg_replace('/[^0-9]/', '', (isset($_SE
       else clearList();
     } else {
       populateList(q);
+      // adjust 5th Year visibility as user types
+      window.update5thYearVisibility(q);
       openedByArrow = false;
     }
   });
 
   input.addEventListener('blur', function(){
     setTimeout(clearList, 120);
+    // check the typed school against known schools
+    window.update5thYearVisibility(input.value || '');
     openedByArrow = false;
   });
 
-  if (input.value && input.value.trim() !== '') populateList(input.value);
+  if (input.value && input.value.trim() !== '') {
+    populateList(input.value);
+    window.update5thYearVisibility(input.value || '');
+  }
 
   // -------------------------
   // Draft autosave (localStorage) for AF2 so answers persist when navigating back
@@ -586,6 +631,9 @@ const courseAvailability = <?= json_encode($courseAvailability, JSON_HEX_TAG|JSO
 </script>
 <?php if (!empty($error_adviser_conflict)): ?>
   <script>window.addEventListener('load',function(){ alert(<?= json_encode($error_adviser_conflict) ?>); });</script>
+<?php endif; ?>
+<?php if (!empty($error_no_5th)): ?>
+  <script>window.addEventListener('load',function(){ alert(<?= json_encode($error_no_5th) ?>); try{ window.update5thYearVisibility(document.getElementById('schoolInput').value||''); }catch(e){} });</script>
 <?php endif; ?>
 </body>
 </html>

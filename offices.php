@@ -298,6 +298,7 @@ span.course-badge[aria-disabled="true"]{
     </nav>
 
     <h1>OJT Slot <span style="color: #4a6ff3;">Availability</span></h1>
+    <p style="text-align:center;margin-top:8px;color:#374151;font-size:15px;">Click your course in the row of your preferred office to apply.</p>
 
     <!-- ===== simplified single table with accurate counts (based on hr_head_home logic) ===== -->
     <div class="table-section" style="justify-content:center;max-width:1100px;margin-bottom:40px;">
