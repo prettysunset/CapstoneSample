@@ -146,7 +146,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         #editor{min-height:320px;border:1px solid #e6e9f2;padding:12px;border-radius:6px;background:#fff;overflow:auto}
         /* ensure images are constrained but adjustable */
         #editor img { max-width:100%; height:auto; cursor:default }
-        #editor .journal-template { max-width: 840px; margin: 0 auto; font-family: "Times New Roman", serif; color: #111; font-size: 18px; line-height: 1.25; position: relative; }
+        /* inserted images default: inline, keep original size (max-width constrained) */
+        .inserted-image { display:inline-block; margin:6px; vertical-align:middle; max-width:100%; height:auto; }
+        /* paged editor: each page simulates a paper. When content exceeds page height a new page is created */
+        #editor { display:block }
+        .page { width:840px; min-height:1100px; margin:18px auto; background:#fff; box-shadow:0 6px 18px rgba(0,0,0,0.06); padding:28px; box-sizing:border-box; }
+        .page-content { min-height:100px; outline:none }
+        @media print { .page { page-break-after: always; box-shadow:none; margin:0 auto } }
+        #editor .journal-template { max-width: 784px; margin: 0 auto; font-family: "Times New Roman", serif; color: #111; font-size: 18px; line-height: 1.25; position: relative; }
         #editor .journal-template .header-line { border-top: 2px solid #4b6b4d; margin: 8px 0 28px; }
         #editor .journal-template .title { text-align: center; font-weight: 700; font-size: 19px; }
         #editor .journal-template .title-main { text-align: center; font-weight: 700; font-size: 42px; margin-bottom: 22px; }
@@ -212,27 +219,69 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if (!empty($r['cnt']) && (int)$r['cnt'] > 0) {
                     $minSelectable = '';
                 }
-                // prefer last_to if valid; otherwise use today
+                // Prefer to compute default From/To based on actual DTR logs (first uncovered log -> same-week last logged day)
+                $defaultFrom = '';
+                $defaultTo = '';
                 try {
-                    if ($lastTo !== '') {
-                        $d = new DateTime($lastTo);
-                        // compute next monday after lastTo
-                        $dow = (int)$d->format('N');
-                        $daysUntilNextMon = (8 - $dow) % 7; if ($daysUntilNextMon === 0) $daysUntilNextMon = 7;
-                        $d->modify("+{$daysUntilNextMon} days");
-                    } else {
-                        $d = new DateTime();
-                        $dow = (int)$d->format('N');
-                        $daysUntilNextMon = (8 - $dow) % 7; if ($daysUntilNextMon === 0) $daysUntilNextMon = 7;
-                        $d->modify("+{$daysUntilNextMon} days");
+                    $dtrUserId = !empty($user_id) ? (int)$user_id : (!empty($student_id) ? (int)$student_id : null);
+                    if (!empty($dtrUserId)) {
+                        // fetch all distinct log dates for this user
+                        $dates = [];
+                        $qDates = $conn->prepare("SELECT DISTINCT log_date FROM dtr WHERE student_id = ? AND COALESCE(log_date,'') <> '' ORDER BY log_date ASC");
+                        if ($qDates) {
+                            $qDates->bind_param('i', $dtrUserId);
+                            $qDates->execute();
+                            $res = $qDates->get_result();
+                            while ($rrow = $res->fetch_assoc()) $dates[] = $rrow['log_date'];
+                            $qDates->close();
+                        }
+
+                        // collect existing covered ranges from weekly_journal (only rows with both from_date and to_date)
+                        $covered = [];
+                        $qCov = $conn->prepare("SELECT from_date,to_date FROM weekly_journal WHERE user_id = ? AND COALESCE(from_date,'') <> '' AND COALESCE(to_date,'') <> ''");
+                        if ($qCov) {
+                            $qCov->bind_param('i', $student_id);
+                            $qCov->execute();
+                            $rc = $qCov->get_result();
+                            while ($rr = $rc->fetch_assoc()) $covered[] = [$rr['from_date'], $rr['to_date']];
+                            $qCov->close();
+                        }
+
+                        // find first log date not covered by existing journal ranges
+                        $firstUncovered = null;
+                        foreach ($dates as $dstr) {
+                            $isCovered = false;
+                            foreach ($covered as $c) {
+                                if ($dstr >= $c[0] && $dstr <= $c[1]) { $isCovered = true; break; }
+                            }
+                            if (!$isCovered) { $firstUncovered = $dstr; break; }
+                        }
+
+                        if (!empty($firstUncovered)) {
+                            $defaultFrom = $firstUncovered;
+                            $dt = new DateTime($firstUncovered);
+                            // compute monday..friday of that week
+                            $monday = clone $dt; $monday->modify('this week monday');
+                            $friday = clone $monday; $friday->modify('+4 days');
+                            $qMax = $conn->prepare("SELECT MAX(log_date) AS last_in_week FROM dtr WHERE student_id = ? AND log_date BETWEEN ? AND ?");
+                            if ($qMax) {
+                                $m1 = $monday->format('Y-m-d');
+                                $m2 = $friday->format('Y-m-d');
+                                $qMax->bind_param('iss', $dtrUserId, $m1, $m2);
+                                $qMax->execute();
+                                $rmax = $qMax->get_result()->fetch_assoc();
+                                $qMax->close();
+                                if (!empty($rmax['last_in_week'])) $defaultTo = $rmax['last_in_week'];
+                                else $defaultTo = $firstUncovered;
+                            } else {
+                                $defaultTo = $firstUncovered;
+                            }
+                        }
                     }
-                    $defaultFrom = $d->format('Y-m-d');
-                    $d->modify('+4 days');
-                    $defaultTo = $d->format('Y-m-d');
                 } catch (Exception $ex) {
+                    // fallback to previous behavior: next monday
                     $dt = new DateTime();
                     $dt->modify('+1 week');
-                    // next monday from today
                     $dow = (int)$dt->format('N');
                     $daysUntilNextMon = (8 - $dow) % 7; if ($daysUntilNextMon === 0) $daysUntilNextMon = 7;
                     $dt->modify("+{$daysUntilNextMon} days");
@@ -287,91 +336,65 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         $defaultTemplateHtml = '
-            <div class="journal-template">
-                <div style="font-size:15px;color:#3f6f47;font-weight:700;line-height:1.2;">Republic of the Philippines</div>
-                <div style="font-size:15px;color:#3f6f47;font-weight:700;line-height:1.2;">Provincial Government of Bulacan</div>
-                <div style="font-size:24px;color:#5d9e61;font-weight:700;line-height:1.15;">[school name]</div>
-                <div class="header-line"></div>
+            <div class="page">
+                <div class="page-content" contenteditable="true">
+                    <div class="journal-template">
+                        <div class="title-main">OJT - Weekly Journal</div>
 
-                <div class="title">[course]</div>
-                <div class="title-main">OJT - Weekly Journal</div>
+                        <div class="meta-line">Student\'s Name: <span class="editable-inline" contenteditable="true">' . htmlspecialchars($templateStudentName, ENT_QUOTES) . '</span></div>
+                        <div class="meta-line">Supervisor\'s Name: <span class="editable-inline" contenteditable="true">' . htmlspecialchars($templateSupervisor, ENT_QUOTES) . '</span></div>
+                        <div class="meta-line">Inclusive Date: <span class="editable-inline" contenteditable="true">' . htmlspecialchars(($defaultFrom && $defaultTo) ? ($defaultFrom . ' to ' . $defaultTo) : '', ENT_QUOTES) . '</span></div>
 
-                <div class="meta-line">Student\'s Name: <span class="editable-inline" contenteditable="true">' . htmlspecialchars($templateStudentName, ENT_QUOTES) . '</span></div>
-                <div class="meta-line">Company Name: <span class="editable-inline" contenteditable="true">' . htmlspecialchars($templateCompany, ENT_QUOTES) . '</span></div>
-                <div class="meta-line">Supervisor\'s Name: <span class="editable-inline" contenteditable="true">' . htmlspecialchars($templateSupervisor, ENT_QUOTES) . '</span></div>
-                <div class="meta-line">Inclusive Date: <span class="editable-inline" contenteditable="true">' . htmlspecialchars(($defaultFrom && $defaultTo) ? ($defaultFrom . ' to ' . $defaultTo) : '', ENT_QUOTES) . '</span></div>
+                        <table class="journal-table">
+                            <thead>
+                                <tr>
+                                    <th style="width:20%;">Date</th>
+                                    <th style="width:60%;">Work Description</th>
+                                    <th style="width:20%;">No. of Hours</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>Monday<br>' . htmlspecialchars($date1, ENT_QUOTES) . '</td>
+                                    <td class="editable-cell" contenteditable="true"></td>
+                                    <td class="editable-cell" contenteditable="true"></td>
+                                </tr>
+                                <tr>
+                                    <td>Tuesday<br>' . htmlspecialchars($date2, ENT_QUOTES) . '</td>
+                                    <td class="editable-cell" contenteditable="true"></td>
+                                    <td class="editable-cell" contenteditable="true"></td>
+                                </tr>
+                                <tr>
+                                    <td>Wednesday<br>' . htmlspecialchars($date3, ENT_QUOTES) . '</td>
+                                    <td class="editable-cell" contenteditable="true"></td>
+                                    <td class="editable-cell" contenteditable="true"></td>
+                                </tr>
+                                <tr>
+                                    <td>Thursday<br>' . htmlspecialchars($date4, ENT_QUOTES) . '</td>
+                                    <td class="editable-cell" contenteditable="true"></td>
+                                    <td class="editable-cell" contenteditable="true"></td>
+                                </tr>
+                                <tr>
+                                    <td colspan="2" style="text-align:right;">Total Hours:</td>
+                                    <td class="editable-cell" contenteditable="true"> </td>
+                                </tr>
+                            </tbody>
+                        </table>
 
-                <table class="journal-table">
-                    <thead>
-                        <tr>
-                            <th style="width:18%;">Date</th>
-                            <th style="width:30%;">Work Description</th>
-                            <th style="width:24%;">Remarks</th>
-                            <th style="width:14%;">No. of Hours</th>
-                            <th style="width:14%;">Signature</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr>
-                            <td>Monday<br>' . htmlspecialchars($date1, ENT_QUOTES) . '</td>
-                            <td class="editable-cell" contenteditable="true"></td>
-                            <td class="editable-cell" contenteditable="true"></td>
-                            <td class="editable-cell" contenteditable="true"></td>
-                            <td class="editable-cell" contenteditable="true"></td>
-                        </tr>
-                        <tr>
-                            <td>Tuesday<br>' . htmlspecialchars($date2, ENT_QUOTES) . '</td>
-                            <td class="editable-cell" contenteditable="true"></td>
-                            <td class="editable-cell" contenteditable="true"></td>
-                            <td class="editable-cell" contenteditable="true"></td>
-                            <td class="editable-cell" contenteditable="true"></td>
-                        </tr>
-                        <tr>
-                            <td>Wednesday<br>' . htmlspecialchars($date3, ENT_QUOTES) . '</td>
-                            <td class="editable-cell" contenteditable="true"></td>
-                            <td class="editable-cell" contenteditable="true"></td>
-                            <td class="editable-cell" contenteditable="true"></td>
-                            <td class="editable-cell" contenteditable="true"></td>
-                        </tr>
-                        <tr>
-                            <td>Thursday<br>' . htmlspecialchars($date4, ENT_QUOTES) . '</td>
-                            <td class="editable-cell" contenteditable="true"></td>
-                            <td class="editable-cell" contenteditable="true"></td>
-                            <td class="editable-cell" contenteditable="true"></td>
-                            <td class="editable-cell" contenteditable="true"></td>
-                        </tr>
-                        <tr>
-                            <td colspan="2"></td>
-                            <td style="text-align:right;">Total Hours:</td>
-                            <td class="editable-cell" contenteditable="true"> </td>
-                            <td class="editable-cell" contenteditable="true"></td>
-                        </tr>
-                    </tbody>
-                </table>
+                        <div class="learning">Point of Learning: <span class="editable-inline" contenteditable="true"></span></div>
 
-                <div class="learning">Point of Learning: <span class="editable-inline" contenteditable="true"></span></div>
-
-                <div class="sign-row">
-                    <div class="sign-col">
-                        <div>Prepared by:</div>
-                        <div class="sign-name editable-inline" contenteditable="true">' . htmlspecialchars($templateStudentName, ENT_QUOTES) . '</div>
-                    </div>
-                    <div class="sign-col" style="text-align:right;">
-                        <div>Noted by:</div>
-                        <div class="sign-name editable-inline" contenteditable="true">' . htmlspecialchars($templateSupervisor, ENT_QUOTES) . '</div>
+                        <div class="doc-title">Documentation</div>
+                        <div style="min-height:260px;"></div>
                     </div>
                 </div>
-
-                <div class="doc-title">Documentation</div>
-                <div style="min-height:260px;"></div>
             </div>
         ';
         ?>
 
         <form id="frm" method="post" enctype="multipart/form-data">
             <div class="row">
-                <label class="small">Week label</label>
-                <input name="week_coverage" id="week_coverage" type="text" value="<?php echo htmlspecialchars('Week ' . $nextWeekNumber); ?>" readonly required style="flex:1;background:#f3f4f8;border:1px solid #e6e9f2;padding:8px;border-radius:4px">
+                <div style="flex:1;padding:8px;color:#222">Week <strong><?php echo htmlspecialchars($nextWeekNumber); ?></strong></div>
+                <input type="hidden" name="week_coverage" id="week_coverage" value="<?php echo htmlspecialchars('Week ' . $nextWeekNumber); ?>">
                 <label class="small">From</label>
                 <input name="week_from" id="week_from" type="date" value="<?php echo htmlspecialchars($defaultFrom); ?>" <?php if(!empty($minSelectable)) echo 'min="'.htmlspecialchars($minSelectable).'"'; ?> max="<?php echo date('Y-m-d'); ?>">
                 <label class="small">To</label>
@@ -382,7 +405,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <button type="button" data-cmd="bold">B</button>
                 <button type="button" data-cmd="italic">I</button>
                 <button type="button" data-cmd="underline">U</button>
-                <button type="button" id="btn-insert-table">Table</button>
+                
                 <label style="display:inline-flex;align-items:center;gap:6px;padding:6px 8px;border:1px solid #e6e9f2;border-radius:4px;cursor:pointer">
                     Insert image <input id="imgfile" type="file" accept="image/*" style="display:none">
                 </label>
@@ -406,17 +429,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             b.addEventListener('click', function(){ document.execCommand(this.dataset.cmd, false, null); });
         });
 
-        document.getElementById('btn-insert-table').addEventListener('click', function(){
-            var rows = prompt('Rows', '2');
-            var cols = prompt('Columns', '2');
-            rows = parseInt(rows,10)||0; cols = parseInt(cols,10)||0;
-            if (rows>0 && cols>0){
-                var t = '<table style="border-collapse:collapse;border:1px solid #ddd">';
-                for(var r=0;r<rows;r++){ t += '<tr>'; for(var c=0;c<cols;c++){ t += '<td style="border:1px solid #ddd;padding:6px">&nbsp;</td>'; } t += '</tr>'; }
-                t += '</table><p></p>';
-                document.execCommand('insertHTML', false, t);
-            }
-        });
+        
 
         // insert image as data URL (toolbar hidden input)
         var visibleImg = document.getElementById('imgfile');
@@ -442,13 +455,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // ensure we capture the editor caret before the file chooser steals focus
             try {
                 var imgLabel = visibleImg.closest('label');
-                if (imgLabel) imgLabel.addEventListener('click', function(e){ saveSelection(); });
+                if (imgLabel) {
+                    // save selection before file chooser opens; use mousedown/touchstart to capture caret
+                    imgLabel.addEventListener('mousedown', function(e){ saveSelection(); });
+                    imgLabel.addEventListener('touchstart', function(e){ saveSelection(); });
+                }
             } catch(e) {}
 
             // track selection updates inside the editor
             var edWatch = document.getElementById('editor');
             if (edWatch) {
-                ['keyup','mouseup','focus','input'].forEach(function(ev){ edWatch.addEventListener(ev, saveSelection); });
+                // delegate editable area events: listen on editor container and handle events from .page-content
+                ['keyup','mouseup','focus','input','paste'].forEach(function(ev){ edWatch.addEventListener(ev, function(e){ saveSelection(); ensurePagesDebounced(); }); });
             }
 
             visibleImg.addEventListener('change', function(e){
@@ -458,29 +476,56 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 var reader = new FileReader();
                 reader.onload = function(ev){
                     var src = ev.target.result;
+                    var ed = document.getElementById('editor');
                     try {
-                        var ed = document.getElementById('editor');
-                        // restore selection and focus the editor so insertion happens at caret
+                        // create image element
+                        var img = document.createElement('img');
+                        img.src = src;
+                        img.className = 'inserted-image';
+                        img.setAttribute('draggable', 'true');
+
+                        // add dragstart handler to mark dragged element
+                        img.addEventListener('dragstart', function(ev){
+                            try { window._draggedImage = this; ev.dataTransfer.setData('text/plain',''); } catch(e){}
+                        });
+
+                        // no click toolbar — images stay inline and keep original size
+
+                        // restore selection and insert at saved caret (or current selection)
                         var had = restoreSelection();
                         if (ed) {
                             ed.focus();
-                            if (!had) {
-                                // move caret to end if no saved selection
-                                var sel = window.getSelection();
-                                var range = document.createRange();
-                                range.selectNodeContents(ed);
-                                range.collapse(false);
-                                sel.removeAllRanges();
-                                sel.addRange(range);
+                            var sel = window.getSelection();
+                            try {
+                                var range = null;
+                                if (had && savedRange) {
+                                    range = savedRange.cloneRange();
+                                } else if (sel && sel.rangeCount) {
+                                    range = sel.getRangeAt(0).cloneRange();
+                                }
+                                if (range) {
+                                    range.collapse(false);
+                                    range.insertNode(img);
+                                    // move caret after image
+                                    var after = document.createRange();
+                                    after.setStartAfter(img);
+                                    after.collapse(true);
+                                    sel.removeAllRanges();
+                                    sel.addRange(after);
+                                } else {
+                                    // find last .page-content and append
+                                    var pcs = document.querySelectorAll('.page-content');
+                                    if (pcs && pcs.length) pcs[pcs.length-1].appendChild(img);
+                                    else ed.appendChild(img);
+                                }
+                                // after inserting, ensure pages are split if needed
+                                ensurePages();
+                            } catch(e) {
+                                ed.appendChild(img);
                             }
-                            var safeSrc = String(src).replace(/"/g, '\\"');
-                            var imgHtml = '<img src="' + safeSrc + '" style="max-width:100%;height:auto;display:block;margin:8px 0;">';
-                            document.execCommand('insertHTML', false, imgHtml);
-                        } else {
-                            document.execCommand('insertImage', false, src);
                         }
                     } catch (ex) {
-                        try { document.execCommand('insertImage', false, src); } catch(e) {}
+                        console.error(ex);
                     }
                 };
                 reader.readAsDataURL(f);
@@ -570,6 +615,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
                 });
             }
+
+            // enable drag-and-drop repositioning of images inside the editor
+            if (editorNode) {
+                editorNode.addEventListener('dragover', function(ev){ ev.preventDefault(); });
+                editorNode.addEventListener('drop', function(ev){
+                    ev.preventDefault();
+                    try {
+                        var dragged = window._draggedImage;
+                        if (!dragged) return;
+                        // determine drop range
+                        var range = null;
+                        if (document.caretRangeFromPoint) {
+                            range = document.caretRangeFromPoint(ev.clientX, ev.clientY);
+                        } else if (document.caretPositionFromPoint) {
+                            var pos = document.caretPositionFromPoint(ev.clientX, ev.clientY);
+                            range = document.createRange();
+                            range.setStart(pos.offsetNode, pos.offset);
+                            range.collapse(true);
+                        }
+                        if (range) {
+                            // insert dragged image at drop point
+                            range.insertNode(dragged);
+                        }
+                        // clear dragged ref
+                        window._draggedImage = null;
+                        // ensure pagination after drop
+                        ensurePages();
+                    } catch(e) { console.error(e); }
+                });
+            }
+
+            
 
             // also when we insert an image programmatically, attach a resizer to it
             var origInsert = document.execCommand;

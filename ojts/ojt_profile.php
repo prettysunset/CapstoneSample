@@ -793,62 +793,100 @@ if ($user_id) {
                                     $qj->close();
                                 }
 
-                                // Compute next week number and default Mon-Fri date range for the upload modal
+                                // Compute next week number and default From/To based on actual DTR logs
                                 $nextWeekNumber = count($journals) + 1;
-                                // Determine base date for next week: prefer the latest journal's stored week range (if it contains ISO dates),
-                                // otherwise fall back to using the latest date_uploaded.
-                                $nextMonday = null;
-                                if (!empty($journals) && !empty($journals[0]['week_coverage'])) {
-                                    $latestLabel = $journals[0]['week_coverage'];
-                                    // look for stored ISO pattern we save on upload: (YYYY-MM-DD|YYYY-MM-DD)
-                                    if (preg_match('/\((\d{4}-\d{2}-\d{2})\|(\d{4}-\d{2}-\d{2})\)$/', $latestLabel, $m)) {
-                                        try {
-                                            $lastFrom = new DateTime($m[1]);
-                                            // next week's Monday is lastFrom + 7 days
-                                            $nextMonday = clone $lastFrom;
-                                            $nextMonday->modify('+7 days');
-                                        } catch (Exception $e) {
-                                            $nextMonday = null;
+                                $fromDate = '';
+                                $toDate = '';
+                                try {
+                                    $dtrUserId = !empty($user_id) ? (int)$user_id : (!empty($student_id) ? (int)$student_id : null);
+                                    if (!empty($dtrUserId)) {
+                                        // fetch distinct log dates
+                                        $dates = [];
+                                        $qD = $conn->prepare("SELECT DISTINCT log_date FROM dtr WHERE student_id = ? AND COALESCE(log_date,'') <> '' ORDER BY log_date ASC");
+                                        if ($qD) {
+                                            $qD->bind_param('i', $dtrUserId);
+                                            $qD->execute();
+                                            $rd = $qD->get_result();
+                                            while ($rr = $rd->fetch_assoc()) $dates[] = $rr['log_date'];
+                                            $qD->close();
+                                        }
+
+                                        // collect covered ranges from existing weekly_journal entries
+                                        $covered = [];
+                                        $qC = $conn->prepare("SELECT from_date,to_date FROM weekly_journal WHERE user_id = ? AND COALESCE(from_date,'') <> '' AND COALESCE(to_date,'') <> ''");
+                                        if ($qC) {
+                                            $qC->bind_param('i', $student_id);
+                                            $qC->execute();
+                                            $rc = $qC->get_result();
+                                            while ($rcc = $rc->fetch_assoc()) $covered[] = [$rcc['from_date'], $rcc['to_date']];
+                                            $qC->close();
+                                        }
+
+                                        // find first uncovered log date
+                                        $firstUncovered = null;
+                                        foreach ($dates as $dstr) {
+                                            $isCovered = false;
+                                            foreach ($covered as $c) {
+                                                if ($dstr >= $c[0] && $dstr <= $c[1]) { $isCovered = true; break; }
+                                            }
+                                            if (!$isCovered) { $firstUncovered = $dstr; break; }
+                                        }
+
+                                        if (!empty($firstUncovered)) {
+                                            $fromDate = $firstUncovered;
+                                            $dt = new DateTime($firstUncovered);
+                                            $monday = clone $dt; $monday->modify('this week monday');
+                                            $friday = clone $monday; $friday->modify('+4 days');
+                                            $qMax = $conn->prepare("SELECT MAX(log_date) AS last_in_week FROM dtr WHERE student_id = ? AND log_date BETWEEN ? AND ?");
+                                            if ($qMax) {
+                                                $m1 = $monday->format('Y-m-d');
+                                                $m2 = $friday->format('Y-m-d');
+                                                $qMax->bind_param('iss', $dtrUserId, $m1, $m2);
+                                                $qMax->execute();
+                                                $rmax = $qMax->get_result()->fetch_assoc();
+                                                $qMax->close();
+                                                if (!empty($rmax['last_in_week'])) $toDate = $rmax['last_in_week'];
+                                                else $toDate = $firstUncovered;
+                                            } else {
+                                                $toDate = $firstUncovered;
+                                            }
                                         }
                                     }
-                                }
-                                if ($nextMonday === null) {
-                                    if (!empty($journals) && !empty($journals[0]['date_uploaded'])) {
-                                        try {
-                                            $last = new DateTime($journals[0]['date_uploaded']);
-                                        } catch (Exception $e) {
-                                            $last = new DateTime();
+                                } catch (Exception $ex) {
+                                    // fallback: use prior behavior (next Monday..Friday)
+                                    $nextMonday = null;
+                                    if (!empty($journals) && !empty($journals[0]['week_coverage'])) {
+                                        $latestLabel = $journals[0]['week_coverage'];
+                                        if (preg_match('/\((\d{4}-\d{2}-\d{2})\|(\d{4}-\d{2}-\d{2})\)$/', $latestLabel, $m)) {
+                                            try { $lastFrom = new DateTime($m[1]); $nextMonday = clone $lastFrom; $nextMonday->modify('+7 days'); } catch (Exception $e) { $nextMonday = null; }
                                         }
-                                        // move to the Monday of that week, then advance one week to get the next week's Monday
-                                        $lastMonday = clone $last;
-                                        $lastMonday->modify('this week monday');
-                                        $nextMonday = clone $lastMonday;
-                                        $nextMonday->modify('+7 days');
+                                    }
+                                    if ($nextMonday === null) {
+                                        if (!empty($journals) && !empty($journals[0]['date_uploaded'])) {
+                                            try { $last = new DateTime($journals[0]['date_uploaded']); } catch (Exception $e) { $last = new DateTime(); }
+                                            $lastMonday = clone $last; $lastMonday->modify('this week monday'); $nextMonday = clone $lastMonday; $nextMonday->modify('+7 days');
+                                        } else { $today = new DateTime(); $nextMonday = clone $today; $nextMonday->modify('this week monday'); }
+                                    }
+                                    $fromDate = $nextMonday->format('Y-m-d');
+                                    $toDateObj = (clone $nextMonday)->modify('+4 days');
+                                    $toDate = $toDateObj->format('Y-m-d');
+                                }
+
+                                // human-friendly week label
+                                $fromLabel = $fromDate ? date('F j', strtotime($fromDate)) : '';
+                                $toLabel = $toDate ? date('F j', strtotime($toDate)) : '';
+                                if ($fromDate && $toDate) {
+                                    if (date('F', strtotime($fromDate)) === date('F', strtotime($toDate))) {
+                                        $toLabelShort = date('j', strtotime($toDate));
+                                        $weekLabel = sprintf('Week %d (%s–%s)', $nextWeekNumber, $fromLabel, $toLabelShort);
                                     } else {
-                                        $today = new DateTime();
-                                        $nextMonday = clone $today;
-                                        $nextMonday->modify('this week monday');
+                                        $weekLabel = sprintf('Week %d (%s–%s)', $nextWeekNumber, $fromLabel, $toLabel);
                                     }
-                                }
-                                $fromDate = $nextMonday->format('Y-m-d');
-                                $toDateObj = (clone $nextMonday)->modify('+4 days');
-                                $toDate = $toDateObj->format('Y-m-d');
-                                // human-friendly week label like: Week 8 (September 8–12) or Week 1 (Sep 28–Oct 2)
-                                $fromLabel = $nextMonday->format('F j');
-                                $toLabel = $toDateObj->format('F j');
-                                if ($nextMonday->format('F') === $toDateObj->format('F')) {
-                                    // same month: "September 8–12"
-                                    $toLabelShort = $toDateObj->format('j');
-                                    $weekLabel = sprintf('Week %d (%s–%s)', $nextWeekNumber, $fromLabel, $toLabelShort);
                                 } else {
-                                    // different months: include both months
-                                    $weekLabel = sprintf('Week %d (%s–%s)', $nextWeekNumber, $fromLabel, $toLabel);
+                                    $weekLabel = 'Week ' . $nextWeekNumber;
                                 }
-                                // Short label that shows only the week number (used for display and posting)
                                 $weekNumberLabel = 'Week ' . $nextWeekNumber;
-                                // When there are existing journals, restrict selectable dates to start no earlier than the
-                                // computed next week's "from" date. If no prior journals, allow any date (no min).
-                                $minSelectable = (count($journals) > 0) ? $fromDate : '';
+                                $minSelectable = (count($journals) > 0 && $fromDate) ? $fromDate : '';
                                 ?>
 
                                 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
@@ -881,18 +919,18 @@ if ($user_id) {
                                                 <label style="display:block;font-size:13px;color:#6b6f8b;margin-bottom:6px;">Week</label>
                                                 <!-- Display-only Week label (no editable textbox) -->
                                                 <div id="modal-week-display" style="width:100%;padding:10px;border-radius:8px;border:1px solid #e6e9f2;font-size:14px;background:#f7f8fb;color:#2f3459;">
-                                                    <?php echo htmlspecialchars($weekNumberLabel); ?>
+                                                    <?php echo 'Week ' . '<strong>' . htmlspecialchars($nextWeekNumber) . '</strong>'; ?>
                                                 </div>
                                                 <!-- Hidden field preserves server contract for week_coverage (only Week N) -->
                                                 <input type="hidden" id="modal-week-hidden" name="week_coverage" value="<?php echo htmlspecialchars($weekNumberLabel); ?>">
                                                 <div style="display:flex;gap:8px;margin-top:8px;">
                                                     <div style="flex:1;">
                                                         <label style="display:block;font-size:12px;color:#6b6f8b;margin-bottom:6px;">From</label>
-                                                        <input id="modal-from" name="week_from" type="date" placeholder="mm/dd/yyyy" <?php if(!empty($minSelectable)) echo 'min="'.htmlspecialchars($minSelectable).'"'; ?> max="<?php echo date('Y-m-d'); ?>" style="width:100%;padding:8px;border-radius:8px;border:1px solid #e6e9f2;font-size:13px;">
+                                                        <input id="modal-from" name="week_from" type="date" placeholder="mm/dd/yyyy" value="<?php echo htmlspecialchars($fromDate); ?>" <?php if(!empty($minSelectable)) echo 'min="'.htmlspecialchars($minSelectable).'"'; ?> max="<?php echo date('Y-m-d'); ?>" style="width:100%;padding:8px;border-radius:8px;border:1px solid #e6e9f2;font-size:13px;">
                                                     </div>
                                                     <div style="flex:1;">
                                                         <label style="display:block;font-size:12px;color:#6b6f8b;margin-bottom:6px;">To</label>
-                                                        <input id="modal-to" name="week_to" type="date" placeholder="mm/dd/yyyy" <?php if(!empty($minSelectable)) echo 'min="'.htmlspecialchars($minSelectable).'"'; ?> max="<?php echo date('Y-m-d'); ?>" style="width:100%;padding:8px;border-radius:8px;border:1px solid #e6e9f2;font-size:13px;">
+                                                        <input id="modal-to" name="week_to" type="date" placeholder="mm/dd/yyyy" value="<?php echo htmlspecialchars($toDate); ?>" <?php if(!empty($minSelectable)) echo 'min="'.htmlspecialchars($minSelectable).'"'; ?> max="<?php echo date('Y-m-d'); ?>" style="width:100%;padding:8px;border-radius:8px;border:1px solid #e6e9f2;font-size:13px;">
                                                     </div>
                                                 </div>
                                             </div>
