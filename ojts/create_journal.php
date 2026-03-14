@@ -73,6 +73,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $week_to = trim((string)($_POST['week_to'] ?? ''));
     $content_html = $_POST['content_html'] ?? '';
 
+    // if content_html is empty, block save
+    if (trim((string)$content_html) === '') {
+        $error = 'Journal content is empty.';
+    }
+
+    // Server-side validation: ensure every Work Description (2nd column) in the journal table has text
+    if ($content_html !== '') {
+        libxml_use_internal_errors(true);
+        $doc = new DOMDocument();
+        $loaded = $doc->loadHTML('<?xml encoding="utf-8" ?>' . $content_html);
+        if ($loaded) {
+            $xpath = new DOMXPath($doc);
+            // select rows inside .journal-table tbody
+            $rows = $xpath->query("//table[contains(@class,'journal-table')]/tbody/tr");
+            if ($rows && $rows->length > 0) {
+                foreach ($rows as $r) {
+                    // skip total row (has a td with colspan or fewer than 2 tds)
+                    $tds = [];
+                    foreach ($r->getElementsByTagName('td') as $td) $tds[] = $td;
+                    if (count($tds) < 2) continue;
+                    $firstTd = $tds[0];
+                    // if first td has colspan attribute, likely total row
+                    if ($firstTd->hasAttribute('colspan')) continue;
+                    $workTd = $tds[1];
+                    $text = trim(preg_replace('/\s+/', ' ', $workTd->textContent));
+                    if ($text === '') {
+                        $label = trim(preg_replace('/\s+/', ' ', $firstTd->textContent));
+                        $error = 'Please fill Work Description for: ' . htmlspecialchars($label);
+                        break;
+                    }
+                }
+            }
+        }
+        libxml_clear_errors();
+    }
+
     if (empty($student_id)) {
         $error = 'Student record not found.';
     } elseif ($week === '') {
@@ -88,12 +124,112 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         // if content provided, save to an HTML file (if no pdf/docx was attached or regardless so content is preserved)
         if ($error === '' && trim($content_html) !== '') {
-            $docFilename = 'journal_html_' . time() . '_' . (($user_id>0)?$user_id:'x') . '.html';
+            $docFilename = 'journal_' . time() . '_' . (($user_id>0)?$user_id:'x') . '.html';
             $docPath = $uploadDir . $docFilename;
-            // basic sanitize: allow the provided HTML but wrap in minimal template
-            $html = '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>' . htmlspecialchars($week, ENT_QUOTES) . '</title></head><body>' . $content_html . '</body></html>';
+
+            // Prepare a saved HTML that preserves the editor appearance for printing/PDF.
+            // Neutralize contenteditable to avoid editable controls in the saved file.
+            $content_for_save = preg_replace('/\scontenteditable=("|\')?true("|\')?/i', ' contenteditable="false"', $content_html);
+
+            // Include the page styles from the editor so the saved HTML looks the same when printed or converted to PDF.
+            $saveStyles = <<<'CSS'
+        /* Match on-screen editor layout to preserve positions when saving */
+        html,body{font-family:Arial,Helvetica,sans-serif;margin:0;padding:0;background:#fff;color:#111;-webkit-print-color-adjust:exact}
+        body{background:#fff}
+        /* page sizing mirrors the editor's page: px-based to keep exact visual flow */
+        .page { width:840px; min-height:1100px; margin:18px auto; padding:28px; box-sizing:border-box; background:#fff }
+        .page-content { min-height:100px }
+        .journal-template { max-width: 784px; margin: 0 auto; font-family: "Times New Roman", serif; color: #111; font-size: 11pt; line-height: 1.3; }
+        .journal-template .header-line { border-top: 2px solid #4b6b4d; margin: 8px 0 28px; }
+        .journal-template .title-main { text-align: center; font-weight: 700; font-size: 42px; margin-bottom: 22px }
+        .journal-template .meta-line { margin: 3px 0; font-size: 11pt }
+        .journal-table { width: 100%; border-collapse: collapse; margin-top: 18px; table-layout: fixed; }
+        .journal-table th, .journal-table td { border: 1px solid #222; padding: 4px 6px; vertical-align: top; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
+        .journal-table th { text-align: center; font-weight: 400; padding: 4px 6px; }
+        .editable-inline { display:inline-block; vertical-align: middle; max-width:72%; }
+        .editable-cell { min-height: 52px; vertical-align: top; }
+        /* keep inserted images inline and avoid page breaks inside them */
+        img.inserted-image, .inserted-image { page-break-inside: avoid; display:inline-block; margin:6px; vertical-align:middle; max-width:100%; height:auto }
+        img { max-width:100%; height:auto }
+        /* remove visual-only effects that don't print reliably */
+        .card, .toolbar, .img-resizer { box-shadow: none }
+        @media print { .page { page-break-after: always; box-shadow:none; margin:0 auto } }
+        /* prevent tables from moving content unexpectedly when rendered to PDF */
+        table { border-collapse: collapse }
+        td, th { box-sizing: border-box }
+CSS;
+
+            // basic sanitize: allow the provided HTML but wrap in minimal template that includes styles
+            $html = '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>' . htmlspecialchars($week, ENT_QUOTES) . '</title><style>' . $saveStyles . '</style></head><body>' . $content_for_save . '</body></html>';
             if (@file_put_contents($docPath, $html) !== false) {
-                if ($savedAttachment === '') $savedAttachment = 'uploads/journals/' . $docFilename;
+                // Do not keep the intermediate HTML file as an attachment.
+                // Attempt conversion below; we'll remove the HTML file regardless
+                // and only save the PDF when conversion succeeds.
+                // Try to convert the saved HTML to PDF.
+                $pdfFilename = preg_replace('/\.html$/i', '.pdf', $docFilename);
+                $pdfPath = $uploadDir . $pdfFilename;
+                $converted = false;
+
+                // If Composer autoload exists and Dompdf is installed, prefer Dompdf (pure PHP).
+                $autoload = __DIR__ . '/../vendor/autoload.php';
+                if (file_exists($autoload)) {
+                    try {
+                        require_once $autoload;
+                        if (class_exists('\Dompdf\Dompdf')) {
+                            try {
+                                $dompdf = new \Dompdf\Dompdf();
+                                $dompdf->set_option('isRemoteEnabled', true);
+                                $dompdf->set_option('isHtml5ParserEnabled', true);
+                                $dompdf->set_option('dpi', 150);
+                                $dompdf->loadHtml($html);
+                                $dompdf->setPaper('A4', 'portrait');
+                                $dompdf->render();
+                                $pdfContent = $dompdf->output();
+                                if (@file_put_contents($pdfPath, $pdfContent) !== false) {
+                                    $converted = true;
+                                }
+                            } catch (Exception $e) {
+                                error_log('Dompdf conversion failed: ' . $e->getMessage());
+                            }
+                        }
+                    } catch (Exception $e) {
+                        // ignore autoload require errors
+                    }
+                }
+
+                // Fallback: try wkhtmltopdf if Dompdf not available/failed
+                if (!$converted) {
+                    $wkCandidates = array('wkhtmltopdf', '/usr/local/bin/wkhtmltopdf', '/usr/bin/wkhtmltopdf');
+                    $out = array();
+                    foreach ($wkCandidates as $wk) {
+                        if ($converted) break;
+                        $cmd = escapeshellcmd($wk) . ' --enable-local-file-access ' . escapeshellarg($docPath) . ' ' . escapeshellarg($pdfPath) . ' 2>&1';
+                        $rc = null; $out = array();
+                        if (function_exists('exec')) {
+                            @exec($cmd, $out, $rc);
+                            if ($rc === 0 && file_exists($pdfPath)) $converted = true;
+                        } elseif (function_exists('shell_exec')) {
+                            $res = @shell_exec($cmd);
+                            if ($res !== null) {
+                                $out = explode("\n", trim((string)$res));
+                                if (file_exists($pdfPath)) $converted = true;
+                            }
+                        } else {
+                            // exec functions unavailable; can't run wkhtmltopdf
+                            break;
+                        }
+                    }
+                    if (!$converted && !empty($out)) error_log('wkhtmltopdf output: ' . implode("\n", (array)$out));
+                }
+
+                if ($converted) {
+                    $savedAttachment = 'uploads/journals/' . $pdfFilename;
+                }
+
+                // Always remove the intermediate HTML file to avoid leaving journal_html_ pages.
+                if (file_exists($docPath)) {
+                    @unlink($docPath);
+                }
             }
         }
 
@@ -205,6 +341,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $defaultFrom = '';
         $defaultTo = '';
         $minSelectable = '';
+        // fetch all distinct DTR log dates for this user (used client-side to build rows)
+        $allDtrDates = [];
         if (!empty($student_id)) {
             // count existing journals and fetch latest stored to-date
             $q = $conn->prepare("SELECT COUNT(*) AS cnt, MAX(date_uploaded) AS last_uploaded, MAX(COALESCE(from_date,'')) AS last_from, MAX(COALESCE(to_date,'')) AS last_to FROM weekly_journal WHERE user_id = ?");
@@ -225,16 +363,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 try {
                     $dtrUserId = !empty($user_id) ? (int)$user_id : (!empty($student_id) ? (int)$student_id : null);
                     if (!empty($dtrUserId)) {
-                        // fetch all distinct log dates for this user
+                        // fetch per-date total hours for this user (hours + minutes/60)
                         $dates = [];
-                        $qDates = $conn->prepare("SELECT DISTINCT log_date FROM dtr WHERE student_id = ? AND COALESCE(log_date,'') <> '' ORDER BY log_date ASC");
+                        $dtrHours = [];
+                        $qDates = $conn->prepare("SELECT log_date, IFNULL(SUM(hours + minutes/60),0) AS hrs FROM dtr WHERE student_id = ? AND COALESCE(log_date,'') <> '' GROUP BY log_date ORDER BY log_date ASC");
                         if ($qDates) {
                             $qDates->bind_param('i', $dtrUserId);
                             $qDates->execute();
                             $res = $qDates->get_result();
-                            while ($rrow = $res->fetch_assoc()) $dates[] = $rrow['log_date'];
+                            while ($rrow = $res->fetch_assoc()) {
+                                $d = $rrow['log_date'];
+                                $h = (float)$rrow['hrs'];
+                                $dates[] = $d;
+                                $dtrHours[$d] = $h;
+                            }
                             $qDates->close();
                         }
+                        // expose all DTR dates and per-date hours for client-side logic
+                        $allDtrDates = $dates;
 
                         // collect existing covered ranges from weekly_journal (only rows with both from_date and to_date)
                         $covered = [];
@@ -317,7 +463,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $date2 = '';
         $date3 = '';
         $date4 = '';
-        if (!empty($defaultFrom)) {
+        // Build initial rows based on DTR log dates within defaultFrom..defaultTo
+        $initialLogDates = [];
+        if (!empty($defaultFrom) && !empty($defaultTo) && !empty($allDtrDates)) {
+            foreach ($allDtrDates as $dd) {
+                if ($dd >= $defaultFrom && $dd <= $defaultTo) $initialLogDates[] = $dd;
+            }
+        }
+        // fallback to Mon..Thu if no log dates found
+        if (empty($initialLogDates) && !empty($defaultFrom)) {
             try {
                 $d1 = new DateTime($defaultFrom);
                 $d2 = (clone $d1)->modify('+1 day');
@@ -335,60 +489,78 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
 
-        $defaultTemplateHtml = '
-            <div class="page">
-                <div class="page-content" contenteditable="true">
-                    <div class="journal-template">
-                        <div class="title-main">OJT - Weekly Journal</div>
+        // Build rows HTML: prefer initialLogDates; if empty use the four weekdays computed above
+        $rowsHtml = '';
+        $totalInitial = 0.0;
+        if (!empty($initialLogDates)) {
+            foreach ($initialLogDates as $ld) {
+                $label = date('l', strtotime($ld));
+                $fmt = date('F j, Y', strtotime($ld));
+                $hrs = isset($dtrHours[$ld]) ? $dtrHours[$ld] : '';
+                $hrsDisplay = $hrs === '' ? '' : (string)((int)floor($hrs));
+                if ($hrs !== '') $totalInitial += (int)floor($hrs);
+                $rowsHtml .= "<tr>\n<td>" . htmlspecialchars($label) . "<br>" . htmlspecialchars($fmt) . "</td>\n<td class=\"editable-cell\" contenteditable=\"true\"></td>\n<td class=\"editable-cell\" contenteditable=\"true\" style=\"text-align:center;\">" . htmlspecialchars($hrsDisplay) . "</td>\n</tr>\n";
+            }
+        } else {
+            // fallback rows (Mon-Thu) — use $d1..$d4 DateTime objects computed earlier
+            $d1k = isset($d1) ? $d1->format('Y-m-d') : '';
+            $d2k = isset($d2) ? $d2->format('Y-m-d') : '';
+            $d3k = isset($d3) ? $d3->format('Y-m-d') : '';
+            $d4k = isset($d4) ? $d4->format('Y-m-d') : '';
+            $d1h = ($d1k && isset($dtrHours[$d1k])) ? $dtrHours[$d1k] : '';
+            $d2h = ($d2k && isset($dtrHours[$d2k])) ? $dtrHours[$d2k] : '';
+            $d3h = ($d3k && isset($dtrHours[$d3k])) ? $dtrHours[$d3k] : '';
+            $d4h = ($d4k && isset($dtrHours[$d4k])) ? $dtrHours[$d4k] : '';
+            $d1hDisplay = $d1h === '' ? '' : (string)((int)floor($d1h));
+            $d2hDisplay = $d2h === '' ? '' : (string)((int)floor($d2h));
+            $d3hDisplay = $d3h === '' ? '' : (string)((int)floor($d3h));
+            $d4hDisplay = $d4h === '' ? '' : (string)((int)floor($d4h));
+            if ($d1h !== '') $totalInitial += (int)floor($d1h);
+            if ($d2h !== '') $totalInitial += (int)floor($d2h);
+            if ($d3h !== '') $totalInitial += (int)floor($d3h);
+            if ($d4h !== '') $totalInitial += (int)floor($d4h);
+            $rowsHtml .= "<tr>\n<td>Monday<br>" . htmlspecialchars($date1) . "</td>\n<td class=\"editable-cell\" contenteditable=\"true\"></td>\n<td class=\"editable-cell\" contenteditable=\"true\" style=\"text-align:center;\">" . htmlspecialchars($d1hDisplay) . "</td>\n</tr>\n";
+            $rowsHtml .= "<tr>\n<td>Tuesday<br>" . htmlspecialchars($date2) . "</td>\n<td class=\"editable-cell\" contenteditable=\"true\"></td>\n<td class=\"editable-cell\" contenteditable=\"true\" style=\"text-align:center;\">" . htmlspecialchars($d2hDisplay) . "</td>\n</tr>\n";
+            $rowsHtml .= "<tr>\n<td>Wednesday<br>" . htmlspecialchars($date3) . "</td>\n<td class=\"editable-cell\" contenteditable=\"true\"></td>\n<td class=\"editable-cell\" contenteditable=\"true\" style=\"text-align:center;\">" . htmlspecialchars($d3hDisplay) . "</td>\n</tr>\n";
+            $rowsHtml .= "<tr>\n<td>Thursday<br>" . htmlspecialchars($date4) . "</td>\n<td class=\"editable-cell\" contenteditable=\"true\"></td>\n<td class=\"editable-cell\" contenteditable=\"true\" style=\"text-align:center;\">" . htmlspecialchars($d4hDisplay) . "</td>\n</tr>\n";
+        }
 
-                        <div class="meta-line">Student\'s Name: <span class="editable-inline" contenteditable="true">' . htmlspecialchars($templateStudentName, ENT_QUOTES) . '</span></div>
-                        <div class="meta-line">Supervisor\'s Name: <span class="editable-inline" contenteditable="true">' . htmlspecialchars($templateSupervisor, ENT_QUOTES) . '</span></div>
-                        <div class="meta-line">Inclusive Date: <span class="editable-inline" contenteditable="true">' . htmlspecialchars(($defaultFrom && $defaultTo) ? ($defaultFrom . ' to ' . $defaultTo) : '', ENT_QUOTES) . '</span></div>
+        // always add Total Hours row (centered)
+        $totalDisplay = $totalInitial === 0 ? '' : rtrim(rtrim(number_format((float)$totalInitial, 2, '.', ''), '0'), '.');
+        $rowsHtml .= "<tr>\n<td colspan=\"2\" style=\"text-align:right;\">Total Hours:</td>\n<td id=\"total-hours-cell\" class=\"editable-cell\" contenteditable=\"true\" style=\"text-align:center;\">" . htmlspecialchars($totalDisplay) . "</td>\n</tr>\n";
 
-                        <table class="journal-table">
-                            <thead>
-                                <tr>
-                                    <th style="width:20%;">Date</th>
-                                    <th style="width:60%;">Work Description</th>
-                                    <th style="width:20%;">No. of Hours</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr>
-                                    <td>Monday<br>' . htmlspecialchars($date1, ENT_QUOTES) . '</td>
-                                    <td class="editable-cell" contenteditable="true"></td>
-                                    <td class="editable-cell" contenteditable="true"></td>
-                                </tr>
-                                <tr>
-                                    <td>Tuesday<br>' . htmlspecialchars($date2, ENT_QUOTES) . '</td>
-                                    <td class="editable-cell" contenteditable="true"></td>
-                                    <td class="editable-cell" contenteditable="true"></td>
-                                </tr>
-                                <tr>
-                                    <td>Wednesday<br>' . htmlspecialchars($date3, ENT_QUOTES) . '</td>
-                                    <td class="editable-cell" contenteditable="true"></td>
-                                    <td class="editable-cell" contenteditable="true"></td>
-                                </tr>
-                                <tr>
-                                    <td>Thursday<br>' . htmlspecialchars($date4, ENT_QUOTES) . '</td>
-                                    <td class="editable-cell" contenteditable="true"></td>
-                                    <td class="editable-cell" contenteditable="true"></td>
-                                </tr>
-                                <tr>
-                                    <td colspan="2" style="text-align:right;">Total Hours:</td>
-                                    <td class="editable-cell" contenteditable="true"> </td>
-                                </tr>
-                            </tbody>
-                        </table>
+        // format inclusive date for display (e.g., "March 3, 2026")
+        $inclusiveDisplay = '';
+        if (!empty($defaultFrom) && !empty($defaultTo)) {
+            try {
+                $dfmt = new DateTime($defaultFrom);
+                $dtmt = new DateTime($defaultTo);
+                if ($defaultFrom === $defaultTo) {
+                    // same single date
+                    $inclusiveDisplay = $dfmt->format('F j, Y');
+                } else {
+                    $inclusiveDisplay = $dfmt->format('F j, Y') . ' to ' . $dtmt->format('F j, Y');
+                }
+            } catch (Exception $ex) {
+                if ($defaultFrom === $defaultTo) $inclusiveDisplay = $defaultFrom; else $inclusiveDisplay = $defaultFrom . ' to ' . $defaultTo;
+            }
+        }
 
-                        <div class="learning">Point of Learning: <span class="editable-inline" contenteditable="true"></span></div>
-
-                        <div class="doc-title">Documentation</div>
-                        <div style="min-height:260px;"></div>
-                    </div>
-                </div>
-            </div>
-        ';
+        $defaultTemplateHtml =
+            '<div class="page">'
+            . '<div class="page-content" contenteditable="true">'
+            . '<div class="journal-template">'
+            . '<div class="title-main">OJT - Weekly Journal</div>'
+            . '<div class="meta-line">Student\'s Name: <span class="editable-inline" contenteditable="true">' . htmlspecialchars($templateStudentName, ENT_QUOTES) . '</span></div>'
+            . '<div class="meta-line">Supervisor\'s Name: <span class="editable-inline" contenteditable="true">' . htmlspecialchars($templateSupervisor, ENT_QUOTES) . '</span></div>'
+            . '<div class="meta-line">Inclusive Date: <span class="editable-inline" contenteditable="true">' . htmlspecialchars($inclusiveDisplay, ENT_QUOTES) . '</span></div>'
+            . '<table class="journal-table">'
+            . '<thead><tr><th style="width:20%;">Date</th><th style="width:60%;">Work Description</th><th style="width:20%;">No. of Hours</th></tr></thead>'
+            . '<tbody>' . $rowsHtml . '</tbody>'
+            . '</table>'
+            . '<div class="learning">Point of Learning: <span class="editable-inline" contenteditable="true"></span></div>'
+            . '<div class="doc-title">Documentation</div><div style="min-height:260px;"></div>'
+            . '</div></div></div>';
         ?>
 
         <form id="frm" method="post" enctype="multipart/form-data">
@@ -503,6 +675,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 } else if (sel && sel.rangeCount) {
                                     range = sel.getRangeAt(0).cloneRange();
                                 }
+
+                                function closestPageContent(node){
+                                    while(node && node !== document){
+                                        if (node.nodeType === 1 && node.classList && node.classList.contains('page-content')) return node;
+                                        node = node.parentNode;
+                                    }
+                                    return null;
+                                }
+
                                 if (range) {
                                     range.collapse(false);
                                     range.insertNode(img);
@@ -513,13 +694,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                     sel.removeAllRanges();
                                     sel.addRange(after);
                                 } else {
-                                    // find last .page-content and append
-                                    var pcs = document.querySelectorAll('.page-content');
-                                    if (pcs && pcs.length) pcs[pcs.length-1].appendChild(img);
-                                    else ed.appendChild(img);
+                                    // try to insert into the currently focused page-content if possible
+                                    var focusNode = (sel && sel.rangeCount) ? sel.getRangeAt(0).startContainer : (savedRange ? savedRange.startContainer : null);
+                                    var targetPage = closestPageContent(focusNode) || closestPageContent(ed) || ed.querySelector('.page-content');
+                                    if (targetPage) {
+                                        // insert at caret-like position: append but try to keep proximity
+                                        targetPage.appendChild(img);
+                                        // place caret after image
+                                        var rng = document.createRange(); rng.setStartAfter(img); rng.collapse(true);
+                                        sel.removeAllRanges(); sel.addRange(rng);
+                                    } else {
+                                        // final fallback: append to editor
+                                        ed.appendChild(img);
+                                    }
                                 }
-                                // after inserting, ensure pages are split if needed
-                                ensurePages();
+
+                                // defer pagination adjustments slightly so the inserted image stays
+                                // at the intended location before page-splitting runs
+                                setTimeout(function(){ try{ if (typeof ensurePages === 'function') ensurePages(); }catch(e){} }, 120);
                             } catch(e) {
                                 ed.appendChild(img);
                             }
@@ -678,65 +870,136 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } catch(e) {}
         if (inpFrom && inpTo) {
             // ensure To is always at least From + 4 days (Mon-Fri)
+            // expose server-side DTR dates and per-date hours to client
+            var userDtrMap = <?php echo json_encode(isset($dtrHours) ? $dtrHours : []); ?> || {};
+            var userDtrDates = <?php echo json_encode($allDtrDates); ?> || [];
+
+            function formatPretty(dateStr){
+                try { var d = new Date(dateStr + 'T00:00:00'); return d.toLocaleDateString('en-US', { month:'long', day:'numeric', year:'numeric' }); } catch(e) { return dateStr; }
+            }
+
+            function buildRowsFromDateList(dates){
+                var out = '';
+                var total = 0;
+                for (var i=0;i<dates.length;i++){
+                    var d = dates[i];
+                    var weekday = new Date(d + 'T00:00:00').toLocaleDateString('en-US',{ weekday: 'long' });
+                    var hrs = (typeof userDtrMap[d] !== 'undefined') ? parseFloat(userDtrMap[d]) : '';
+                    var hrsDisplay = '';
+                    if (hrs !== '') { hrsDisplay = String(Math.floor(hrs)); total += Math.floor(hrs); }
+                    out += '<tr><td>'+weekday+'<br>'+formatPretty(d)+'</td><td class="editable-cell" contenteditable="true"></td><td class="editable-cell" contenteditable="true" style="text-align:center;">'+ (hrsDisplay || '') +'</td></tr>';
+                }
+                // total hours row (id used for updates)
+                out += '<tr><td colspan="2" style="text-align:right;">Total Hours:</td><td id="total-hours-cell" class="editable-cell" contenteditable="true" style="text-align:center;">'+ (total ? (Math.round(total*100)/100) : '') +'</td></tr>';
+                return out;
+            }
+
+            function datesBetweenWeekdays(from, to){
+                var res = [];
+                if (!from || !to) return res;
+                var cur = new Date(from + 'T00:00:00');
+                var end = new Date(to + 'T00:00:00');
+                while (cur <= end){
+                    var day = cur.getDay(); // 0..6
+                    if (day !== 0 && day !== 6) res.push(cur.toISOString().slice(0,10));
+                    cur.setDate(cur.getDate()+1);
+                }
+                return res;
+            }
+
+            function renderJournalRowsForRange(fromVal, toVal){
+                var ed = document.getElementById('editor');
+                if (!ed) return;
+                var tbody = ed.querySelector('.journal-table tbody');
+                if (!tbody) return;
+                if (!fromVal) return;
+                if (!toVal) toVal = addDays(fromVal,4);
+                // find log dates from DTR within range
+                var matched = userDtrDates.filter(function(x){ return x >= fromVal && x <= toVal; });
+                if (matched.length === 0){
+                    // fallback: use weekdays between from..to
+                    matched = datesBetweenWeekdays(fromVal, toVal);
+                }
+                tbody.innerHTML = buildRowsFromDateList(matched);
+            }
+
             inpFrom.addEventListener('change', function(){
                 if (!this.value) return;
                 try {
                     var suggested = addDays(this.value, 4);
-                    // if current To is empty or earlier than suggested, set it
                     if (!inpTo.value || inpTo.value < this.value || inpTo.value < suggested) {
                         inpTo.value = suggested;
                     }
                     inpTo.min = this.value;
                 } catch(e) {}
-
-                // update template date labels inside editor
-                try {
-                    var ed = document.getElementById('editor');
-                    if (ed && ed.innerHTML.indexOf('journal-template') !== -1) {
-                        var m = new Date(this.value + 'T00:00:00');
-                        var labels = ['Monday', 'Tuesday', 'Wednesday', 'Thursday'];
-                        var rows = ed.querySelectorAll('.journal-table tbody tr');
-                        for (var i = 0; i < 4 && i < rows.length; i++) {
-                            var dd = new Date(m.getTime());
-                            dd.setDate(m.getDate() + i);
-                            var txt = dd.toLocaleDateString('en-US', { month:'long', day:'numeric', year:'numeric' });
-                            var firstCell = rows[i].querySelector('td');
-                            if (firstCell) firstCell.innerHTML = labels[i] + '<br>' + txt;
-                        }
-                    }
-                } catch(e) {}
+                // render rows based on selected range
+                try { renderJournalRowsForRange(this.value, inpTo.value || addDays(this.value,4)); } catch(e) {}
             });
 
             inpTo.addEventListener('change', function(){
                 if (!this.value || !inpFrom.value) return;
                 if (this.value < inpFrom.value) {
                     alert('Invalid range: "To" must be the same or after "From".');
-                    // restore suggested
                     this.value = addDays(inpFrom.value, 4);
                 }
+                try { renderJournalRowsForRange(inpFrom.value, this.value); } catch(e) {}
             });
+
+            // initial render on load
+            try { if (inpFrom && inpFrom.value) renderJournalRowsForRange(inpFrom.value, inpTo.value || addDays(inpFrom.value,4)); } catch(e) {}
         }
 
-        // submit: validate dates and copy content
+        // submit: validate rows and copy content
         document.getElementById('frm').addEventListener('submit', function(e){
             var ed = document.getElementById('editor');
-            document.getElementById('content_html').value = ed.innerHTML;
+            try {
+                // validate Work Description cells (2nd column) are non-empty
+                var tbody = ed.querySelector('.journal-table tbody');
+                if (tbody) {
+                    var rows = Array.prototype.slice.call(tbody.querySelectorAll('tr'));
+                    for (var i = 0; i < rows.length; i++) {
+                        var r = rows[i];
+                        var tds = r.querySelectorAll('td');
+                        if (tds.length < 2) continue; // skip total or malformed rows
+                        var first = tds[0];
+                        if (first.getAttribute && first.getAttribute('colspan')) continue; // total row
+                        var work = (tds[1].textContent || '').trim();
+                        if (work === '') {
+                            e.preventDefault();
+                            var label = (first.textContent || '').replace(/\s+/g, ' ').trim();
+                            alert('Please fill Work Description for: ' + (label || 'one of the rows'));
+                            try { tds[1].focus(); } catch(err) {}
+                            return false;
+                        }
+                    }
+                }
 
-            // validate date inputs
-            var fromVal = inpFrom ? inpFrom.value : '';
-            var toVal = inpTo ? inpTo.value : '';
-            if (!fromVal || !toVal) {
+                // validate date inputs
+                var fromVal = inpFrom ? inpFrom.value : '';
+                var toVal = inpTo ? inpTo.value : '';
+                if (!fromVal || !toVal) {
+                    e.preventDefault();
+                    alert('Please select both From and To dates.');
+                    return false;
+                }
+                if (toVal < fromVal) {
+                    e.preventDefault();
+                    alert('Invalid range: "To" must be the same or after "From".');
+                    return false;
+                }
+
+                // copy current editor HTML into hidden field before submit
+                var ch = document.getElementById('content_html');
+                if (ch) ch.value = ed.innerHTML;
+
+                // allow native submit
+                return true;
+            } catch (err) {
                 e.preventDefault();
-                alert('Please select both From and To dates.');
+                console.error(err);
+                alert('An unexpected error occurred. Please try again.');
                 return false;
             }
-            if (toVal < fromVal) {
-                e.preventDefault();
-                alert('Invalid range: "To" must be the same or after "From".');
-                return false;
-            }
-
-            // allow native submit
         });
     </script>
 </body>

@@ -1109,9 +1109,9 @@ if ($user_id) {
                                         if (!overlay) return;
                                         overlay.style.display = 'none';
                                         if (modalForm) modalForm.style.display = 'none';
-                                        // keep the hidden week value intact; clear date inputs and file input
-                                        try { var mf = document.getElementById('modal-from'); if (mf) mf.value = ''; } catch(e) {}
-                                        try { var mt = document.getElementById('modal-to'); if (mt) mt.value = ''; } catch(e) {}
+                                        // keep the hidden week value intact; restore date inputs to server-provided defaults and clear file input
+                                        try { var mf = document.getElementById('modal-from'); if (mf) mf.value = (overlay.dataset.defaultFrom || mf.getAttribute('value') || ''); } catch(e) {}
+                                        try { var mt = document.getElementById('modal-to'); if (mt) mt.value = (overlay.dataset.defaultTo || mt.getAttribute('value') || ''); } catch(e) {}
                                         if (modalFile) modalFile.value = '';
                                         try { document.body.style.overflow = ''; } catch(e) {}
                                     }
@@ -1136,6 +1136,8 @@ if ($user_id) {
                                     try {
                                         var mfInput = document.getElementById('modal-from');
                                         var mtInput = document.getElementById('modal-to');
+                                        // capture server-provided defaults so we can restore them on cancel
+                                        try { if (overlay) { overlay.dataset.defaultFrom = mfInput && mfInput.value ? mfInput.value : ''; overlay.dataset.defaultTo = mtInput && mtInput.value ? mtInput.value : ''; } } catch(e) {}
                                         if (mfInput) mfInput.addEventListener('change', function(){ if (isWeekend(this.value)){ alert('Please select a weekday (Mon–Fri).'); this.value = ''; this.focus(); } });
                                         if (mtInput) mtInput.addEventListener('change', function(){ if (isWeekend(this.value)){ alert('Please select a weekday (Mon–Fri).'); this.value = ''; this.focus(); } });
                                     } catch(e) {}
