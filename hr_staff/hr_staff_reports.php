@@ -109,13 +109,14 @@ function fetch_evaluations($conn){
   $cols = "e.eval_id, e.rating, e.feedback, e.hiring, e.date_evaluated";
   if ($hasRatingDesc) $cols .= ", e.rating_desc";
   if ($hasSchoolEval) $cols .= ", e.school_eval";
-  $cols .= ", s.first_name AS student_first, s.last_name AS student_last, u.first_name AS eval_first, u.last_name AS eval_last";
+  $cols .= ", s.first_name AS student_first, s.last_name AS student_last, u.first_name AS eval_first, u.last_name AS eval_last, su.office_name AS student_office";
 
   $sql = "
     SELECT " . $cols . "
     FROM evaluations e
     LEFT JOIN students s ON e.student_id = s.student_id
     LEFT JOIN users u ON e.user_id = u.user_id
+    LEFT JOIN users su ON s.user_id = su.user_id
     ORDER BY e.date_evaluated DESC
   ";
 
@@ -132,6 +133,70 @@ function fetch_evaluations($conn){
 }
 
 function fmtDate($d){ if (!$d) return '-'; $dt = date_create($d); return $dt ? $dt->format('F j, Y') : '-'; }
+// AJAX: read-only evaluation details for the View icon in Evaluations tab
+if (isset($_GET['ajax']) && $_GET['ajax'] === 'view_eval') {
+  header('Content-Type: application/json');
+
+  $eval_id = isset($_GET['eval_id']) ? (int)$_GET['eval_id'] : 0;
+  if ($eval_id <= 0) {
+    echo json_encode(['success' => false, 'message' => 'Invalid eval_id']);
+    exit;
+  }
+
+  try {
+    $evaluation = null;
+    $qEval = $conn->prepare("\n            SELECT e.*,\n                   s.student_id,\n                   s.user_id AS student_user_id,\n                   COALESCE(s.college, '') AS school,\n                   COALESCE(s.course, '') AS course,\n                   COALESCE(s.total_hours_required, 0) AS hours_required,\n                   COALESCE(s.first_name, '') AS student_first,\n                   COALESCE(s.last_name, '') AS student_last,\n                   COALESCE(ev.first_name, '') AS eval_first,\n                   COALESCE(ev.last_name, '') AS eval_last\n            FROM evaluations e\n            LEFT JOIN students s ON e.student_id = s.student_id\n            LEFT JOIN users ev ON e.user_id = ev.user_id\n            WHERE e.eval_id = ?\n            LIMIT 1\n        ");
+    if (!$qEval) {
+      throw new Exception('Failed to prepare evaluation query');
+    }
+    $qEval->bind_param('i', $eval_id);
+    $qEval->execute();
+    $evaluation = $qEval->get_result()->fetch_assoc() ?: null;
+    $qEval->close();
+
+    if (!$evaluation) {
+      echo json_encode(['success' => false, 'message' => 'Evaluation not found']);
+      exit;
+    }
+
+    $evaluation['hours_rendered'] = 0.0;
+    $studentUserId = (int)($evaluation['student_user_id'] ?? 0);
+    if ($studentUserId > 0) {
+      $qHours = $conn->prepare("SELECT IFNULL(SUM(hours + minutes/60), 0) AS total FROM dtr WHERE student_id = ?");
+      if ($qHours) {
+        $qHours->bind_param('i', $studentUserId);
+        $qHours->execute();
+        $hRow = $qHours->get_result()->fetch_assoc() ?: [];
+        $evaluation['hours_rendered'] = (float)($hRow['total'] ?? 0);
+        $qHours->close();
+      }
+    }
+
+    $responses = [];
+    $sqlRespWithQ = "\n            SELECT er.question_key, er.question_order, er.score, q.qtext, q.category\n            FROM evaluation_responses er\n            LEFT JOIN evaluation_questions q\n              ON CONVERT(q.question_key USING utf8mb4) COLLATE utf8mb4_unicode_ci = CONVERT(er.question_key USING utf8mb4) COLLATE utf8mb4_unicode_ci\n            WHERE er.eval_id = ?\n            ORDER BY COALESCE(q.sort_order, er.question_order), er.question_order\n        ";
+    $qResp = $conn->prepare($sqlRespWithQ);
+    if (!$qResp) {
+      $qResp = $conn->prepare("\n                SELECT er.question_key, er.question_order, er.score, NULL AS qtext, NULL AS category\n                FROM evaluation_responses er\n                WHERE er.eval_id = ?\n                ORDER BY er.question_order\n            ");
+    }
+    if ($qResp) {
+      $qResp->bind_param('i', $eval_id);
+      $qResp->execute();
+      $resResp = $qResp->get_result();
+      while ($row = $resResp->fetch_assoc()) {
+        $responses[] = $row;
+      }
+      $qResp->close();
+    }
+
+    echo json_encode(['success' => true, 'evaluation' => $evaluation, 'responses' => $responses]);
+    exit;
+  } catch (Throwable $e) {
+    http_response_code(500);
+    error_log('[hr_staff_reports view_eval] ' . $e->getMessage());
+    echo json_encode(['success' => false, 'message' => 'Server error while loading evaluation']);
+    exit;
+  }
+}
 
 $students = fetch_students($conn);
 
@@ -368,6 +433,16 @@ $evaluations = fetch_evaluations($conn);
             </select>
           </div>
 
+          <!-- right: Evaluations-only filter (office) -->
+          <div id="evaluationsFilters" style="display:none;gap:8px;align-items:center;flex:0 0 auto;">
+            <select id="evalOfficeFilter" style="padding:8px;border-radius:8px;border:1px solid #ddd;background:#fff;min-width:180px;">
+              <option value="">All offices</option>
+              <?php foreach ($offices as $o): ?>
+                <option value="<?= htmlspecialchars(strtolower($o['office_name'] ?? '')) ?>"><?= htmlspecialchars($o['office_name'] ?? '') ?></option>
+              <?php endforeach; ?>
+            </select>
+          </div>
+
           <!-- Offices and MOA specific filters removed -->
         </div>
 
@@ -430,6 +505,7 @@ $evaluations = fetch_evaluations($conn);
                       <th style="text-align:center">School Grade</th>
                       <th style="text-align:center">Hiring Decision</th>
                       <th style="text-align:center">Evaluator</th>
+                      <th style="text-align:center">Office</th>
                       <th style="text-align:center">View</th>
                       <th style="text-align:center">Print Certificate</th>
                     </tr>
@@ -454,6 +530,7 @@ $evaluations = fetch_evaluations($conn);
                       echo $h ? htmlspecialchars($h) : '-';
                   ?></td>
                   <td style="text-align:center"><?= htmlspecialchars(trim(($e['eval_first'] ?? '') . ' ' . ($e['eval_last'] ?? ''))) ?: 'N/A' ?></td>
+                  <td style="text-align:center"><?= htmlspecialchars($e['student_office'] ?? '-') ?></td>
                   <td style="text-align:center">
                     <button class="view-btn" data-eval-id="<?= htmlspecialchars($e['eval_id'] ?? '') ?>" title="View Evaluation" style="background:none;border:none;cursor:pointer;color:#0b74de;">
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
@@ -480,6 +557,28 @@ $evaluations = fetch_evaluations($conn);
 
     </div>
   </main>
+<!-- Read-only Evaluation View Modal (same behavior as office_head_ojts.php) -->
+<div id="viewEvalModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.45);align-items:center;justify-content:center;z-index:12000;">
+  <div style="background:#fff;width:860px;max-width:95%;border-radius:8px;padding:18px;box-shadow:0 12px 40px rgba(0,0,0,0.2);max-height:88vh;overflow:auto;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+      <h3 style="margin:0;font-size:16px;color:#111827;">Evaluation</h3>
+      <button id="viewEvalClose" aria-label="Close" title="Close" style="width:32px;height:32px;border-radius:6px;border:0;background:#e6e9f2;cursor:pointer;font-size:22px;line-height:1;padding:0;">&times;</button>
+    </div>
+
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;gap:12px;background:#f3f4f6;border:1px solid #e5e7eb;border-radius:10px;padding:12px 14px;flex-wrap:wrap;">
+      <div>
+        <div><strong>Name:</strong> <span id="viewEvalName">-</span></div>
+        <div><strong>Course:</strong> <span id="viewEvalCourse">-</span></div>
+      </div>
+      <div style="text-align:right;">
+        <div><strong>School:</strong> <span id="viewEvalSchool">-</span></div>
+        <div><strong>Hours:</strong> <span id="viewEvalHours">-</span></div>
+      </div>
+    </div>
+
+    <div id="viewEvalBody" style="min-height:120px;"></div>
+  </div>
+</div>
 
 <script>
 (function(){
@@ -487,6 +586,7 @@ $evaluations = fetch_evaluations($conn);
   function applyFilters() {
     const q = (document.getElementById('globalSearch')?.value || '').toLowerCase().trim();
     const officeVal = (document.getElementById('officeFilter')?.value || '').toLowerCase().trim();
+    const evalOfficeVal = (document.getElementById('evalOfficeFilter')?.value || '').toLowerCase().trim();
     const statusVal = (document.getElementById('statusFilter')?.value || '').toLowerCase().trim();
     const moaStatusVal = (document.getElementById('moaStatusFilter')?.value || '').toLowerCase().trim();
 
@@ -525,8 +625,9 @@ $evaluations = fetch_evaluations($conn);
           const statusText = norm(tds[5]?.textContent || '');
           if (moaStatusVal) visibleByStatus = statusText.indexOf(moaStatusVal) !== -1;
         } else if (isEvaluations) {
-          // evaluations: rely on data-search (student name, evaluator name, feedback)
-          visibleByOffice = true;
+          const tds = tr.querySelectorAll('td');
+          const officeText = norm(tds[6]?.textContent || '');
+          if (evalOfficeVal) visibleByOffice = officeText.indexOf(evalOfficeVal) !== -1;
           visibleByStatus = true;
         }
 
@@ -550,6 +651,8 @@ $evaluations = fetch_evaluations($conn);
        // show/hide students-only filters
        const sf = document.getElementById('studentsFilters');
        if (sf) sf.style.display = tab==='students' ? 'flex' : 'none';
+      const ef = document.getElementById('evaluationsFilters');
+      if (ef) ef.style.display = tab==='evaluations' ? 'flex' : 'none';
        // show/hide offices-only filters
        const of = document.getElementById('officesFilters');
        if (of) of.style.display = tab==='offices' ? 'flex' : 'none';
@@ -561,6 +664,8 @@ $evaluations = fetch_evaluations($conn);
        // reset only the per-tab helper filters if you want; currently keep them as-is
        const ofilter = document.getElementById('officeFilter');
        if (ofilter) ofilter.value = ofilter.value; // no-op to preserve selection
+      const eofilter = document.getElementById('evalOfficeFilter');
+      if (eofilter) eofilter.value = eofilter.value;
        const st = document.getElementById('statusFilter');
        if (st) st.value = st.value;
        const moaSt = document.getElementById('moaStatusFilter');
@@ -576,6 +681,8 @@ $evaluations = fetch_evaluations($conn);
    if (globalSearchEl) globalSearchEl.addEventListener('input', applyFilters);
    const officeFilterEl = document.getElementById('officeFilter');
    if (officeFilterEl) officeFilterEl.addEventListener('change', applyFilters);
+  const evalOfficeFilterEl = document.getElementById('evalOfficeFilter');
+  if (evalOfficeFilterEl) evalOfficeFilterEl.addEventListener('change', applyFilters);
    const statusFilterEl = document.getElementById('statusFilter');
    if (statusFilterEl) statusFilterEl.addEventListener('change', applyFilters);
    const moaStatusFilterEl = document.getElementById('moaStatusFilter');
@@ -629,6 +736,8 @@ $evaluations = fetch_evaluations($conn);
      const sf = document.getElementById('studentsFilters');
      if (!sf) return;
      sf.style.display = active && active.getAttribute('data-tab') === 'students' ? 'flex' : 'none';
+     const ef = document.getElementById('evaluationsFilters');
+     if (ef) ef.style.display = active && active.getAttribute('data-tab') === 'evaluations' ? 'flex' : 'none';
      const of = document.getElementById('officesFilters');
      if (of) of.style.display = active && active.getAttribute('data-tab') === 'offices' ? 'flex' : 'none';
      const mf = document.getElementById('moaFilters');
@@ -638,27 +747,231 @@ $evaluations = fetch_evaluations($conn);
    // initial filter pass so table reflects any default selection / search
    applyFilters();
  
-  // export visible table to CSV
+  // export active-tab table to CSV
    document.getElementById('exportBtn').addEventListener('click', function(){
-     const visiblePanel = document.querySelector('.panel[style*="display:block"]');
-     if (!visiblePanel) return alert('No data to export.');
-     const rows = Array.from(visiblePanel.querySelectorAll('tbody tr')).filter(r=>r.style.display!=='none');
+     const activeTab = document.querySelector('.tabs button.active')?.getAttribute('data-tab') || 'students';
+
+     let tableId = '';
+     let excludeIdx = [];
+     let fileName = 'reports_export.csv';
+
+     if (activeTab === 'evaluations') {
+       tableId = 'tblEvaluations';
+       // Remove View and Print Certificate columns on export.
+       excludeIdx = [7, 8];
+       fileName = 'reports_evaluations.csv';
+     } else {
+       tableId = 'tblStudents';
+       fileName = 'reports_students.csv';
+     }
+
+     const table = document.getElementById(tableId);
+     if (!table) return alert('No data to export.');
+
+     const rows = Array.from(table.querySelectorAll('tbody tr')).filter(tr => {
+       if (tr.style.display === 'none') return false;
+       const tds = tr.querySelectorAll('td');
+       if (!tds.length) return false;
+       if (tds.length === 1 && tds[0].classList.contains('empty')) return false;
+       return true;
+     });
+
      if (rows.length === 0) return alert('No rows to export.');
-     const cols = Array.from(visiblePanel.querySelectorAll('thead th')).map(th=>th.textContent.trim());
-     const data = [cols.map(c => '"' + c.replace(/"/g,'""') + '"').join(',')];
-     rows.forEach(tr=>{
-       const cells = Array.from(tr.querySelectorAll('td')).map(td => '"' + td.textContent.replace(/"/g,'""').trim() + '"');
+
+     const headers = Array.from(table.querySelectorAll('thead th'))
+       .filter((_, idx) => excludeIdx.indexOf(idx) === -1)
+       .map(th => th.textContent.trim());
+
+     const data = [headers.map(c => '"' + c.replace(/"/g, '""') + '"').join(',')];
+
+     rows.forEach(tr => {
+       const cells = Array.from(tr.querySelectorAll('td'))
+         .filter((_, idx) => excludeIdx.indexOf(idx) === -1)
+         .map(td => '"' + td.textContent.replace(/"/g, '""').trim() + '"');
        data.push(cells.join(','));
      });
+
      const csv = data.join('\n');
-     const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
      const url = URL.createObjectURL(blob);
-     const a = document.createElement('a'); a.href = url; a.download = 'reports_export.csv'; document.body.appendChild(a); a.click(); a.remove();
+     const a = document.createElement('a');
+     a.href = url;
+     a.download = fileName;
+     document.body.appendChild(a);
+     a.click();
+     a.remove();
      URL.revokeObjectURL(url);
    });
  })();
 </script>
 
+<script>
+  // View Evaluation modal behavior for Evaluations table
+  (function(){
+    const modal = document.getElementById('viewEvalModal');
+    if (!modal) return;
+
+    const bodyEl = document.getElementById('viewEvalBody');
+    const nameEl = document.getElementById('viewEvalName');
+    const courseEl = document.getElementById('viewEvalCourse');
+    const schoolEl = document.getElementById('viewEvalSchool');
+    const hoursEl = document.getElementById('viewEvalHours');
+    const closeBtn = document.getElementById('viewEvalClose');
+
+    function escapeHtml(v) {
+      return (v == null ? '' : String(v))
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/\"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function formatHours(v) {
+      const n = Number(v);
+      if (!Number.isFinite(n)) return '-';
+      const formatted = n.toFixed(2);
+      return formatted.replace(/\.00$/, '') + ' hrs';
+    }
+
+    function openModal() {
+      modal.style.display = 'flex';
+    }
+
+    function closeModal() {
+      modal.style.display = 'none';
+    }
+
+    function splitFeedback(evaluation) {
+      const out = {
+        strengths: (evaluation.strengths || '').trim(),
+        improvement: (evaluation.improvement || '').trim(),
+        comments: (evaluation.comments || '').trim(),
+        hiring: (evaluation.hiring || '').trim()
+      };
+
+      if (out.strengths || out.improvement || out.comments || out.hiring) {
+        return out;
+      }
+
+      const fb = (evaluation.feedback || '').toString();
+      const get = (label, nextLabel) => {
+        const next = nextLabel ? '(?:\\n\\n' + nextLabel + ':|$)' : '$';
+        const re = new RegExp(label + ':(.*?)' + next, 'is');
+        const m = fb.match(re);
+        return m ? m[1].trim() : '';
+      };
+
+      out.strengths = get('Strengths', 'Areas for improvement|Other comments|Hire decision');
+      out.improvement = get('Areas for improvement', 'Other comments|Hire decision');
+      out.comments = get('Other comments', 'Hire decision');
+      out.hiring = get('Hire decision', null);
+      return out;
+    }
+
+    function renderRows(title, label, rows) {
+      if (!rows || rows.length === 0) return '';
+      let html = '';
+      html += '<div style="overflow:auto;margin-top:10px;">';
+      html += '<table style="width:100%;border-collapse:collapse;font-size:14px;">';
+      html += '<thead><tr><th style="text-align:left;padding:10px;border:1px solid #e5e7eb;background:#f3f4f6;">' + escapeHtml(title) + '</th><th style="text-align:center;padding:10px;border:1px solid #e5e7eb;background:#f3f4f6;width:130px;">Score</th></tr></thead>';
+      html += '<tbody>';
+      rows.forEach(r => {
+        const qText = r.qtext || r.question_key || label;
+        const score = (r.score == null || r.score === '') ? '-' : r.score;
+        html += '<tr>' +
+          '<td style="padding:10px;border:1px solid #e5e7eb;">' + escapeHtml(qText) + '</td>' +
+          '<td style="padding:10px;border:1px solid #e5e7eb;text-align:center;">' + escapeHtml(score) + '</td>' +
+          '</tr>';
+      });
+      html += '</tbody></table></div>';
+      return html;
+    }
+
+    async function loadEvaluation(evalId) {
+      bodyEl.innerHTML = '<div style="padding:12px;color:#4b5563;">Loading evaluation...</div>';
+      nameEl.textContent = '-';
+      courseEl.textContent = '-';
+      schoolEl.textContent = '-';
+      hoursEl.textContent = '-';
+      openModal();
+
+      try {
+        const res = await fetch('hr_staff_reports.php?ajax=view_eval&eval_id=' + encodeURIComponent(evalId), {
+          headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        });
+        const payload = await res.json();
+        if (!payload || !payload.success) {
+          throw new Error((payload && payload.message) ? payload.message : 'Failed to load evaluation');
+        }
+
+        const evaluation = payload.evaluation || {};
+        const responses = Array.isArray(payload.responses) ? payload.responses : [];
+        const details = splitFeedback(evaluation);
+
+        const studentName = (String(evaluation.student_first || '') + ' ' + String(evaluation.student_last || '')).trim() || 'N/A';
+        const school = String(evaluation.school || '').trim() || 'N/A';
+        const course = String(evaluation.course || '').trim() || 'N/A';
+
+        nameEl.textContent = studentName;
+        courseEl.textContent = course;
+        schoolEl.textContent = school;
+        const rendered = formatHours(evaluation.hours_rendered);
+        const required = Number(evaluation.hours_required || 0);
+        hoursEl.textContent = rendered === '-' ? '-' : (rendered + ' / ' + required + ' hrs');
+
+        const competencyRows = [];
+        const skillRows = [];
+        const traitRows = [];
+        const otherRows = [];
+
+        responses.forEach(r => {
+          const cat = String(r.category || '').toLowerCase();
+          if (cat.indexOf('compet') !== -1) competencyRows.push(r);
+          else if (cat.indexOf('skill') !== -1) skillRows.push(r);
+          else if (cat.indexOf('trait') !== -1) traitRows.push(r);
+          else otherRows.push(r);
+        });
+
+        let html = '';
+        html += '<div style="margin-bottom:8px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:12px 14px;line-height:1.7;">';
+        html += '<div><strong>Strengths:</strong> ' + escapeHtml(details.strengths || '-') + '</div>';
+        html += '<div><strong>Areas for Improvement:</strong> ' + escapeHtml(details.improvement || '-') + '</div>';
+        html += '<div><strong>Overall Performance Comments:</strong> ' + escapeHtml(details.comments || '-') + '</div>';
+        html += '<div><strong>Hiring Consideration:</strong> ' + escapeHtml(details.hiring || '-') + '</div>';
+        html += '</div>';
+
+        if (responses.length === 0) {
+          html += '<div style="padding:12px;color:#4b5563;">No evaluation response rows found.</div>';
+        } else {
+          html += renderRows('Competency', 'Competency', competencyRows);
+          html += renderRows('Skill', 'Skill', skillRows);
+          html += renderRows('Trait', 'Trait', traitRows);
+          html += renderRows('Other', 'Question', otherRows);
+        }
+
+        bodyEl.innerHTML = html;
+      } catch (err) {
+        bodyEl.innerHTML = '<div style="padding:12px;color:#b91c1c;background:#fff1f2;border:1px solid #fecdd3;border-radius:8px;">Unable to load evaluation details.</div>';
+      }
+    }
+
+    if (closeBtn) closeBtn.addEventListener('click', closeModal);
+    modal.addEventListener('click', function(e){ if (e.target === modal) closeModal(); });
+    document.addEventListener('keydown', function(e){ if (e.key === 'Escape' && modal.style.display === 'flex') closeModal(); });
+
+    document.addEventListener('click', function(e){
+      const btn = e.target.closest && e.target.closest('.view-btn');
+      if (!btn) return;
+      const evalId = btn.getAttribute('data-eval-id');
+      if (!evalId) {
+        alert('Missing evaluation id');
+        return;
+      }
+      loadEvaluation(evalId);
+    });
+  })();
+</script>
 <script>
   // Calendar modal open/close handlers (inline-styled overlay for Reports page)
   (function(){
