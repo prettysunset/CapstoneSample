@@ -727,11 +727,18 @@ $late_dtr_res = $late_dtr->get_result();
           $likeOffice = '%' . mb_strtolower(trim((string)($office['office_name'] ?? ''))) . '%';
           // join students to get course/year_level and other student details
           // Use student names from `students` table for display (prefer `students` first/last)
-          $qa = $conn->prepare("SELECT u.user_id, s.first_name AS first_name, s.last_name AS last_name, u.email, u.office_name, u.status,
+          $qa = $conn->prepare("SELECT u.user_id, s.first_name AS first_name, s.last_name AS last_name,
+            s.email AS s_email, u.email AS u_email, u.office_name, u.status,
             s.student_id, s.address, s.contact_number, s.birthday, s.college, s.course, s.year_level, s.school_address, s.ojt_adviser,
-            s.emergency_name, s.emergency_relation, s.emergency_contact
+            s.emergency_name, s.emergency_relation, s.emergency_contact,
+            oa.letter_of_intent, oa.endorsement_letter, oa.resume, oa.picture
             FROM users u
             LEFT JOIN students s ON u.user_id = s.user_id
+            LEFT JOIN ojt_applications oa ON oa.application_id = (
+              SELECT MAX(oa2.application_id)
+              FROM ojt_applications oa2
+              WHERE oa2.student_id = s.student_id
+            )
             WHERE u.role = 'ojt' AND LOWER(TRIM(u.office_name)) LIKE ? AND u.status = 'approved'
             ORDER BY s.last_name, s.first_name LIMIT 200");
           if ($qa) {
@@ -828,7 +835,7 @@ $late_dtr_res = $late_dtr->get_result();
                       <button class="view-app" 
                         data-appid="" 
                         data-name="<?= htmlspecialchars($apName) ?>"
-                        data-email="<?= htmlspecialchars($ap['email'] ?? '') ?>"
+                        data-email="<?= htmlspecialchars($ap['s_email'] ?? $ap['u_email'] ?? '') ?>"
                         data-date=""
                         data-opt1=""
                         data-opt2=""
@@ -843,10 +850,10 @@ $late_dtr_res = $late_dtr->get_result();
                         data-emg_name="<?= htmlspecialchars($ap['emergency_name'] ?? '') ?>"
                         data-emg_relation="<?= htmlspecialchars($ap['emergency_relation'] ?? '') ?>"
                         data-emg_contact="<?= htmlspecialchars($ap['emergency_contact'] ?? '') ?>"
-                        data-loi=""
-                        data-endorse=""
-                        data-resume=""
-                        data-picture=""
+                        data-loi="<?= htmlspecialchars($ap['letter_of_intent'] ?? '') ?>"
+                        data-endorse="<?= htmlspecialchars($ap['endorsement_letter'] ?? '') ?>"
+                        data-resume="<?= htmlspecialchars($ap['resume'] ?? '') ?>"
+                        data-picture="<?= htmlspecialchars($ap['picture'] ?? '') ?>"
                         style="background:transparent;border:0;color:#0b74de;cursor:pointer;font-size:18px" title="View">
                         👁️
                       </button>
@@ -939,17 +946,64 @@ $late_dtr_res = $late_dtr->get_result();
     </div>
     <script>
     (function(){
+          function calculateAge(birthdayValue) {
+            if (!birthdayValue) return '';
+            const birth = new Date(birthdayValue);
+            if (isNaN(birth.getTime())) return '';
+            const today = new Date();
+            let age = today.getFullYear() - birth.getFullYear();
+            const monthDiff = today.getMonth() - birth.getMonth();
+            const dayDiff = today.getDate() - birth.getDate();
+            if (monthDiff < 0 || (monthDiff === 0 && dayDiff < 0)) {
+              age--;
+            }
+            return age >= 0 ? String(age) : '';
+          }
+
+          function normalizeAttachmentUrl(rawPath) {
+            const value = (rawPath || '').trim();
+            if (!value) return '';
+            if (/^(https?:)?\/\//i.test(value) || value.startsWith('data:')) return value;
+            if (value.startsWith('../') || value.startsWith('./') || value.startsWith('/')) return value;
+            return '../' + value.replace(/^\/+/, '');
+          }
+
+          function renderAvatar(picturePath) {
+            const avatar = document.getElementById('view_avatar');
+            if (!avatar) return;
+
+            const pictureUrl = normalizeAttachmentUrl(picturePath);
+            if (!pictureUrl) {
+              avatar.innerHTML = '👤';
+              return;
+            }
+
+            avatar.innerHTML = '';
+            const img = document.createElement('img');
+            img.src = pictureUrl;
+            img.alt = 'Applicant Picture';
+            img.style.width = '100%';
+            img.style.height = '100%';
+            img.style.objectFit = 'cover';
+            img.style.borderRadius = '50%';
+            img.onerror = function() {
+              avatar.innerHTML = '👤';
+            };
+            avatar.appendChild(img);
+          }
+
       function clearAttachments() {
         const c = document.getElementById('view_attachments');
         if (!c) return;
         c.innerHTML = '';
       }
       function addAttachment(label, url) {
-        if (!url) return;
+            const normalizedUrl = normalizeAttachmentUrl(url);
+            if (!normalizedUrl) return;
         const c = document.getElementById('view_attachments');
         if (!c) return;
         const a = document.createElement('a');
-        a.href = url;
+            a.href = normalizedUrl;
         a.target = '_blank';
         a.rel = 'noopener noreferrer';
         a.textContent = label;
@@ -994,17 +1048,25 @@ $late_dtr_res = $late_dtr->get_result();
         document.getElementById('view_emg_name').textContent = emg_name;
         document.getElementById('view_emg_relation').textContent = emg_relation;
         document.getElementById('view_emg_contact').textContent = emg_contact;
-        document.getElementById('view_age').textContent = '';
+        document.getElementById('view_age').textContent = calculateAge(birthday);
 
-        // avatar placeholder
-        const avatar = document.getElementById('view_avatar');
-        if (avatar) avatar.innerHTML = '👤';
+        // show uploaded picture in avatar circle, fallback to icon
+        renderAvatar(picture);
 
         clearAttachments();
         addAttachment('Letter of Intent', loi);
         addAttachment('Endorsement Letter', endorse);
         addAttachment('Resume', resume);
         if (picture) addAttachment('Picture', picture);
+
+        const attachmentsBox = document.getElementById('view_attachments');
+        if (attachmentsBox && !attachmentsBox.children.length) {
+          const empty = document.createElement('div');
+          empty.textContent = 'No attachments available.';
+          empty.style.color = '#777';
+          empty.style.fontSize = '13px';
+          attachmentsBox.appendChild(empty);
+        }
 
         const modal = document.getElementById('viewAppModal');
         modal.style.display = 'flex';
