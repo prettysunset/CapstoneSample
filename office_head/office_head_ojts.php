@@ -1485,13 +1485,18 @@ if (!empty($completedArr)) {
 <!-- Read-only Evaluation View Modal -->
 <div id="viewEvalModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.45);align-items:center;justify-content:center;z-index:12000;"> 
   <div style="background:#fff;width:820px;max-width:95%;border-radius:8px;padding:18px;box-shadow:0 12px 40px rgba(0,0,0,0.2);max-height:88vh;overflow:auto;">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:12px;">
-      <div>
-        <h2 id="viewEvalName" style="margin:0;font-size:18px;color:#2f3459">Evaluation</h2>
-        <div id="viewEvalMeta" style="color:#6b6f8b;font-size:13px;margin-top:4px">&nbsp;</div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+      <h3 style="margin:0;font-size:16px;color:#111827;">Evaluation</h3>
+      <button id="viewEvalClose" aria-label="Close" title="Close" style="width:32px;height:32px;border-radius:6px;border:0;background:#e6e9f2;cursor:pointer;font-size:22px;line-height:1;padding:0;">&times;</button>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;gap:12px;background:#f3f4f6;border:1px solid #e5e7eb;border-radius:10px;padding:12px 14px;">
+      <div style="font-size:15px;line-height:1.45;color:#111827;">
+        <div><strong>Name:</strong> <span id="viewHeadName">-</span></div>
+        <div>Course: <span id="viewHeadCourse">-</span></div>
       </div>
-      <div style="text-align:right">
-        <button id="viewEvalClose" style="padding:8px 12px;border-radius:6px;border:0;background:#e6e9f2;cursor:pointer">Close</button>
+      <div style="font-size:15px;line-height:1.45;color:#111827;text-align:right;">
+        <div>School: <span id="viewHeadSchool">-</span></div>
+        <div>Hours: <span id="viewHeadHours">-</span></div>
       </div>
     </div>
 
@@ -1526,13 +1531,25 @@ if (!empty($completedArr)) {
       const modal = document.getElementById('viewEvalModal');
       if (modal) modal.dataset.evalId = evalId || '';
 
-      document.getElementById('viewEvalName').textContent = btn.getAttribute('data-name') || 'Evaluation';
       const bodyEl = document.getElementById('viewEvalBody');
       if (bodyEl) bodyEl.innerHTML = '';
 
-      // show eval id in modal meta for visibility/debug
-      const metaEl = document.getElementById('viewEvalMeta');
-      if (metaEl) metaEl.textContent = evalId ? ('Eval ID: ' + evalId) : '\u00A0';
+      const tr = btn.closest('tr');
+      const tds = tr ? tr.querySelectorAll('td') : [];
+      const rowName = (tds[0] && tds[0].textContent) ? tds[0].textContent.trim() : '-';
+      const rowSchool = (tds[1] && tds[1].textContent) ? tds[1].textContent.trim() : '-';
+      const rowCourse = (tds[2] && tds[2].textContent) ? tds[2].textContent.trim() : '-';
+      const rowHours = (tds[4] && tds[4].textContent) ? tds[4].textContent.trim() : '-';
+
+      const headName = document.getElementById('viewHeadName');
+      const headCourse = document.getElementById('viewHeadCourse');
+      const headSchool = document.getElementById('viewHeadSchool');
+      const headHours = document.getElementById('viewHeadHours');
+      if (headName) headName.textContent = rowName;
+      if (headCourse) headCourse.textContent = rowCourse;
+      if (headSchool) headSchool.textContent = rowSchool;
+      if (headHours) headHours.textContent = rowHours;
+
       if (evalId) {
         const url = 'office_head_ojts.php?ajax=view_eval&eval_id=' + encodeURIComponent(evalId) + '&_ts=' + Date.now();
         fetch(url, { credentials: 'same-origin', cache: 'no-store' })
@@ -1543,8 +1560,19 @@ if (!empty($completedArr)) {
             }
             const ev = (data && data.evaluation) ? data.evaluation : {};
             if (bodyEl) {
-              const ratingText = (ev.rating === null || typeof ev.rating === 'undefined' || ev.rating === '') ? '' : String(ev.rating);
-              let html = '<div style="font-size:16px;color:#2f3459;margin-bottom:10px;"><strong>Overall Rating:</strong> ' + escapeHtml(ratingText) + '</div>';
+              let html = '';
+
+              const strengths = (ev && ev.strengths) ? String(ev.strengths).trim() : '';
+              const improvement = (ev && ev.improvement) ? String(ev.improvement).trim() : '';
+              const comments = (ev && ev.comments) ? String(ev.comments).trim() : '';
+              const hiring = (ev && ev.hiring) ? String(ev.hiring).trim() : '';
+
+              html += '<div style="margin-top:2px;margin-bottom:10px;padding:12px 14px;border:1px solid #e5e7eb;border-radius:10px;background:#f9fafb;color:#111827;font-size:14px;line-height:1.5;">' +
+                '<div><strong>Strengths:</strong> ' + escapeHtml(strengths || '-') + '</div>' +
+                '<div style="margin-top:6px;"><strong>Areas for Improvement:</strong> ' + escapeHtml(improvement || '-') + '</div>' +
+                '<div style="margin-top:6px;"><strong>Overall Performance Comments:</strong> ' + escapeHtml(comments || '-') + '</div>' +
+                '<div style="margin-top:6px;"><strong>Hiring Consideration:</strong> ' + escapeHtml(hiring || '-') + '</div>' +
+              '</div>';
 
               const responses = Array.isArray(data.responses) ? data.responses : [];
               if (responses.length > 0) {
@@ -1632,8 +1660,7 @@ if (!empty($completedArr)) {
           .catch((err) => {
             if (bodyEl) {
               const msg = (err && err.message) ? err.message : 'Unknown fetch error';
-              bodyEl.innerHTML = '<div style="font-size:16px;color:#2f3459;"><strong>Overall Rating:</strong> </div>' +
-                '<div style="margin-top:10px;color:#8a1538;font-size:12px;"><strong>Debug:</strong> fetch failed for Eval ID ' + escapeHtml(evalId) + '.</div>' +
+              bodyEl.innerHTML = '<div style="margin-top:10px;color:#8a1538;font-size:12px;"><strong>Debug:</strong> fetch failed for Eval ID ' + escapeHtml(evalId) + '.</div>' +
                 '<pre style="margin-top:6px;padding:10px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;white-space:pre-wrap;word-break:break-word;font-size:12px;line-height:1.35;">' + escapeHtml(msg) + '</pre>';
             }
             showViewModal();
