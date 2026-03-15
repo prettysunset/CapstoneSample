@@ -1292,72 +1292,182 @@ if ($user_id) {
                             <section id="tab-eval" class="tab-panel" style="display:none;">
                                     <h4 style="margin:0 0 10px 0; color:#2f3459; font-size:20px;">Evaluation</h4>
                                     <?php
-                                    $evaluations = [];
+                                    $latestEvaluation = null;
+                                    $competencyRows = [];
+                                    $skillRows = [];
+                                    $traitRows = [];
+                                    $otherRows = [];
+
                                     if (!empty($student_id)) {
-                                        $qe = $conn->prepare("
-                                            SELECT e.eval_id, e.rating, e.rating_desc, e.feedback, e.date_evaluated,
-                                                   COALESCE(u.first_name,'') AS ev_first, COALESCE(u.last_name,'') AS ev_last
-                                            FROM evaluations e
-                                            LEFT JOIN users u ON e.user_id = u.user_id
-                                            WHERE e.student_id = ?
-                                            ORDER BY e.date_evaluated DESC, e.eval_id DESC
-                                        ");
+                                        $qe = $conn->prepare("\n                                            SELECT e.eval_id, e.rating, e.rating_desc, e.feedback, e.date_evaluated,\n                                                   e.school_eval, e.strengths, e.improvement, e.comments, e.hiring,\n                                                   COALESCE(u.first_name,'') AS ev_first, COALESCE(u.last_name,'') AS ev_last\n                                            FROM evaluations e\n                                            LEFT JOIN users u ON e.user_id = u.user_id\n                                            WHERE e.student_id = ?\n                                            ORDER BY e.date_evaluated DESC, e.eval_id DESC\n                                            LIMIT 1\n                                        ");
                                         if ($qe) {
                                             $qe->bind_param('i', $student_id);
                                             $qe->execute();
                                             $resE = $qe->get_result();
-                                            while ($r = $resE->fetch_assoc()) $evaluations[] = $r;
+                                            $latestEvaluation = $resE ? $resE->fetch_assoc() : null;
                                             $qe->close();
                                         }
                                     }
+
+                                    if (!empty($latestEvaluation['eval_id'])) {
+                                        $evalId = (int)$latestEvaluation['eval_id'];
+                                        $responses = [];
+
+                                        $qr = $conn->prepare("\n                                            SELECT er.question_key, er.question_order, er.score, q.qtext\n                                            FROM evaluation_responses er\n                                            LEFT JOIN evaluation_questions q\n                                              ON CONVERT(q.question_key USING utf8mb4) COLLATE utf8mb4_unicode_ci = CONVERT(er.question_key USING utf8mb4) COLLATE utf8mb4_unicode_ci\n                                            WHERE er.eval_id = ?\n                                            ORDER BY COALESCE(q.sort_order, er.question_order), er.question_order\n                                        ");
+                                        if (!$qr) {
+                                            $qr = $conn->prepare("\n                                                SELECT er.question_key, er.question_order, er.score, NULL AS qtext\n                                                FROM evaluation_responses er\n                                                WHERE er.eval_id = ?\n                                                ORDER BY er.question_order\n                                            ");
+                                        }
+                                        if ($qr) {
+                                            $qr->bind_param('i', $evalId);
+                                            if ($qr->execute()) {
+                                                $resR = $qr->get_result();
+                                                while ($rr = $resR->fetch_assoc()) {
+                                                    $responses[] = $rr;
+                                                }
+                                            }
+                                            $qr->close();
+                                        }
+
+                                        foreach ($responses as $row) {
+                                            $k = strtolower(trim((string)($row['question_key'] ?? '')));
+                                            if (strpos($k, 'c') === 0) {
+                                                $competencyRows[] = $row;
+                                            } elseif (strpos($k, 's') === 0) {
+                                                $skillRows[] = $row;
+                                            } elseif (strpos($k, 't') === 0) {
+                                                $traitRows[] = $row;
+                                            } else {
+                                                $otherRows[] = $row;
+                                            }
+                                        }
+                                    }
+
+                                    $hoursDone = isset($hours_rendered) ? (float)$hours_rendered : 0;
+                                    $hoursReq = isset($total_required) ? (float)$total_required : 0;
+                                    $hoursDoneDisplay = rtrim(rtrim(number_format($hoursDone, 2, '.', ''), '0'), '.');
+                                    $hoursReqDisplay = rtrim(rtrim(number_format($hoursReq, 2, '.', ''), '0'), '.');
+                                    if ($hoursDoneDisplay === '') $hoursDoneDisplay = '0';
+                                    if ($hoursReqDisplay === '') $hoursReqDisplay = '0';
+
+                                    $strengths = trim((string)($latestEvaluation['strengths'] ?? ''));
+                                    $improvement = trim((string)($latestEvaluation['improvement'] ?? ''));
+                                    $comments = trim((string)($latestEvaluation['comments'] ?? ''));
+                                    $hiring = trim((string)($latestEvaluation['hiring'] ?? ''));
+                                    $fallbackFeedback = (string)($latestEvaluation['feedback'] ?? '');
+
+                                    if (($strengths === '' || $improvement === '' || $comments === '' || $hiring === '') && $fallbackFeedback !== '') {
+                                        if ($strengths === '' && preg_match('/Strengths:\s*(.+?)(?:\R\R|$)/is', $fallbackFeedback, $m)) $strengths = trim($m[1]);
+                                        if ($improvement === '' && preg_match('/Areas for improvement:\s*(.+?)(?:\R\R|$)/is', $fallbackFeedback, $m)) $improvement = trim($m[1]);
+                                        if ($comments === '' && preg_match('/Other comments:\s*(.+?)(?:\R\R|$)/is', $fallbackFeedback, $m)) $comments = trim($m[1]);
+                                        if ($hiring === '' && preg_match('/Hire decision:\s*(.+?)(?:\R\R|$)/is', $fallbackFeedback, $m)) $hiring = trim($m[1]);
+                                    }
+
+                                    $evalDateDisplay = !empty($latestEvaluation['date_evaluated']) ? date('M j, Y', strtotime($latestEvaluation['date_evaluated'])) : '-';
+                                    $evalRatingDisplay = isset($latestEvaluation['rating']) && $latestEvaluation['rating'] !== null && $latestEvaluation['rating'] !== ''
+                                        ? rtrim(rtrim(number_format((float)$latestEvaluation['rating'], 2, '.', ''), '0'), '.')
+                                        : '-';
+
+                                    $rdRaw = trim((string)($latestEvaluation['rating_desc'] ?? ''));
+                                    $evalRatingDescDisplay = '-';
+                                    if ($rdRaw !== '') {
+                                        $parts = explode('|', $rdRaw, 2);
+                                        $after = count($parts) === 2 ? trim($parts[1]) : trim($parts[0]);
+                                        $evalRatingDescDisplay = $after !== '' ? $after : '-';
+                                    }
+
+                                    $schoolEvalDisplay = '-';
+                                    if (isset($latestEvaluation['school_eval']) && $latestEvaluation['school_eval'] !== null && $latestEvaluation['school_eval'] !== '') {
+                                        $schoolEvalDisplay = rtrim(rtrim(number_format((float)$latestEvaluation['school_eval'], 2, '.', ''), '0'), '.');
+                                    }
+
+                                    $evaluatedBy = trim((string)($latestEvaluation['ev_first'] ?? '') . ' ' . (string)($latestEvaluation['ev_last'] ?? ''));
+                                    if ($evaluatedBy === '') $evaluatedBy = '-';
                                     ?>
-                                    <?php if (empty($evaluations)): ?>
+
+                                    <?php if (empty($latestEvaluation)): ?>
                                         <p style="margin:0; color:#6b6f8b; font-size:16px;">No evaluation recorded yet.</p>
                                     <?php else: ?>
-                                        <div style="margin-top:8px; overflow:auto; background:#fff; border:1px solid #eceff5; padding:12px; border-radius:8px;">
-                                            <table style="width:100%;border-collapse:collapse;font-size:14px;">
-                                                <thead style="background:#f5f7fb;color:#2f3459">
+                                        <div style="margin-bottom:10px; overflow:auto; background:#fff; border:1px solid #e5e7eb; border-radius:10px;">
+                                            <table style="width:100%; border-collapse:collapse; font-size:14px; min-width:760px;">
+                                                <thead style="background:#f3f4f6; color:#111827;">
                                                     <tr>
-                                                        <th style="text-align:left;padding:10px;border-bottom:1px solid #eef1f6;">Date</th>
-                                                        <th style="text-align:left;padding:10px;border-bottom:1px solid #eef1f6;">Rating</th>
-                                                        <th style="text-align:left;padding:10px;border-bottom:1px solid #eef1f6;">Rating Description</th>
-                                                        <th style="text-align:left;padding:10px;border-bottom:1px solid #eef1f6;">Feedback</th>
-                                                        <th style="text-align:left;padding:10px;border-bottom:1px solid #eef1f6;">Evaluated By</th>
+                                                        <th style="text-align:left; padding:10px 12px; border-bottom:1px solid #e5e7eb; font-weight:700;">Date</th>
+                                                        <th style="text-align:left; padding:10px 12px; border-bottom:1px solid #e5e7eb; font-weight:700;">Rating</th>
+                                                        <th style="text-align:left; padding:10px 12px; border-bottom:1px solid #e5e7eb; font-weight:700;">Rating Description</th>
+                                                        <th style="text-align:left; padding:10px 12px; border-bottom:1px solid #e5e7eb; font-weight:700;">School Evaluation Grade</th>
+                                                        <th style="text-align:left; padding:10px 12px; border-bottom:1px solid #e5e7eb; font-weight:700;">Evaluated By</th>
                                                     </tr>
                                                 </thead>
                                                 <tbody>
-                                                <?php foreach ($evaluations as $ev): ?>
-                                                    <tr>
-                                                        <td style="padding:8px;border-top:1px solid #f1f4f8;color:#6b6f8b;"><?php echo !empty($ev['date_evaluated']) ? date('M j, Y', strtotime($ev['date_evaluated'])) : '-'; ?></td>
-                                                        <td style="padding:8px;border-top:1px solid #f1f4f8;color:#2f3459;"><?php echo $ev['rating'] !== null ? htmlspecialchars($ev['rating']) : '-'; ?></td>
-                                                        <td style="padding:8px;border-top:1px solid #f1f4f8;color:#2f3459;">
-                                                            <?php
-                                                            $rd_raw = $ev['rating_desc'] ?? '';
-                                                            $rd_display = '-';
-                                                            if (trim($rd_raw) !== '') {
-                                                                $parts = explode('|', $rd_raw, 2);
-                                                                if (count($parts) === 2) {
-                                                                    $after = trim($parts[1]);
-                                                                } else {
-                                                                    $after = trim($parts[0]);
-                                                                }
-                                                                $rd_display = $after !== '' ? $after : '-';
-                                                            }
-                                                            echo htmlspecialchars($rd_display);
-                                                            ?>
-                                                        </td>
-                                                        <td style="padding:8px;border-top:1px solid #f1f4f8;color:#2f3459;"><?php echo !empty($ev['feedback']) ? nl2br(htmlspecialchars($ev['feedback'])) : '-'; ?></td>
-                                                        <td style="padding:8px;border-top:1px solid #f1f4f8;color:#6b6f8b;">
-                                                            <?php
-                                                            $ename = trim(($ev['ev_first'] ?? '') . ' ' . ($ev['ev_last'] ?? ''));
-                                                            echo $ename !== '' ? htmlspecialchars($ename) : '-';
-                                                            ?>
-                                                        </td>
+                                                    <tr style="color:#111827;">
+                                                        <td style="padding:10px 12px; border-top:1px solid #f1f4f8;"><?php echo htmlspecialchars($evalDateDisplay); ?></td>
+                                                        <td style="padding:10px 12px; border-top:1px solid #f1f4f8;"><?php echo htmlspecialchars($evalRatingDisplay); ?></td>
+                                                        <td style="padding:10px 12px; border-top:1px solid #f1f4f8;"><?php echo htmlspecialchars($evalRatingDescDisplay); ?></td>
+                                                        <td style="padding:10px 12px; border-top:1px solid #f1f4f8;"><?php echo htmlspecialchars($schoolEvalDisplay); ?></td>
+                                                        <td style="padding:10px 12px; border-top:1px solid #f1f4f8;"><?php echo htmlspecialchars($evaluatedBy); ?></td>
                                                     </tr>
-                                                <?php endforeach; ?>
                                                 </tbody>
                                             </table>
                                         </div>
+
+                                        <div style="margin-top:2px;margin-bottom:10px;padding:12px 14px;border:1px solid #e5e7eb;border-radius:10px;background:#f9fafb;color:#111827;font-size:14px;line-height:1.5;">
+                                            <div><strong>Strengths:</strong> <?php echo htmlspecialchars($strengths !== '' ? $strengths : '-'); ?></div>
+                                            <div style="margin-top:6px;"><strong>Areas for Improvement:</strong> <?php echo htmlspecialchars($improvement !== '' ? $improvement : '-'); ?></div>
+                                            <div style="margin-top:6px;"><strong>Overall Performance Comments:</strong> <?php echo htmlspecialchars($comments !== '' ? $comments : '-'); ?></div>
+                                            <div style="margin-top:6px;"><strong>Hiring Consideration:</strong> <?php echo htmlspecialchars($hiring !== '' ? $hiring : '-'); ?></div>
+                                        </div>
+
+                                        <?php
+                                        $sections = [
+                                            'Competency' => $competencyRows,
+                                            'Skill' => $skillRows,
+                                            'Trait' => $traitRows
+                                        ];
+                                        foreach ($sections as $sectionTitle => $sectionRows):
+                                            if (empty($sectionRows)) continue;
+                                        ?>
+                                        <div style="overflow:auto;margin-top:8px;">
+                                            <table style="width:100%;border-collapse:collapse;font-size:14px;">
+                                                <thead>
+                                                    <tr style="background:#f3f4f6;color:#1f2a44;">
+                                                        <th style="padding:9px;border:1px solid #e6e9f2;text-align:left;"><?php echo htmlspecialchars($sectionTitle); ?></th>
+                                                        <th style="padding:9px;border:1px solid #e6e9f2;text-align:center;width:90px;">Score</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    <?php foreach ($sectionRows as $row): ?>
+                                                        <tr>
+                                                            <td style="padding:10px;border:1px solid #eef1f6;">
+                                                                <?php
+                                                                $qtext = trim((string)($row['qtext'] ?? ''));
+                                                                if ($qtext === '') $qtext = (string)($row['question_key'] ?? '-');
+                                                                echo htmlspecialchars($qtext);
+                                                                ?>
+                                                            </td>
+                                                            <td style="padding:10px;border:1px solid #eef1f6;text-align:center;width:90px;">
+                                                                <?php
+                                                                $sv = $row['score'] ?? null;
+                                                                if ($sv === null || $sv === '') {
+                                                                    echo 'N/A';
+                                                                } elseif (is_string($sv) && strtoupper(trim($sv)) === 'NA') {
+                                                                    echo 'N/A';
+                                                                } else {
+                                                                    echo htmlspecialchars((string)$sv);
+                                                                }
+                                                                ?>
+                                                            </td>
+                                                        </tr>
+                                                    <?php endforeach; ?>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                        <?php endforeach; ?>
+
+                                        <?php if (empty($competencyRows) && empty($skillRows) && empty($traitRows) && empty($otherRows)): ?>
+                                            <div style="padding:10px;border:1px solid #e5e7eb;border-radius:6px;background:#f8fafc;color:#334155;">
+                                                No per-question responses found for this evaluation.
+                                            </div>
+                                        <?php endif; ?>
                                     <?php endif; ?>
                                 </section>
                             </div>
