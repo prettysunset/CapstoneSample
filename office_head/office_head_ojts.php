@@ -262,6 +262,147 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
+// AJAX: view evaluation details (read-only)
+if (isset($_GET['ajax']) && $_GET['ajax'] === 'view_eval') {
+  if (ob_get_length()) ob_clean();
+  header('Content-Type: application/json');
+
+  // convert warnings/notices into exceptions inside this block so we can return JSON
+  set_error_handler(function($severity, $message, $file, $line) {
+    throw new ErrorException($message, 0, $severity, $file, $line);
+  });
+
+  // helper: fetch all rows from a prepared statement, compatible with environments
+  // that don't have mysqli_stmt::get_result (mysqlnd absent)
+  function stmt_fetch_all_rows($stmt) {
+    if (method_exists($stmt, 'get_result')) {
+      $res = $stmt->get_result();
+      $rows = [];
+      while ($r = $res->fetch_assoc()) $rows[] = $r;
+      return $rows;
+    }
+    $meta = $stmt->result_metadata();
+    if (!$meta) return [];
+    $fields = [];
+    while ($f = $meta->fetch_field()) $fields[] = $f->name;
+    $meta->free();
+    $row = array_fill_keys($fields, null);
+    $bindRefs = [];
+    foreach ($fields as $name) $bindRefs[] = &$row[$name];
+    call_user_func_array([$stmt, 'bind_result'], $bindRefs);
+    $rows = [];
+    while ($stmt->fetch()) {
+      $copy = [];
+      foreach ($row as $k => $v) $copy[$k] = $v;
+      $rows[] = $copy;
+    }
+    return $rows;
+  }
+
+  function stmt_fetch_one($stmt) {
+    $rows = stmt_fetch_all_rows($stmt);
+    return count($rows) ? $rows[0] : null;
+  }
+
+  try {
+    $eval_id = isset($_GET['eval_id']) ? (int)$_GET['eval_id'] : 0;
+    // fallback: accept either direct student_id (preferred) or student_user_id
+    if ($eval_id <= 0) {
+      if (isset($_GET['student_id'])) {
+        $sid = (int)$_GET['student_id'];
+        if ($sid > 0) {
+            $qev = $conn->prepare("SELECT eval_id FROM evaluations WHERE student_id = ? ORDER BY date_evaluated DESC, eval_id DESC LIMIT 1");
+            if (!$qev) {
+              throw new Exception('DB prepare failed (fallback eval lookup): ' . $conn->error);
+            }
+            $qev->bind_param('i', $sid);
+            if (!$qev->execute()) {
+              throw new Exception('DB execute failed (fallback eval lookup): ' . $qev->error);
+            }
+            $rev = stmt_fetch_one($qev);
+            $qev->close();
+            if ($rev && !empty($rev['eval_id'])) $eval_id = (int)$rev['eval_id'];
+        }
+      } elseif (isset($_GET['student_user_id'])) {
+        $stu_user = (int)$_GET['student_user_id'];
+        if ($stu_user > 0) {
+          $qsv = $conn->prepare("SELECT s.student_id FROM students s WHERE s.user_id = ? LIMIT 1");
+          if ($qsv) {
+            $qsv->bind_param('i', $stu_user);
+            $qsv->execute();
+            $rsv = $qsv->get_result()->fetch_assoc();
+            $qsv->close();
+            if ($rsv && !empty($rsv['student_id'])) {
+              $sid = (int)$rsv['student_id'];
+              $qev = $conn->prepare("SELECT eval_id FROM evaluations WHERE student_id = ? ORDER BY date_evaluated DESC, eval_id DESC LIMIT 1");
+              if ($qev) {
+                $qev->bind_param('i', $sid);
+                $qev->execute();
+                $rev = $qev->get_result()->fetch_assoc();
+                $qev->close();
+                if ($rev && !empty($rev['eval_id'])) $eval_id = (int)$rev['eval_id'];
+              }
+            }
+          }
+        }
+      }
+    }
+
+    if ($eval_id <= 0) {
+      echo json_encode(['success' => false, 'message' => 'Invalid eval_id']);
+      restore_error_handler();
+      exit;
+    }
+
+    // fetch evaluation row
+    $qe = $conn->prepare("SELECT e.*, COALESCE(u.first_name,'') AS ev_first, COALESCE(u.last_name,'') AS ev_last FROM evaluations e LEFT JOIN users u ON e.user_id = u.user_id WHERE e.eval_id = ? LIMIT 1");
+    if (!$qe) {
+      throw new Exception('DB prepare failed (evaluation select): ' . $conn->error);
+    }
+    $evaluation = null;
+    $qe->bind_param('i', $eval_id);
+    if (!$qe->execute()) {
+      throw new Exception('DB execute failed (evaluation select): ' . $qe->error);
+    }
+    $evaluation = stmt_fetch_one($qe);
+    $qe->close();
+    if (!$evaluation) {
+      echo json_encode(['success' => false, 'message' => 'Evaluation not found']);
+      restore_error_handler();
+      exit;
+    }
+
+    // fetch responses with question text if available
+    $rows = [];
+    $qr = $conn->prepare("SELECT er.question_key, er.question_order, er.score, q.qtext, q.category FROM evaluation_responses er LEFT JOIN evaluation_questions q ON q.question_key = er.question_key WHERE er.eval_id = ? ORDER BY COALESCE(q.sort_order, er.question_order), er.question_order");
+    if (!$qr) {
+      throw new Exception('DB prepare failed (responses select): ' . $conn->error);
+    }
+    $qr->bind_param('i', $eval_id);
+    if (!$qr->execute()) {
+      throw new Exception('DB execute failed (responses select): ' . $qr->error);
+    }
+    $rows = stmt_fetch_all_rows($qr);
+    $qr->close();
+
+    echo json_encode(['success' => true, 'evaluation' => $evaluation, 'responses' => $rows]);
+    restore_error_handler();
+    exit;
+  } catch (Throwable $e) {
+    // ensure any buffered output is cleared so JSON is valid
+    if (ob_get_length()) ob_clean();
+    http_response_code(500);
+    $payload = ['success' => false, 'message' => 'Server error while fetching evaluation', 'error' => $e->getMessage()];
+    // attempt to include trace for debugging (can be removed later)
+    try { $payload['trace'] = $e->getTraceAsString(); } catch (Throwable $_) {}
+    echo json_encode($payload);
+    // also write to PHP error log for server-side inspection
+    error_log('[view_eval error] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+    restore_error_handler();
+    exit;
+  }
+}
+
 if (!isset($_SESSION['user_id'])) { header('Location: ../login.php'); exit; }
 
 $user_id = (int)$_SESSION['user_id'];
@@ -410,6 +551,7 @@ foreach ($ojts as $r) {
 $completedArr = [];
 $q = $conn->prepare("
         SELECT u.user_id,
+          s.student_id,
           COALESCE(NULLIF(u.first_name, ''), NULLIF(s.first_name, '')) AS first_name,
           COALESCE(NULLIF(u.last_name, ''), NULLIF(s.last_name, '')) AS last_name,
           COALESCE(s.college, '') AS school,
@@ -417,8 +559,9 @@ $q = $conn->prepare("
           COALESCE(s.year_level, '') AS year_level,
           COALESCE(s.hours_rendered, 0) AS hours_completed,
           COALESCE(s.total_hours_required, 500) AS hours_required,
-          (SELECT rating_desc FROM evaluations ev2 WHERE ev2.student_id = s.student_id ORDER BY date_evaluated DESC, eval_id DESC LIMIT 1) AS remarks,
-          (SELECT school_eval FROM evaluations ev3 WHERE ev3.student_id = s.student_id ORDER BY date_evaluated DESC, eval_id DESC LIMIT 1) AS school_eval
+          (SELECT ev2.rating_desc FROM evaluations ev2 WHERE ev2.student_id = s.student_id ORDER BY ev2.date_evaluated DESC, ev2.eval_id DESC LIMIT 1) AS remarks,
+          (SELECT ev3.school_eval FROM evaluations ev3 WHERE ev3.student_id = s.student_id ORDER BY ev3.date_evaluated DESC, ev3.eval_id DESC LIMIT 1) AS school_eval,
+          (SELECT ev4.eval_id FROM evaluations ev4 WHERE ev4.student_id = s.student_id ORDER BY ev4.date_evaluated DESC, ev4.eval_id DESC LIMIT 1) AS eval_id
     FROM students s
     JOIN users u ON s.user_id = u.user_id
     WHERE s.status = 'evaluated'
@@ -653,7 +796,7 @@ if (!empty($completedArr)) {
                   echo htmlspecialchars($hc_display . ' / ' . (int)$o['hours_required'] . ' hrs');
                 ?></td>
                 <td>
-                  <button class="view-btn icon-btn" data-id="<?php echo (int)$o['user_id']; ?>" title="View">
+                  <button class="view-btn icon-btn" data-eval-id="<?php echo !empty($o['eval_id']) ? (int)$o['eval_id'] : 0; ?>" data-id="<?php echo (int)$o['user_id']; ?>" data-name="<?php echo htmlspecialchars(trim($o['first_name'] . ' ' . $o['last_name'])); ?>" title="View">
                     <svg viewBox="0 0 24 24" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                       <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
                       <circle cx="12" cy="12" r="3"></circle>
@@ -742,7 +885,7 @@ if (!empty($completedArr)) {
                   }
                 ?></td>
                 <td>
-                  <button class="view-btn icon-btn" data-id="<?php echo (int)$o['user_id']; ?>" title="View">
+                  <button class="view-eval-btn icon-btn" data-eval-id="<?php echo isset($o['eval_id']) ? (int)$o['eval_id'] : 0; ?>" data-id="<?php echo (int)$o['user_id']; ?>" data-student-id="<?php echo isset($o['student_id']) ? (int)$o['student_id'] : 0; ?>" title="View Evaluation">
                     <svg viewBox="0 0 24 24" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                       <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
                       <circle cx="12" cy="12" r="3"></circle>
@@ -1327,6 +1470,75 @@ if (!empty($completedArr)) {
     document.addEventListener('keydown', function(e){
       if (e.key === 'Escape') closePanel();
     });
+  })();
+</script>
+<!-- Read-only Evaluation View Modal -->
+<div id="viewEvalModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.45);align-items:center;justify-content:center;z-index:12000;"> 
+  <div style="background:#fff;width:820px;max-width:95%;border-radius:8px;padding:18px;box-shadow:0 12px 40px rgba(0,0,0,0.2);max-height:88vh;overflow:auto;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:12px;">
+      <div>
+        <h2 id="viewEvalName" style="margin:0;font-size:18px;color:#2f3459">Evaluation</h2>
+        <div id="viewEvalMeta" style="color:#6b6f8b;font-size:13px;margin-top:4px">&nbsp;</div>
+      </div>
+      <div style="text-align:right">
+        <button id="viewEvalClose" style="padding:8px 12px;border-radius:6px;border:0;background:#e6e9f2;cursor:pointer">Close</button>
+      </div>
+    </div>
+
+    <div id="viewEvalBody">
+      <div style="margin-bottom:10px;">
+        <strong>Overall Rating:</strong> <span id="viewRating">-</span> &nbsp; <span id="viewRatingDesc" style="color:#6b6f8b"></span>
+      </div>
+      <div style="margin-bottom:10px;">
+        <strong>School Evaluation Grade:</strong> <span id="viewSchoolEval">-</span>
+      </div>
+      <div style="margin-bottom:12px;">
+        <strong>Feedback / Remarks</strong>
+        <div id="viewFeedback" style="white-space:pre-wrap;color:#333;margin-top:6px;padding:10px;border-radius:6px;background:#f7f8fb;border:1px solid #eef1f6"></div>
+      </div>
+
+      <div style="margin-bottom:10px;">
+        <h4 style="margin:0 0 6px 0;color:#2f3459">Per-question Scores</h4>
+        <div style="overflow:auto;border:1px solid #eceff5;border-radius:6px;background:#fff;padding:8px;">
+          <table id="viewResponsesTable" style="width:100%;border-collapse:collapse;font-size:14px;">
+            <thead style="background:#f5f7fb;color:#2f3459"><tr><th style="padding:8px;text-align:left">Category</th><th style="padding:8px;text-align:left">Question</th><th style="padding:8px;text-align:left">Score</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div style="margin-top:8px;color:#6b6f8b;font-size:13px">Evaluated by: <span id="viewEvaluator">-</span> &nbsp; | &nbsp; Date: <span id="viewEvalDate">-</span></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  (function(){
+    function showViewModal(){
+      const m = document.getElementById('viewEvalModal'); if (!m) return; m.style.display = 'flex'; document.body.style.overflow = 'hidden';
+    }
+    function hideViewModal(){
+      const m = document.getElementById('viewEvalModal'); if (!m) return; m.style.display = 'none'; document.body.style.overflow = ''; 
+    }
+    document.getElementById('viewEvalClose').addEventListener('click', hideViewModal);
+    document.addEventListener('click', function(e){
+      const btn = e.target.closest && e.target.closest('.view-eval-btn');
+      if (!btn) return;
+      e.preventDefault();
+      // Open a blank/read-only modal without fetching any data
+      document.getElementById('viewEvalName').textContent = btn.getAttribute('data-name') || 'Evaluation';
+      document.getElementById('viewRating').textContent = '-';
+      document.getElementById('viewRatingDesc').textContent = '';
+      document.getElementById('viewSchoolEval').textContent = '-';
+      document.getElementById('viewFeedback').textContent = '';
+      document.getElementById('viewEvaluator').textContent = '-';
+      document.getElementById('viewEvalDate').textContent = '-';
+      const tbody = document.querySelector('#viewResponsesTable tbody'); if (tbody) tbody.innerHTML = '';
+      showViewModal();
+    });
+    // close on overlay click
+    document.getElementById('viewEvalModal').addEventListener('click', function(e){ if (e.target === this) hideViewModal(); });
+    document.addEventListener('keydown', function(e){ if (e.key === 'Escape') { const m = document.getElementById('viewEvalModal'); if (m && m.style.display === 'flex') hideViewModal(); } });
   })();
 </script>
 <script>
