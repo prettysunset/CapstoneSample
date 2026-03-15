@@ -1538,15 +1538,91 @@ if (!empty($completedArr)) {
         fetch(url, { credentials: 'same-origin', cache: 'no-store' })
           .then(r => r.json().catch(() => null))
           .then(data => {
+            if (!data || data.success === false) {
+              throw new Error((data && data.message) ? data.message : 'Failed to load evaluation details');
+            }
             const ev = (data && data.evaluation) ? data.evaluation : {};
             if (bodyEl) {
               const ratingText = (ev.rating === null || typeof ev.rating === 'undefined' || ev.rating === '') ? '' : String(ev.rating);
-              let html = '<div style="font-size:16px;color:#2f3459;"><strong>Overall Rating:</strong> ' + ratingText + '</div>';
+              let html = '<div style="font-size:16px;color:#2f3459;margin-bottom:10px;"><strong>Overall Rating:</strong> ' + escapeHtml(ratingText) + '</div>';
 
-              if (!ratingText) {
-                const rawPayload = (typeof data === 'undefined') ? 'undefined' : JSON.stringify(data, null, 2);
-                html += '<div style="margin-top:10px;color:#8a1538;font-size:12px;"><strong>Debug:</strong> rating is missing from response payload.</div>';
-                html += '<pre style="margin-top:6px;padding:10px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;white-space:pre-wrap;word-break:break-word;font-size:12px;line-height:1.35;max-height:260px;overflow:auto;">' + escapeHtml(rawPayload) + '</pre>';
+              const responses = Array.isArray(data.responses) ? data.responses : [];
+              if (responses.length > 0) {
+                const orderedResponses = responses.slice().sort((a, b) => {
+                  const ak = String((a && a.question_key) ? a.question_key : '').toLowerCase();
+                  const bk = String((b && b.question_key) ? b.question_key : '').toLowerCase();
+
+                  function rank(k) {
+                    if (k.startsWith('c')) return 1;
+                    if (k.startsWith('s')) return 2;
+                    if (k.startsWith('t')) return 3;
+                    return 9;
+                  }
+
+                  function indexNum(k) {
+                    const m = k.match(/(\d+)$/);
+                    return m ? parseInt(m[1], 10) : 999;
+                  }
+
+                  const ar = rank(ak);
+                  const br = rank(bk);
+                  if (ar !== br) return ar - br;
+
+                  const ai = indexNum(ak);
+                  const bi = indexNum(bk);
+                  if (ai !== bi) return ai - bi;
+
+                  const ao = parseInt((a && a.question_order) ? a.question_order : 0, 10) || 0;
+                  const bo = parseInt((b && b.question_order) ? b.question_order : 0, 10) || 0;
+                  return ao - bo;
+                });
+
+                const competencyRows = [];
+                const skillRows = [];
+                const traitRows = [];
+
+                for (let i = 0; i < orderedResponses.length; i++) {
+                  const row = orderedResponses[i] || {};
+                  const key = String((row && row.question_key) ? row.question_key : '').toLowerCase();
+                  if (key.startsWith('c')) {
+                    competencyRows.push(row);
+                  } else if (key.startsWith('s')) {
+                    skillRows.push(row);
+                  } else if (key.startsWith('t')) {
+                    traitRows.push(row);
+                  }
+                }
+
+                function buildSectionTable(sectionTitle, sectionRows) {
+                  if (!sectionRows.length) return '';
+
+                  let rows = '';
+                  for (let i = 0; i < sectionRows.length; i++) {
+                    const row = sectionRows[i] || {};
+                    const qtext = row.qtext ? String(row.qtext) : (row.question_key ? String(row.question_key) : ('Item ' + (i + 1)));
+                    const score = (row.score === null || typeof row.score === 'undefined' || row.score === '') ? 'N/A' : String(row.score);
+                    rows += '<tr>' +
+                      '<td style="padding:10px;border:1px solid #eef1f6;">' + escapeHtml(qtext) + '</td>' +
+                      '<td style="padding:10px;border:1px solid #eef1f6;text-align:center;width:90px;">' + escapeHtml(score) + '</td>' +
+                    '</tr>';
+                  }
+
+                  return '<div style="overflow:auto;margin-top:8px;">' +
+                    '<table style="width:100%;border-collapse:collapse;font-size:14px;">' +
+                      '<thead><tr style="background:#2f3459;color:#fff;">' +
+                        '<th style="padding:9px;border:1px solid #e6e9f2;text-align:left;">' + escapeHtml(sectionTitle) + '</th>' +
+                        '<th style="padding:9px;border:1px solid #e6e9f2;text-align:center;width:90px;">Score</th>' +
+                      '</tr></thead>' +
+                      '<tbody>' + rows + '</tbody>' +
+                    '</table>' +
+                  '</div>';
+                }
+
+                html += buildSectionTable('Competency', competencyRows);
+                html += buildSectionTable('Skill', skillRows);
+                html += buildSectionTable('Trait', traitRows);
+              } else {
+                html += '<div style="padding:10px;border:1px solid #e5e7eb;border-radius:6px;background:#f8fafc;color:#334155;">No per-question responses found for this evaluation.</div>';
               }
 
               bodyEl.innerHTML = html;
