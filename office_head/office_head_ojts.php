@@ -373,19 +373,30 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'view_eval') {
     }
 
     // fetch responses with question text if available
+    // Do not fail the whole request if responses query fails; evaluation row is still useful.
     $rows = [];
-    $qr = $conn->prepare("SELECT er.question_key, er.question_order, er.score, q.qtext, q.category FROM evaluation_responses er LEFT JOIN evaluation_questions q ON q.question_key = er.question_key WHERE er.eval_id = ? ORDER BY COALESCE(q.sort_order, er.question_order), er.question_order");
-    if (!$qr) {
-      throw new Exception('DB prepare failed (responses select): ' . $conn->error);
-    }
-    $qr->bind_param('i', $eval_id);
-    if (!$qr->execute()) {
-      throw new Exception('DB execute failed (responses select): ' . $qr->error);
-    }
-    $rows = stmt_fetch_all_rows($qr);
-    $qr->close();
+    $responses_warning = null;
+    $sqlWithQuestions = "SELECT er.question_key, er.question_order, er.score, q.qtext, q.category FROM evaluation_responses er LEFT JOIN evaluation_questions q ON CONVERT(q.question_key USING utf8mb4) COLLATE utf8mb4_unicode_ci = CONVERT(er.question_key USING utf8mb4) COLLATE utf8mb4_unicode_ci WHERE er.eval_id = ? ORDER BY COALESCE(q.sort_order, er.question_order), er.question_order";
+    $sqlFallback = "SELECT er.question_key, er.question_order, er.score, NULL AS qtext, NULL AS category FROM evaluation_responses er WHERE er.eval_id = ? ORDER BY er.question_order";
 
-    echo json_encode(['success' => true, 'evaluation' => $evaluation, 'responses' => $rows]);
+    $qr = $conn->prepare($sqlWithQuestions);
+    if (!$qr) {
+      // fallback when evaluation_questions table/columns are unavailable
+      $qr = $conn->prepare($sqlFallback);
+    }
+    if ($qr) {
+      $qr->bind_param('i', $eval_id);
+      if ($qr->execute()) {
+        $rows = stmt_fetch_all_rows($qr);
+      } else {
+        $responses_warning = 'responses execute failed: ' . $qr->error;
+      }
+      $qr->close();
+    } else {
+      $responses_warning = 'responses prepare failed: ' . $conn->error;
+    }
+
+    echo json_encode(['success' => true, 'evaluation' => $evaluation, 'responses' => $rows, 'responses_warning' => $responses_warning]);
     restore_error_handler();
     exit;
   } catch (Throwable $e) {
@@ -811,7 +822,6 @@ if (!empty($completedArr)) {
     </div>
 
     <div id="panel-eval" class="tab-panel">
-      <h4 style="margin:10px 0 6px">For Evaluation</h4>
       <div style="overflow:auto">
         <table>
           <thead>
@@ -1485,35 +1495,21 @@ if (!empty($completedArr)) {
       </div>
     </div>
 
-    <div id="viewEvalBody">
-      <div style="margin-bottom:10px;">
-        <strong>Overall Rating:</strong> <span id="viewRating">-</span> &nbsp; <span id="viewRatingDesc" style="color:#6b6f8b"></span>
-      </div>
-      <div style="margin-bottom:10px;">
-        <strong>School Evaluation Grade:</strong> <span id="viewSchoolEval">-</span>
-      </div>
-      <div style="margin-bottom:12px;">
-        <strong>Feedback / Remarks</strong>
-        <div id="viewFeedback" style="white-space:pre-wrap;color:#333;margin-top:6px;padding:10px;border-radius:6px;background:#f7f8fb;border:1px solid #eef1f6"></div>
-      </div>
-
-      <div style="margin-bottom:10px;">
-        <h4 style="margin:0 0 6px 0;color:#2f3459">Per-question Scores</h4>
-        <div style="overflow:auto;border:1px solid #eceff5;border-radius:6px;background:#fff;padding:8px;">
-          <table id="viewResponsesTable" style="width:100%;border-collapse:collapse;font-size:14px;">
-            <thead style="background:#f5f7fb;color:#2f3459"><tr><th style="padding:8px;text-align:left">Category</th><th style="padding:8px;text-align:left">Question</th><th style="padding:8px;text-align:left">Score</th></tr></thead>
-            <tbody></tbody>
-          </table>
-        </div>
-      </div>
-
-      <div style="margin-top:8px;color:#6b6f8b;font-size:13px">Evaluated by: <span id="viewEvaluator">-</span> &nbsp; | &nbsp; Date: <span id="viewEvalDate">-</span></div>
-    </div>
+    <div id="viewEvalBody" style="min-height:120px;"></div>
   </div>
 </div>
 
 <script>
   (function(){
+    function escapeHtml(v) {
+      return String(v)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
     function showViewModal(){
       const m = document.getElementById('viewEvalModal'); if (!m) return; m.style.display = 'flex'; document.body.style.overflow = 'hidden';
     }
@@ -1525,15 +1521,49 @@ if (!empty($completedArr)) {
       const btn = e.target.closest && e.target.closest('.view-eval-btn');
       if (!btn) return;
       e.preventDefault();
-      // Open a blank/read-only modal without fetching any data
+      // capture eval id (if present) and store on modal for later use
+      const evalId = btn.getAttribute('data-eval-id') || '';
+      const modal = document.getElementById('viewEvalModal');
+      if (modal) modal.dataset.evalId = evalId || '';
+
       document.getElementById('viewEvalName').textContent = btn.getAttribute('data-name') || 'Evaluation';
-      document.getElementById('viewRating').textContent = '-';
-      document.getElementById('viewRatingDesc').textContent = '';
-      document.getElementById('viewSchoolEval').textContent = '-';
-      document.getElementById('viewFeedback').textContent = '';
-      document.getElementById('viewEvaluator').textContent = '-';
-      document.getElementById('viewEvalDate').textContent = '-';
-      const tbody = document.querySelector('#viewResponsesTable tbody'); if (tbody) tbody.innerHTML = '';
+      const bodyEl = document.getElementById('viewEvalBody');
+      if (bodyEl) bodyEl.innerHTML = '';
+
+      // show eval id in modal meta for visibility/debug
+      const metaEl = document.getElementById('viewEvalMeta');
+      if (metaEl) metaEl.textContent = evalId ? ('Eval ID: ' + evalId) : '\u00A0';
+      if (evalId) {
+        const url = 'office_head_ojts.php?ajax=view_eval&eval_id=' + encodeURIComponent(evalId) + '&_ts=' + Date.now();
+        fetch(url, { credentials: 'same-origin', cache: 'no-store' })
+          .then(r => r.json().catch(() => null))
+          .then(data => {
+            const ev = (data && data.evaluation) ? data.evaluation : {};
+            if (bodyEl) {
+              const ratingText = (ev.rating === null || typeof ev.rating === 'undefined' || ev.rating === '') ? '' : String(ev.rating);
+              let html = '<div style="font-size:16px;color:#2f3459;"><strong>Overall Rating:</strong> ' + ratingText + '</div>';
+
+              if (!ratingText) {
+                const rawPayload = (typeof data === 'undefined') ? 'undefined' : JSON.stringify(data, null, 2);
+                html += '<div style="margin-top:10px;color:#8a1538;font-size:12px;"><strong>Debug:</strong> rating is missing from response payload.</div>';
+                html += '<pre style="margin-top:6px;padding:10px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;white-space:pre-wrap;word-break:break-word;font-size:12px;line-height:1.35;max-height:260px;overflow:auto;">' + escapeHtml(rawPayload) + '</pre>';
+              }
+
+              bodyEl.innerHTML = html;
+            }
+            showViewModal();
+          })
+          .catch((err) => {
+            if (bodyEl) {
+              const msg = (err && err.message) ? err.message : 'Unknown fetch error';
+              bodyEl.innerHTML = '<div style="font-size:16px;color:#2f3459;"><strong>Overall Rating:</strong> </div>' +
+                '<div style="margin-top:10px;color:#8a1538;font-size:12px;"><strong>Debug:</strong> fetch failed for Eval ID ' + escapeHtml(evalId) + '.</div>' +
+                '<pre style="margin-top:6px;padding:10px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;white-space:pre-wrap;word-break:break-word;font-size:12px;line-height:1.35;">' + escapeHtml(msg) + '</pre>';
+            }
+            showViewModal();
+          });
+        return;
+      }
       showViewModal();
     });
     // close on overlay click
