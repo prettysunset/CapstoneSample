@@ -426,13 +426,17 @@ if (!isset($_SESSION['user_id'])) {
 
 // resolve display name and office
 $user_name = trim(($_SESSION['first_name'] ?? '') . ' ' . ($_SESSION['last_name'] ?? ''));
+$user_email = trim((string)($_SESSION['email'] ?? ''));
 if ($user_name === '') {
-    $su = $conn->prepare("SELECT first_name, last_name FROM users WHERE user_id = ? LIMIT 1");
+    $su = $conn->prepare("SELECT first_name, last_name, email FROM users WHERE user_id = ? LIMIT 1");
     $su->bind_param("i", $user_id);
     $su->execute();
     $ur = $su->get_result()->fetch_assoc();
     $su->close();
-    if ($ur) $user_name = trim(($ur['first_name'] ?? '') . ' ' . ($ur['last_name'] ?? ''));
+    if ($ur) {
+      $user_name = trim(($ur['first_name'] ?? '') . ' ' . ($ur['last_name'] ?? ''));
+      if ($user_email === '') $user_email = trim((string)($ur['email'] ?? ''));
+    }
 }
 if ($user_name === '') $user_name = 'Office Head';
 
@@ -477,6 +481,7 @@ $office_display = preg_replace('/\s+Office\s*$/i', '', trim($office['office_name
 $ojts = [];
 $stmt = $conn->prepare("
     SELECT u.user_id,
+           COALESCE(s.student_id, 0) AS student_id,
            COALESCE(NULLIF(u.first_name, ''), NULLIF(s.first_name, ''), '') AS first_name,
            COALESCE(NULLIF(u.last_name, ''), NULLIF(s.last_name, ''), '') AS last_name,
            COALESCE(s.college, '') AS school,
@@ -485,7 +490,14 @@ $stmt = $conn->prepare("
            COALESCE(s.hours_rendered, 0) AS hours_completed,
            COALESCE(s.total_hours_required, 500) AS hours_required,
            COALESCE(s.status, '') AS student_status,
-           COALESCE(u.status, '') AS user_status
+           COALESCE(u.status, '') AS user_status,
+           (
+             SELECT oa.application_id
+             FROM ojt_applications oa
+             WHERE oa.student_id = s.student_id
+             ORDER BY oa.date_submitted DESC, oa.application_id DESC
+             LIMIT 1
+           ) AS application_id
     FROM users u
     LEFT JOIN students s ON s.user_id = u.user_id
     WHERE u.role = 'ojt' AND u.office_name LIKE ?
@@ -700,6 +712,62 @@ if (!empty($completedArr)) {
     -moz-appearance: textfield;
     appearance: textfield;
   }
+
+  .tool-link{background:#eef2ff;border:1px solid #dbe4ff;padding:6px 10px;border-radius:8px;font-size:12px;color:#1f2a56;text-decoration:none;cursor:pointer}
+  .tool-link:hover{background:#e2e8ff}
+  .view-overlay { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(16,24,40,0.28); z-index: 9999; padding: 18px; }
+  body.modal-open { overflow: hidden; height: 100%; }
+  .view-card {
+    width: 880px;
+    max-width: 94vw;
+    border-radius: 20px;
+    background: transparent;
+    box-shadow: 0 22px 60px rgba(16,24,40,0.28);
+    overflow: visible;
+    position: relative;
+    padding: 18px;
+    max-height: 80vh;
+    display:flex;
+    flex-direction:column;
+  }
+  .view-inner {
+    background:#fff;
+    border-radius:14px;
+    padding:18px;
+    border: 1px solid rgba(231,235,241,0.9);
+    min-height: 460px;
+    max-height: calc(80vh - 36px);
+    display:flex;
+    flex-direction:column;
+    overflow:hidden;
+  }
+  .view-panel { flex:1 1 auto; min-height:360px; box-sizing:border-box; overflow:auto; padding-top:8px; }
+  .view-close { position: absolute; right: 18px; top: 18px; width:36px;height:36px;border-radius:50%;background:#fff;border:0;box-shadow:0 6px 18px rgba(16,24,40,0.06);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:18px; z-index:10010; }
+  .view-header { display:flex; gap:18px; align-items:center; margin-bottom:6px; }
+  .view-avatar { width:96px;height:96px;border-radius:50%;background:#eceff3;flex:0 0 96px; display:flex;align-items:center;justify-content:center; overflow:hidden; }
+  .view-avatar img{ width:100%; height:100%; object-fit:cover; display:block; }
+  .view-name { font-size:20px; font-weight:800; color:#222e50; margin:0 0 6px 0; letter-spacing:0.2px; }
+  .view-submeta { font-size:13px; color:#6b7280; display:flex; gap:12px; align-items:center; }
+  .view-tools { display:flex; gap:12px; align-items:center; margin-top:8px; }
+  .view-tabs { display:flex; gap:20px; align-items:center; margin-top:10px; padding-bottom:10px; }
+  .view-tab { padding:6px 10px; cursor:pointer; border-radius:6px; color:#6b7280; font-weight:700; font-size:13px; }
+  .view-tab.active { color:#1f2937; border-bottom:3px solid #344154; }
+  .view-body { display:flex; gap:18px; margin-top:8px; align-items:flex-start; }
+  .view-left { flex:1; padding:14px; border-radius:10px; min-width:320px; }
+  .view-right { width:340px; min-width:260px; padding:14px; }
+  .info-row{ display:flex; gap:10px; padding:6px 0; align-items:flex-start; }
+  .info-label{ width:110px; font-weight:700; color:#222e50; font-size:13px; }
+  .info-value{ color:#111827; font-weight:800; font-size:13px; line-height:1.1; }
+  .emergency{ margin-top:12px; padding-top:8px; border-top:1px solid #eef2f6; }
+  .donut { width:100px; height:100px; display:grid; place-items:center; }
+  .donut svg { transform:rotate(-90deg); }
+  @media (max-width:980px){
+    .view-card{ width:calc(100% - 32px); padding:12px; }
+    .view-inner{ padding:12px; }
+    .view-body{ flex-direction:column; }
+    .view-avatar { width:72px;height:72px; flex:0 0 72px; }
+    .view-right{ width:100%; min-width:0; }
+  }
 </style>
 </head>
 <body>
@@ -807,7 +875,19 @@ if (!empty($completedArr)) {
                   echo htmlspecialchars($hc_display . ' / ' . (int)$o['hours_required'] . ' hrs');
                 ?></td>
                 <td>
-                  <button class="view-btn icon-btn" data-eval-id="<?php echo !empty($o['eval_id']) ? (int)$o['eval_id'] : 0; ?>" data-id="<?php echo (int)$o['user_id']; ?>" data-name="<?php echo htmlspecialchars(trim($o['first_name'] . ' ' . $o['last_name'])); ?>" title="View">
+                  <button type="button" class="view-btn icon-btn"
+                    data-view-context="ongoing"
+                    data-user-status="<?php echo htmlspecialchars(strtolower((string)($o['user_status'] ?? 'ongoing'))); ?>"
+                    data-app-id="<?php echo (int)($o['application_id'] ?? 0); ?>"
+                    data-id="<?php echo (int)$o['user_id']; ?>"
+                    data-name="<?php echo htmlspecialchars(trim($o['first_name'] . ' ' . $o['last_name'])); ?>"
+                    data-school="<?php echo htmlspecialchars($o['school'] ?: '-'); ?>"
+                    data-course="<?php echo htmlspecialchars($o['course'] ?: '-'); ?>"
+                    data-hours="<?php $hc_display = isset($o['hours_display']) ? $o['hours_display'] : (int)$o['hours_completed']; echo htmlspecialchars($hc_display . ' / ' . (int)$o['hours_required'] . ' hrs'); ?>"
+                    data-rendered="<?php echo json_encode((float)($o['hours_completed'] ?? 0)); ?>"
+                    data-required="<?php echo json_encode((int)($o['hours_required'] ?? 0)); ?>"
+                    onclick="if(window.openOjtProfileFromButton){ window.openOjtProfileFromButton(this); return false; }"
+                    title="View">
                     <svg viewBox="0 0 24 24" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                       <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
                       <circle cx="12" cy="12" r="3"></circle>
@@ -841,7 +921,19 @@ if (!empty($completedArr)) {
                   echo htmlspecialchars($hc_display . ' / ' . (int)$o['hours_required'] . ' hrs');
                 ?></td>
                 <td style="white-space:nowrap">
-                  <button class="view-btn icon-btn" data-id="<?php echo (int)$o['user_id']; ?>" title="View">
+                  <button type="button" class="view-btn icon-btn"
+                    data-view-context="for-eval"
+                    data-user-status="<?php echo htmlspecialchars(strtolower((string)($o['user_status'] ?? ''))); ?>"
+                    data-app-id="<?php echo (int)($o['application_id'] ?? 0); ?>"
+                    data-id="<?php echo (int)$o['user_id']; ?>"
+                    data-name="<?php echo htmlspecialchars(trim($o['first_name'] . ' ' . $o['last_name'])); ?>"
+                    data-school="<?php echo htmlspecialchars($o['school'] ?: '-'); ?>"
+                    data-course="<?php echo htmlspecialchars($o['course'] ?: '-'); ?>"
+                    data-hours="<?php $hc_display = isset($o['hours_display']) ? $o['hours_display'] : (int)$o['hours_completed']; echo htmlspecialchars($hc_display . ' / ' . (int)$o['hours_required'] . ' hrs'); ?>"
+                    data-rendered="<?php echo json_encode((float)($o['hours_completed'] ?? 0)); ?>"
+                    data-required="<?php echo json_encode((int)($o['hours_required'] ?? 0)); ?>"
+                    onclick="if(window.openOjtProfileFromButton){ window.openOjtProfileFromButton(this); return false; }"
+                    title="View">
                     <svg viewBox="0 0 24 24" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                       <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
                       <circle cx="12" cy="12" r="3"></circle>
@@ -911,6 +1003,122 @@ if (!empty($completedArr)) {
 
   </div>
 </div>
+
+  <div id="viewOverlay" class="view-overlay" aria-hidden="true" style="display:none;">
+    <div class="view-card" role="dialog" aria-modal="true" aria-labelledby="viewTitle">
+      <button class="view-close" aria-label="Close modal" id="viewCloseBtn">X</button>
+      <div class="view-inner">
+        <div class="view-header">
+          <div class="view-avatar" id="view_avatar">👤</div>
+          <div class="view-meta">
+            <h2 class="view-name" id="view_name">Name</h2>
+            <div class="view-submeta" id="view_statusline">
+              <span id="view_status_badge" style="display:inline-flex;align-items:center;gap:8px;font-weight:700;color:inherit">—</span>
+              <span id="view_department" style="color:#6b7280">—</span>
+            </div>
+            <div class="view-tools" aria-hidden="true">
+              <button class="tool-link" id="printDTR" type="button">Print DTR</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="view-tabs" role="tablist" aria-label="View tabs">
+          <div class="view-tab active" data-view-tab="info">Information</div>
+          <div class="view-tab" data-view-tab="late">DTR</div>
+          <div class="view-tab" data-view-tab="atts">Attachments</div>
+        </div>
+
+        <div id="view-panel-info" class="view-panel" style="display:block;">
+          <div class="view-body">
+            <div class="view-left">
+              <div class="info-row"><div class="info-label">Age</div><div class="info-value" id="view_age">—</div></div>
+              <div class="info-row"><div class="info-label">Birthday</div><div class="info-value" id="view_birthday">—</div></div>
+              <div class="info-row"><div class="info-label">Address</div><div class="info-value" id="view_address">—</div></div>
+              <div class="info-row"><div class="info-label">Phone</div><div class="info-value" id="view_phone">—</div></div>
+              <div class="info-row"><div class="info-label">Email</div><div class="info-value" id="view_email">—</div></div>
+
+              <div style="height:14px"></div>
+              <div style="border-top:1px solid #f1f5f9;padding-top:12px;">
+                <div class="info-row"><div class="info-label">College/University</div><div class="info-value" id="view_college">—</div></div>
+                <div class="info-row"><div class="info-label">Course</div><div class="info-value" id="view_course">—</div></div>
+                <div class="info-row"><div class="info-label">Year level</div><div class="info-value" id="view_year">—</div></div>
+                <div class="info-row"><div class="info-label">School Address</div><div class="info-value" id="view_school_address">—</div></div>
+                <div class="info-row"><div class="info-label">OJT Adviser</div><div class="info-value" id="view_adviser">—</div></div>
+              </div>
+
+              <div class="emergency">
+                <div style="font-weight:700;margin-bottom:8px">Emergency Contact</div>
+                <div class="info-row"><div class="info-label" style="width:120px">Name</div><div class="info-value" id="view_emg_name">—</div></div>
+                <div class="info-row"><div class="info-label">Relationship</div><div class="info-value" id="view_emg_rel">—</div></div>
+                <div class="info-row"><div class="info-label">Contact Number</div><div class="info-value" id="view_emg_contact">—</div></div>
+              </div>
+            </div>
+
+            <div class="view-right">
+              <div style="font-weight:700">Progress</div>
+              <div class="progress-wrap" style="display:flex;flex-direction:row;gap:16px;align-items:center;justify-content:flex-start;margin-top:14px;">
+                <div class="donut" style="position:relative;flex:0 0 auto;">
+                  <svg width="120" height="120" viewBox="0 0 120 120">
+                    <circle cx="60" cy="60" r="48" stroke="#eef2f6" stroke-width="18" fill="none"></circle>
+                    <circle id="donut_fore" cx="60" cy="60" r="48" stroke="#10b981" stroke-width="18" stroke-linecap="round" fill="none" stroke-dasharray="302" stroke-dashoffset="302"></circle>
+                  </svg>
+                  <div id="view_percent" style="position:absolute;inset:0;display:grid;place-items:center;font-weight:800;color:#111827;font-size:16px;pointer-events:none">0%</div>
+                </div>
+                <div style="flex:1;min-width:0;max-width:320px;margin-left:12px;">
+                  <div style="font-size:14px;font-weight:700" id="view_hours_text">0 out of — hours</div>
+                  <div style="font-size:12px;color:#6b7280;margin-top:6px;white-space:pre-line" id="view_dates">Date Started: —
+  Expected End Date: —</div>
+                </div>
+              </div>
+
+              <div style="margin-top:18px;display:flex;flex-direction:column;gap:8px;text-align:left;">
+                <div style="font-weight:700">Assigned Office:</div>
+                <div id="view_assigned_office">—</div>
+                <div style="margin-top:6px;font-weight:700">Office Head:</div>
+                <div id="view_office_head">—</div>
+                <div style="margin-top:6px;font-weight:700">Email:</div>
+                <div id="view_office_contact">—</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div id="view-panel-late" class="view-panel" style="display:none;padding:12px 6px;">
+          <div style="background:#fff;border-radius:10px;padding:12px;border:1px solid #eef2f6;">
+            <div style="overflow:auto">
+              <table aria-label="DTR" style="width:100%;border-collapse:collapse;font-size:14px">
+                <thead>
+                  <tr style="background:#f3f4f6;color:#111">
+                    <th rowspan="2" style="padding:10px;border:1px solid #eee;text-align:center;font-weight:700;text-transform:uppercase">Date</th>
+                    <th colspan="2" style="padding:10px;border:1px solid #eee;text-align:center">A.M.</th>
+                    <th colspan="2" style="padding:10px;border:1px solid #eee;text-align:center">P.M.</th>
+                    <th rowspan="2" style="padding:10px;border:1px solid #eee;text-align:center">HOURS</th>
+                    <th rowspan="2" style="padding:10px;border:1px solid #eee;text-align:center">MINUTES</th>
+                  </tr>
+                  <tr style="background:#f3f4f6;color:#111">
+                    <th style="padding:8px;border:1px solid #eee;text-align:center;font-weight:700">ARRIVAL</th>
+                    <th style="padding:8px;border:1px solid #eee;text-align:center;font-weight:700">DEPARTURE</th>
+                    <th style="padding:8px;border:1px solid #eee;text-align:center;font-weight:700">ARRIVAL</th>
+                    <th style="padding:8px;border:1px solid #eee;text-align:center;font-weight:700">DEPARTURE</th>
+                  </tr>
+                </thead>
+                <tbody id="late_dtr_tbody">
+                  <tr class="empty"><td colspan="7" style="padding:18px;text-align:center;color:#6b7280">No DTR records yet.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div id="view-panel-atts" class="view-panel" style="display:none;padding:12px 6px;">
+          <div style="background:#fff;border-radius:10px;padding:12px;border:1px solid #eef2f6;min-height:160px;">
+            <div id="view_attachments_list" style="display:flex;flex-direction:column;gap:8px;"></div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
 
 <div id="evalModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);align-items:center;justify-content:center;z-index:9999;">
   <div style="background:#fff;width:820px;max-width:95%;border-radius:8px;padding:18px;box-shadow:0 8px 30px rgba(0,0,0,0.15);height:80vh;max-height:80vh;overflow-y:auto;">
@@ -1122,6 +1330,469 @@ if (!empty($completedArr)) {
     </div>
   </div>
 </div>
+<script>
+(function(){
+  // Fallback opener: if the main profile script fails to initialize, keep View buttons functional.
+  if (typeof window.openOjtProfileFromButton === 'function') return;
+  window.openOjtProfileFromButton = function(btn){
+    const viewContext = (btn.getAttribute('data-view-context') || 'ongoing').toLowerCase();
+    const isForEval = viewContext === 'for-eval';
+    const statusLabel = isForEval ? 'For Evaluation' : 'Ongoing';
+    const ov = document.getElementById('viewOverlay');
+    if (!ov) {
+      alert('View popup error: #viewOverlay not found.');
+      return false;
+    }
+
+    const setText = function(id, value){
+      const el = document.getElementById(id);
+      if (el) el.textContent = value || '—';
+    };
+
+    setText('view_name', btn.getAttribute('data-name') || '—');
+    setText('view_college', btn.getAttribute('data-school') || '—');
+    setText('view_course', btn.getAttribute('data-course') || '—');
+    setText('view_hours_text', btn.getAttribute('data-hours') || '—');
+    setText('view_status_badge', statusLabel);
+
+    const printBtn = document.getElementById('printDTR');
+    if (printBtn) printBtn.style.display = isForEval ? 'inline-flex' : 'none';
+
+    ov.style.display = 'flex';
+    ov.setAttribute('aria-hidden', 'false');
+    document.body.classList.add('modal-open');
+    return false;
+  };
+})();
+</script>
+<script>
+(function(){
+  const OFFICE_HEAD_NAME = <?php echo json_encode($user_name); ?>;
+  const OFFICE_HEAD_EMAIL = <?php echo json_encode($user_email); ?>;
+  const OFFICE_NAME = <?php echo json_encode($office['office_name'] ?? ''); ?>;
+  let currentViewUserId = 0;
+
+  function reportViewError(context, err){
+    const message = (err && err.message) ? err.message : String(err || 'Unknown error');
+    console.error('[OJT View Error] ' + context + ':', err);
+    alert('View popup error (' + context + '): ' + message);
+  }
+
+  function qs(id){ return document.getElementById(id); }
+  function getViewContext(btn){
+    return ((btn && btn.getAttribute('data-view-context')) || 'ongoing').toLowerCase();
+  }
+  function setPrintVisibility(isForEval){
+    const printBtn = qs('printDTR');
+    if (printBtn) printBtn.style.display = isForEval ? 'inline-flex' : 'none';
+  }
+  function esc(v){
+    return String(v == null ? '' : v)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+  function normalizeFile(filePath){
+    const v = (filePath || '').toString().trim();
+    if (!v) return '';
+    if (/^(https?:)?\/\//i.test(v) || v.startsWith('data:')) return v;
+    if (v.startsWith('../') || v.startsWith('./') || v.startsWith('/')) return v;
+    return '../' + v.replace(/^\/+/, '');
+  }
+  function formatDateMMDDYYYY(value){
+    const s = (value || '').toString().trim();
+    if (!s) return '-';
+
+    // Handles YYYY-MM-DD or YYYY/MM/DD
+    const m = s.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})$/);
+    if (m) {
+      const mm = m[2].padStart(2, '0');
+      const dd = m[3].padStart(2, '0');
+      const yyyy = m[1];
+      return mm + '/' + dd + '/' + yyyy;
+    }
+
+    const d = new Date(s);
+    if (isNaN(d.getTime())) return s;
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    const yyyy = d.getFullYear();
+    return mm + '/' + dd + '/' + yyyy;
+  }
+  function setDonut(percent){
+    const p = Math.max(0, Math.min(100, Number(percent) || 0));
+    const circle = qs('donut_fore');
+    if (!circle) return;
+    const radius = 48;
+    const circumference = 2 * Math.PI * radius;
+    const offset = circumference - (p / 100) * circumference;
+    circle.style.strokeDasharray = circumference;
+    circle.style.strokeDashoffset = offset;
+    if (qs('view_percent')) qs('view_percent').textContent = Math.round(p) + '%';
+  }
+  function calcAge(birthday){
+    if (!birthday) return '';
+    const d = new Date(birthday);
+    if (isNaN(d.getTime())) return '';
+    const now = new Date();
+    let age = now.getFullYear() - d.getFullYear();
+    const m = now.getMonth() - d.getMonth();
+    if (m < 0 || (m === 0 && now.getDate() < d.getDate())) age--;
+    return age >= 0 ? String(age) : '';
+  }
+  function showOverlay(){
+    const ov = qs('viewOverlay');
+    if (!ov) {
+      throw new Error('View overlay element #viewOverlay was not found in DOM.');
+    }
+    ov.style.display = 'flex';
+    ov.setAttribute('aria-hidden', 'false');
+    document.body.classList.add('modal-open');
+  }
+  function hideOverlay(){
+    const ov = qs('viewOverlay');
+    if (!ov) return;
+    ov.style.display = 'none';
+    ov.setAttribute('aria-hidden', 'true');
+    document.body.classList.remove('modal-open');
+  }
+  function switchTab(tab){
+    document.querySelectorAll('[data-view-tab]').forEach(function(el){ el.classList.remove('active'); });
+    const targetBtn = document.querySelector('[data-view-tab="' + tab + '"]');
+    if (targetBtn) targetBtn.classList.add('active');
+    ['info','late','atts'].forEach(function(name){
+      const panel = qs('view-panel-' + name);
+      if (panel) panel.style.display = (name === tab) ? 'block' : 'none';
+    });
+  }
+  function resetModal(){
+    [
+      'view_name','view_age','view_birthday','view_address','view_phone','view_email','view_college','view_course','view_year',
+      'view_school_address','view_adviser','view_emg_name','view_emg_rel','view_emg_contact','view_hours_text','view_dates',
+      'view_assigned_office','view_office_head','view_office_contact','view_status_badge','view_department'
+    ].forEach(function(id){ const el = qs(id); if (el) el.textContent = '—'; });
+    const av = qs('view_avatar'); if (av) av.innerHTML = '👤';
+    const list = qs('view_attachments_list'); if (list) list.innerHTML = '';
+    const dtrBody = qs('late_dtr_tbody'); if (dtrBody) dtrBody.innerHTML = '<tr class="empty"><td colspan="7" style="padding:18px;text-align:center;color:#6b7280">No DTR records yet.</td></tr>';
+    setPrintVisibility(false);
+    setDonut(0);
+    switchTab('info');
+  }
+  function renderAttachments(d){
+    const list = qs('view_attachments_list');
+    if (!list) return;
+    list.innerHTML = '';
+    const atts = [
+      { label: 'Letter of Intent', file: d.letter_of_intent },
+      { label: 'Endorsement Letter', file: d.endorsement_letter },
+      { label: 'Resume', file: d.resume },
+      { label: 'Picture', file: d.picture }
+    ].filter(function(a){ return !!(a.file && String(a.file).trim()); });
+
+    if (!atts.length) {
+      list.innerHTML = '<div style="color:#6b7280">No attachments available.</div>';
+      return;
+    }
+
+    atts.forEach(function(a){
+      const href = normalizeFile(a.file);
+      const row = document.createElement('div');
+      row.style.display = 'flex';
+      row.style.justifyContent = 'space-between';
+      row.style.alignItems = 'center';
+      row.style.padding = '6px 0';
+
+      const left = document.createElement('div');
+      left.style.fontSize = '14px';
+      left.style.fontWeight = '600';
+      left.textContent = a.label;
+
+      const right = document.createElement('div');
+      right.style.display = 'flex';
+      right.style.gap = '8px';
+
+      const view = document.createElement('a');
+      view.href = href;
+      view.target = '_blank';
+      view.rel = 'noopener noreferrer';
+      view.className = 'tool-link';
+      view.textContent = 'View';
+
+      const dl = document.createElement('a');
+      dl.href = href;
+      dl.className = 'tool-link';
+      dl.download = '';
+      dl.textContent = 'Download';
+
+      right.appendChild(view);
+      right.appendChild(dl);
+      row.appendChild(left);
+      row.appendChild(right);
+      list.appendChild(row);
+    });
+  }
+  function renderAvatar(picture){
+    const av = qs('view_avatar');
+    if (!av) return;
+    const src = normalizeFile(picture);
+    if (!src) { av.innerHTML = '👤'; return; }
+    av.innerHTML = '';
+    const img = document.createElement('img');
+    img.src = src;
+    img.alt = 'Profile';
+    img.onerror = function(){ av.innerHTML = '👤'; };
+    av.appendChild(img);
+  }
+  function loadDtr(userId, requiredHours, userStatus){
+    function normalizeDateOnly(value){
+      const s = (value || '').toString().trim();
+      if (!s) return '';
+      const d = new Date(s);
+      if (isNaN(d.getTime())) return '';
+      return d.toISOString().slice(0, 10);
+    }
+
+    function addBusinessDaysFromNext(startDateStr, businessDays){
+      let dt = new Date(startDateStr + 'T00:00:00');
+      if (isNaN(dt.getTime())) return null;
+      let counted = 0;
+      while (counted < businessDays) {
+        dt.setDate(dt.getDate() + 1);
+        const dow = dt.getDay();
+        if (dow >= 1 && dow <= 5) counted++;
+      }
+      return dt;
+    }
+
+    const tbody = qs('late_dtr_tbody');
+    if (!tbody || !userId) return;
+    tbody.innerHTML = '<tr class="empty"><td colspan="7" style="padding:18px;text-align:center;color:#6b7280">Loading...</td></tr>';
+    const today = new Date().toISOString().slice(0,10);
+    fetch('../hr_actions.php', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ action:'get_dtr_by_range', from:'1900-01-01', to: today, user_id: Number(userId) })
+    })
+    .then(function(r){ return r.json(); })
+    .then(function(j){
+      const rows = (j && j.success && Array.isArray(j.rows)) ? j.rows : [];
+      if (!rows.length) {
+        tbody.innerHTML = '<tr class="empty"><td colspan="7" style="padding:18px;text-align:center;color:#6b7280">No DTR records.</td></tr>';
+        if (qs('view_dates')) qs('view_dates').textContent = 'Date Started: —\nExpected End Date: —';
+        return;
+      }
+
+      let totalH = 0;
+      let totalM = 0;
+      rows.forEach(function(r){
+        totalH += Number(r.hours || 0);
+        totalM += Number(r.minutes || 0);
+      });
+      totalH += Math.floor(totalM / 60);
+      totalM = totalM % 60;
+      const rendered = totalH + (totalM / 60);
+      const req = Number(requiredHours || 0);
+      const reqTxt = req > 0 ? req : '—';
+      if (qs('view_hours_text')) qs('view_hours_text').textContent = rendered.toFixed(2).replace(/\.00$/, '') + ' out of ' + reqTxt + ' hours';
+      setDonut(req > 0 ? (rendered / req) * 100 : 0);
+
+      const dates = rows.map(function(r){ return normalizeDateOnly(r.log_date); }).filter(Boolean).sort();
+      const started = dates.length ? dates[0] : '';
+      const latest = dates.length ? dates[dates.length - 1] : '';
+      const normalizedStatus = (userStatus || '').toString().trim().toLowerCase();
+
+      let expected = '';
+      if (latest) {
+        const isCompleted = normalizedStatus === 'completed';
+        const metRequiredHours = req > 0 && rendered >= req;
+
+        if (isCompleted || metRequiredHours) {
+          // If completed/already reached requirement, expected end is latest logged DTR date.
+          expected = latest;
+        } else if (req > 0) {
+          const remainingHours = Math.max(0, req - rendered);
+          const businessDaysNeeded = Math.ceil(remainingHours / 8);
+          if (businessDaysNeeded <= 0) {
+            expected = latest;
+          } else {
+            const projected = addBusinessDaysFromNext(latest, businessDaysNeeded);
+            expected = projected ? projected.toISOString().slice(0, 10) : '';
+          }
+        }
+      }
+
+      if (qs('view_dates')) {
+        qs('view_dates').textContent =
+          'Date Started: ' + (started ? formatDateMMDDYYYY(started) : '—') +
+          '\nExpected End Date: ' + (expected ? formatDateMMDDYYYY(expected) : '—');
+      }
+
+      tbody.innerHTML = rows.map(function(r){
+        return '<tr>' +
+          '<td style="padding:8px;border:1px solid #eee;text-align:center">' + esc(formatDateMMDDYYYY(r.log_date || '')) + '</td>' +
+          '<td style="padding:8px;border:1px solid #eee;text-align:center">' + esc(r.am_in || '-') + '</td>' +
+          '<td style="padding:8px;border:1px solid #eee;text-align:center">' + esc(r.am_out || '-') + '</td>' +
+          '<td style="padding:8px;border:1px solid #eee;text-align:center">' + esc(r.pm_in || '-') + '</td>' +
+          '<td style="padding:8px;border:1px solid #eee;text-align:center">' + esc(r.pm_out || '-') + '</td>' +
+          '<td style="padding:8px;border:1px solid #eee;text-align:center">' + esc(r.hours || '0') + '</td>' +
+          '<td style="padding:8px;border:1px solid #eee;text-align:center">' + esc(r.minutes || '0') + '</td>' +
+        '</tr>';
+      }).join('');
+    })
+    .catch(function(){
+      tbody.innerHTML = '<tr class="empty"><td colspan="7" style="padding:18px;text-align:center;color:#6b7280">Unable to load DTR.</td></tr>';
+    });
+  }
+  function openFromButton(btn){
+    try {
+      const appId = Number(btn.getAttribute('data-app-id') || 0);
+      const userId = Number(btn.getAttribute('data-id') || 0);
+      const viewContext = getViewContext(btn);
+      const isForEval = viewContext === 'for-eval';
+      const statusLabel = isForEval ? 'For Evaluation' : 'Ongoing';
+
+      if (!userId) {
+        throw new Error('Missing user id on view button (data-id).');
+      }
+
+      currentViewUserId = userId;
+      resetModal();
+      showOverlay();
+
+      if (qs('view_name')) qs('view_name').textContent = btn.getAttribute('data-name') || '—';
+      if (qs('view_college')) qs('view_college').textContent = btn.getAttribute('data-school') || '—';
+      if (qs('view_course')) qs('view_course').textContent = btn.getAttribute('data-course') || '—';
+      if (qs('view_hours_text')) qs('view_hours_text').textContent = (btn.getAttribute('data-hours') || '—');
+      if (qs('view_status_badge')) qs('view_status_badge').textContent = statusLabel;
+      setPrintVisibility(isForEval);
+
+      const req = Number(btn.getAttribute('data-required') || 0);
+      const userStatus = (btn.getAttribute('data-user-status') || '').toLowerCase();
+      loadDtr(userId, req, userStatus);
+
+      if (!appId) {
+        if (qs('view_status_badge')) qs('view_status_badge').textContent = statusLabel;
+        if (qs('view_department')) qs('view_department').textContent = OFFICE_NAME || '—';
+        if (qs('view_assigned_office')) qs('view_assigned_office').textContent = OFFICE_NAME || '—';
+        if (qs('view_office_head')) qs('view_office_head').textContent = OFFICE_HEAD_NAME || '—';
+        if (qs('view_office_contact')) qs('view_office_contact').textContent = OFFICE_HEAD_EMAIL || '—';
+        if (qs('view_dates')) qs('view_dates').textContent = 'Date Started: —\nExpected End Date: —';
+        const renderedFallback = Number(btn.getAttribute('data-rendered') || 0);
+        if (qs('view_hours_text')) qs('view_hours_text').textContent = renderedFallback + ' out of ' + (req > 0 ? req : '—') + ' hours';
+        setDonut(req > 0 ? (renderedFallback / req) * 100 : 0);
+        renderAttachments({});
+        return;
+      }
+
+      fetch('../hr_actions.php', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ action: 'get_application', application_id: appId })
+      })
+      .then(function(r){
+        return r.text().then(function(txt){
+          let parsed = null;
+          try {
+            parsed = JSON.parse(txt);
+          } catch (e) {
+            throw new Error('Invalid JSON from hr_actions.php. Response starts with: ' + (txt || '').slice(0, 120));
+          }
+          if (!r.ok) {
+            throw new Error((parsed && parsed.message) ? parsed.message : ('HTTP ' + r.status));
+          }
+          return parsed;
+        });
+      })
+      .then(function(j){
+        if (!j || !j.success || !j.data) {
+          throw new Error((j && j.message) ? j.message : 'Failed to load profile data.');
+        }
+        const d = j.data;
+        const s = d.student || {};
+
+        if (qs('view_name')) qs('view_name').textContent = ((s.first_name || '') + ' ' + (s.last_name || '')).trim() || (btn.getAttribute('data-name') || '—');
+        if (qs('view_status_badge')) {
+          qs('view_status_badge').textContent = isForEval
+            ? 'For Evaluation'
+            : (d.status || 'ongoing').toString().replace(/^\w/, function(c){ return c.toUpperCase(); });
+        }
+        if (qs('view_department')) qs('view_department').textContent = d.office1 || d.office2 || OFFICE_NAME || '—';
+
+        renderAvatar(d.picture || '');
+
+        if (qs('view_age')) qs('view_age').textContent = (s.age != null && s.age !== '') ? s.age : calcAge(s.birthday || '');
+        if (qs('view_birthday')) qs('view_birthday').textContent = s.birthday || '—';
+        if (qs('view_address')) qs('view_address').textContent = s.address || '—';
+        if (qs('view_phone')) qs('view_phone').textContent = s.contact_number || '—';
+        if (qs('view_email')) qs('view_email').textContent = s.email || '—';
+
+        if (qs('view_college')) qs('view_college').textContent = s.college || '—';
+        if (qs('view_course')) qs('view_course').textContent = s.course || '—';
+        if (qs('view_year')) qs('view_year').textContent = s.year_level || '—';
+        if (qs('view_school_address')) qs('view_school_address').textContent = s.school_address || '—';
+        if (qs('view_adviser')) qs('view_adviser').textContent = (s.ojt_adviser || '') + (s.adviser_contact ? ' | ' + s.adviser_contact : '') || '—';
+        if (qs('view_emg_name')) qs('view_emg_name').textContent = s.emergency_name || '—';
+        if (qs('view_emg_rel')) qs('view_emg_rel').textContent = s.emergency_relation || '—';
+        if (qs('view_emg_contact')) qs('view_emg_contact').textContent = s.emergency_contact || '—';
+
+        const req = Number(s.total_hours_required || btn.getAttribute('data-required') || 0);
+        const rendered = Number(s.hours_rendered || btn.getAttribute('data-rendered') || 0);
+        if (qs('view_hours_text')) qs('view_hours_text').textContent = rendered + ' out of ' + (req > 0 ? req : '—') + ' hours';
+        setDonut(req > 0 ? (rendered / req) * 100 : 0);
+        if (qs('view_dates')) qs('view_dates').textContent = 'Date Started: —\nExpected End Date: —';
+
+        if (qs('view_assigned_office')) qs('view_assigned_office').textContent = d.office1 || d.office2 || OFFICE_NAME || '—';
+        if (qs('view_office_head')) qs('view_office_head').textContent = OFFICE_HEAD_NAME || '—';
+        if (qs('view_office_contact')) qs('view_office_contact').textContent = OFFICE_HEAD_EMAIL || '—';
+
+        renderAttachments(d);
+      })
+      .catch(function(err){
+        reportViewError('profile-fetch', err);
+        hideOverlay();
+      });
+    } catch (err) {
+      reportViewError('openFromButton', err);
+      hideOverlay();
+    }
+  }
+
+  window.openOjtProfileFromButton = openFromButton;
+
+  document.addEventListener('click', function(e){
+    try {
+      const btn = e.target.closest && e.target.closest('.view-btn');
+      if (!btn) return;
+      e.preventDefault();
+      openFromButton(btn);
+    } catch (err) {
+      reportViewError('view-click', err);
+    }
+  });
+
+  document.querySelectorAll('[data-view-tab]').forEach(function(tab){
+    tab.addEventListener('click', function(){
+      switchTab(this.getAttribute('data-view-tab'));
+    });
+  });
+
+  const printBtn = qs('printDTR');
+  if (printBtn) {
+    printBtn.addEventListener('click', function(){
+      if (!currentViewUserId) return;
+      window.open('print_dtr.php?student_id=' + encodeURIComponent(currentViewUserId), '_blank');
+    });
+  }
+
+  const closeBtn = qs('viewCloseBtn');
+  if (closeBtn) closeBtn.addEventListener('click', hideOverlay);
+  const overlay = qs('viewOverlay');
+  if (overlay) overlay.addEventListener('click', function(e){ if (e.target === overlay) hideOverlay(); });
+  document.addEventListener('keydown', function(e){ if (e.key === 'Escape') hideOverlay(); });
+})();
+</script>
 <script>
   // store selections per modal open
   const _evalStore = {};
