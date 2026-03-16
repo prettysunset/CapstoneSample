@@ -19,6 +19,41 @@ if ($rs) {
   $rs->free();
 }
 
+// optional per-school-course 5th year overrides (if column exists)
+$schoolCourseHasOffers5th = false;
+$schoolCourseOffersMap = [];
+$scCol = $conn->query("SHOW COLUMNS FROM school_courses LIKE 'offers_5th_year'");
+if ($scCol && $scCol->num_rows > 0) {
+  $schoolCourseHasOffers5th = true;
+}
+if ($scCol) $scCol->free();
+
+if ($schoolCourseHasOffers5th) {
+  $scRows = $conn->query("SELECT s.school_name, sc.course_id, sc.course_name, sc.offers_5th_year FROM school_courses sc JOIN schools s ON s.school_id = sc.school_id");
+  if ($scRows) {
+    while ($r = $scRows->fetch_assoc()) {
+      $schoolKey = strtolower(trim((string)($r['school_name'] ?? '')));
+      if ($schoolKey === '') continue;
+      if (!isset($schoolCourseOffersMap[$schoolKey])) {
+        $schoolCourseOffersMap[$schoolKey] = ['by_id' => [], 'by_name' => []];
+      }
+
+      $offers = isset($r['offers_5th_year']) ? (int)$r['offers_5th_year'] : null;
+      if ($offers === null) continue;
+
+      if (isset($r['course_id']) && $r['course_id'] !== null && $r['course_id'] !== '') {
+        $schoolCourseOffersMap[$schoolKey]['by_id'][(string)(int)$r['course_id']] = $offers;
+      }
+
+      $courseNameKey = strtolower(trim((string)($r['course_name'] ?? '')));
+      if ($courseNameKey !== '') {
+        $schoolCourseOffersMap[$schoolKey]['by_name'][$courseNameKey] = $offers;
+      }
+    }
+    $scRows->free();
+  }
+}
+
 // --- NEW: compute availability per course (true if any related office has available slots) ---
 $courseAvailability = [];
 if (!empty($courses)) {
@@ -94,9 +129,11 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
           'adviser_contact'=> $_POST['adviser_contact'] ?? ''
         ];
 
-        // server-side: if school matches a known school and it does NOT offer 5th year,
-        // prevent selecting year_level = 5
+        // server-side 5th year rule:
+        // 1) prefer school_courses.offers_5th_year for selected school+course
+        // 2) fallback to schools.offers_5th_year when no school-course row exists
         $school_offers_5th = null;
+        $effective_offers_5th = null;
         if (trim($posted_af2['school']) !== '') {
           $s2 = $conn->prepare("SELECT offers_5th_year FROM schools WHERE LOWER(school_name) = LOWER(?) LIMIT 1");
           if ($s2) {
@@ -109,6 +146,45 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
               $school_offers_5th = (int)$school_offers_5th;
             }
             $s2->close();
+          }
+        }
+        $effective_offers_5th = $school_offers_5th;
+
+        if ($schoolCourseHasOffers5th && trim($posted_af2['school']) !== '') {
+          $course_offers_5th = null;
+
+          if ($courseId !== null) {
+            $s3 = $conn->prepare("SELECT sc.offers_5th_year FROM school_courses sc JOIN schools s ON s.school_id = sc.school_id WHERE LOWER(s.school_name) = LOWER(?) AND sc.course_id = ? LIMIT 1");
+            if ($s3) {
+              $s3->bind_param('si', $posted_af2['school'], $courseId);
+              $s3->execute();
+              $s3->store_result();
+              if ($s3->num_rows > 0) {
+                $s3->bind_result($course_offers_5th);
+                $s3->fetch();
+                $course_offers_5th = (int)$course_offers_5th;
+              }
+              $s3->close();
+            }
+          }
+
+          if ($course_offers_5th === null && trim($courseResolved) !== '') {
+            $s4 = $conn->prepare("SELECT sc.offers_5th_year FROM school_courses sc JOIN schools s ON s.school_id = sc.school_id WHERE LOWER(s.school_name) = LOWER(?) AND LOWER(TRIM(sc.course_name)) = LOWER(TRIM(?)) LIMIT 1");
+            if ($s4) {
+              $s4->bind_param('ss', $posted_af2['school'], $courseResolved);
+              $s4->execute();
+              $s4->store_result();
+              if ($s4->num_rows > 0) {
+                $s4->bind_result($course_offers_5th);
+                $s4->fetch();
+                $course_offers_5th = (int)$course_offers_5th;
+              }
+              $s4->close();
+            }
+          }
+
+          if ($course_offers_5th !== null) {
+            $effective_offers_5th = $course_offers_5th;
           }
         }
 
@@ -130,9 +206,9 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
           // preserve posted values in local $af2 for re-rendering the form below
           $af2 = $posted_af2;
         } else {
-          // if matched school does not offer 5th year, block selection of 5th year
-          if ($school_offers_5th !== null && $school_offers_5th === 0 && isset($posted_af2['year_level']) && (string)$posted_af2['year_level'] === '5') {
-            $error_no_5th = 'The selected school does not offer 5th Year. Please choose another year level.';
+          // block 5th year if effective rule (course-first, then school fallback) disallows it
+          if ($effective_offers_5th !== null && (int)$effective_offers_5th === 0 && isset($posted_af2['year_level']) && (string)$posted_af2['year_level'] === '5') {
+            $error_no_5th = 'The selected school/course does not offer 5th Year. Please choose another year level.';
             $af2 = $posted_af2;
           } else {
           // persist any selected office/course coming from hidden inputs
@@ -287,11 +363,26 @@ if (empty($af2['course']) && !empty($_SESSION['selected_course'])) {
 }
 
 #courseAvailabilityMsg { display:none !important; }
-/* layout for course + year level: 75% / 25% */
+/* fixed-size course/year inputs on desktop */
 .field-course-year{display:flex;gap:12px;align-items:center}
-.field-course-year .course-select{flex:3}
-.field-course-year .year-select{flex:1;max-width:220px}
-@media(max-width:700px){.field-course-year{flex-direction:column}.field-course-year .year-select{max-width:none}}
+.field-course-year .course-select{width:460px;min-width:460px;max-width:460px}
+.field-course-year .year-select{width:170px;min-width:170px;max-width:170px}
+.course-locked-display{
+  width:460px;
+  min-width:460px;
+  max-width:460px;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:clip;
+  font-size:1rem;
+  line-height:1.2;
+}
+@media(max-width:700px){
+  .field-course-year{flex-direction:column;align-items:stretch}
+  .field-course-year .course-select,
+  .field-course-year .year-select,
+  .course-locked-display{width:100%;min-width:0;max-width:none}
+}
   </style>
 </head>
 <body>
@@ -350,7 +441,7 @@ if (empty($af2['course']) && !empty($_SESSION['selected_course'])) {
                   $locked_id = isset($af2['course_id']) ? (int)$af2['course_id'] : '';
               ?>
                 <input type="hidden" name="course" value="<?= $locked_id !== '' ? $locked_id : $locked_name ?>">
-                <div style="padding:10px;border-radius:8px;background:#f8fafc;border:1px solid #e6eef8;"><?= $locked_name ?></div>
+                <div id="lockedCourseDisplay" class="course-locked-display" style="padding:10px;border-radius:8px;background:#f8fafc;border:1px solid #e6eef8;"><?= $locked_name ?></div>
               <?php else: ?>
                 <select name="course" id="courseSelect" class="course-select" required>
                   <option value="" disabled <?= !isset($af2['course_id']) ? 'selected' : '' ?>>Select Course *</option>
@@ -407,12 +498,61 @@ const AF1_EMG_CONTACT = <?= json_encode(preg_replace('/[^0-9]/', '', (isset($_SE
 (function(){
   // server-provided schools list and offers map
   const schoolsData = <?= json_encode($schools, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT) ?> || [];
+  const schoolCourseOffersMap = <?= json_encode($schoolCourseOffersMap, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT) ?> || {};
   const schools = schoolsData.map(s => s.school_name);
   const schoolOffers = {};
   schoolsData.forEach(s => { schoolOffers[String(s.school_name).toLowerCase()] = Number(s.offers_5th_year); });
 
   const input = document.getElementById('schoolInput');
   const datalist = document.getElementById('schoolsList');
+  const courseSelect = document.getElementById('courseSelect');
+  const lockedCourseInput = document.querySelector('input[name="course"]');
+  const lockedCourseDisplay = document.getElementById('lockedCourseDisplay');
+
+  function getCourseFontSizePx(textLen) {
+    if (textLen > 70) return 11;
+    if (textLen > 55) return 12;
+    if (textLen > 42) return 13;
+    if (textLen > 30) return 14;
+    return 15;
+  }
+
+  function applyCourseTextSizing() {
+    if (courseSelect) {
+      const opt = courseSelect.options[courseSelect.selectedIndex];
+      const label = opt && opt.text ? String(opt.text).trim() : '';
+      const px = getCourseFontSizePx(label.length || 0);
+      courseSelect.style.fontSize = px + 'px';
+    }
+
+    if (lockedCourseDisplay) {
+      const label = String((lockedCourseDisplay.textContent || '')).trim();
+      const px = getCourseFontSizePx(label.length || 0);
+      lockedCourseDisplay.style.fontSize = px + 'px';
+    }
+  }
+
+  function getSelectedCourseInfo() {
+    let courseId = '';
+    let courseName = '';
+
+    if (courseSelect) {
+      courseId = courseSelect.value ? String(courseSelect.value) : '';
+      const opt = courseSelect.options[courseSelect.selectedIndex];
+      if (opt && opt.text) {
+        courseName = String(opt.text).replace(/\s*\([^)]*\)\s*$/, '').trim();
+      }
+    } else if (lockedCourseInput) {
+      const raw = String(lockedCourseInput.value || '').trim();
+      if (/^\d+$/.test(raw)) courseId = raw;
+      else courseName = raw;
+    }
+
+    return {
+      courseId,
+      courseName: courseName.toLowerCase()
+    };
+  }
 
   // expose function for other scripts / server-triggered calls
   window.update5thYearVisibility = function(schoolName) {
@@ -420,7 +560,22 @@ const AF1_EMG_CONTACT = <?= json_encode(preg_replace('/[^0-9]/', '', (isset($_SE
     if (!ysel) return;
     const opt5 = Array.from(ysel.options).find(o => String(o.value) === '5');
     const key = (schoolName || '').trim().toLowerCase();
-    const offers = key && (schoolOffers[key] !== undefined) ? schoolOffers[key] : null;
+    const courseInfo = getSelectedCourseInfo();
+    const schoolCourseEntry = key && schoolCourseOffersMap[key] ? schoolCourseOffersMap[key] : null;
+    let offers = null;
+
+    if (schoolCourseEntry) {
+      if (courseInfo.courseId && schoolCourseEntry.by_id && schoolCourseEntry.by_id[courseInfo.courseId] !== undefined) {
+        offers = Number(schoolCourseEntry.by_id[courseInfo.courseId]);
+      } else if (courseInfo.courseName && schoolCourseEntry.by_name && schoolCourseEntry.by_name[courseInfo.courseName] !== undefined) {
+        offers = Number(schoolCourseEntry.by_name[courseInfo.courseName]);
+      }
+    }
+
+    if (offers === null && key && schoolOffers[key] !== undefined) {
+      offers = Number(schoolOffers[key]);
+    }
+
     if (offers === 0) {
       if (opt5) { opt5.hidden = true; opt5.disabled = true; }
       if (ysel.value === '5') {
@@ -483,9 +638,20 @@ const AF1_EMG_CONTACT = <?= json_encode(preg_replace('/[^0-9]/', '', (isset($_SE
     openedByArrow = false;
   });
 
+  if (courseSelect) {
+    courseSelect.addEventListener('change', function(){
+      applyCourseTextSizing();
+      window.update5thYearVisibility(input ? (input.value || '') : '');
+    });
+  }
+
+  applyCourseTextSizing();
+
   if (input.value && input.value.trim() !== '') {
     populateList(input.value);
     window.update5thYearVisibility(input.value || '');
+  } else {
+    window.update5thYearVisibility('');
   }
 
   // -------------------------
