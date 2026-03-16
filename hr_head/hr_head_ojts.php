@@ -10,6 +10,60 @@ if (!isset($_SESSION['user_id'])) {
     exit();
 }
 
+// AJAX: view weekly journals for a student user (read-only)
+if (isset($_GET['ajax']) && $_GET['ajax'] === 'view_journals') {
+  header('Content-Type: application/json');
+
+  try {
+    $student_user_id = isset($_GET['student_user_id']) ? (int)$_GET['student_user_id'] : 0;
+    if ($student_user_id <= 0) {
+      echo json_encode(['success' => false, 'message' => 'Missing student_user_id']);
+      exit;
+    }
+
+    $student_id = 0;
+    $qStudent = $conn->prepare("SELECT student_id FROM students WHERE user_id = ? LIMIT 1");
+    if ($qStudent) {
+      $qStudent->bind_param('i', $student_user_id);
+      $qStudent->execute();
+      $row = $qStudent->get_result()->fetch_assoc();
+      if ($row && !empty($row['student_id'])) $student_id = (int)$row['student_id'];
+      $qStudent->close();
+    }
+
+    $rows = [];
+    $targetJournalUserId = $student_id > 0 ? $student_id : $student_user_id;
+
+    $qj = $conn->prepare("SELECT journal_id, date_uploaded, week_coverage, attachment FROM weekly_journal WHERE user_id = ? ORDER BY date_uploaded DESC, journal_id DESC LIMIT 50");
+    if ($qj) {
+      $qj->bind_param('i', $targetJournalUserId);
+      $qj->execute();
+      $res = $qj->get_result();
+      while ($r = $res->fetch_assoc()) $rows[] = $r;
+      $qj->close();
+    }
+
+    // Fallback for deployments storing weekly_journal.user_id as users.user_id.
+    if (empty($rows) && $targetJournalUserId !== $student_user_id) {
+      $qj2 = $conn->prepare("SELECT journal_id, date_uploaded, week_coverage, attachment FROM weekly_journal WHERE user_id = ? ORDER BY date_uploaded DESC, journal_id DESC LIMIT 50");
+      if ($qj2) {
+        $qj2->bind_param('i', $student_user_id);
+        $qj2->execute();
+        $res2 = $qj2->get_result();
+        while ($r2 = $res2->fetch_assoc()) $rows[] = $r2;
+        $qj2->close();
+      }
+    }
+
+    echo json_encode(['success' => true, 'rows' => $rows]);
+    exit;
+  } catch (Throwable $e) {
+    http_response_code(500);
+    echo json_encode(['success' => false, 'message' => 'Server error while fetching journals', 'error' => $e->getMessage()]);
+    exit;
+  }
+}
+
 $user_id = (int) $_SESSION['user_id'];
 
 $stmtUser = $conn->prepare("SELECT first_name, middle_name, last_name, role, office_name, avatar FROM users WHERE user_id = ?");
@@ -586,6 +640,7 @@ if ($moa_q) {
         <div class="view-tab active" data-tab="info" onclick="switchViewTab(event)">Information</div>
         <div class="view-tab" data-tab="late" onclick="switchViewTab(event)">DTR</div>
         <div class="view-tab" data-tab="atts" onclick="switchViewTab(event)">Attachments</div>
+        <div class="view-tab" data-tab="journals" onclick="switchViewTab(event)">Weekly Journals</div>
         <div class="view-tab" data-tab="eval" onclick="switchViewTab(event)">Evaluation</div>
       </div>
 
@@ -691,6 +746,27 @@ if ($moa_q) {
       <div id="panel-atts" class="view-panel" style="display:none;padding:12px 6px;">
         <div id="attachments_full" style="background:#fff;border-radius:10px;padding:12px;border:1px solid #eef2f6;min-height:160px;">
           <div id="view_attachments_list" style="display:flex;flex-direction:column;gap:8px;"></div>
+        </div>
+      </div>
+
+      <div id="panel-journals" class="view-panel" style="display:none;padding:12px 6px;">
+        <div style="background:#fff;border-radius:10px;padding:12px;border:1px solid #eef2f6;">
+          <div style="overflow:auto;">
+            <table aria-label="Weekly journals" style="width:100%;border-collapse:collapse;font-size:14px;">
+              <thead>
+                <tr style="background:#f3f4f6;color:#111;">
+                  <th style="padding:10px;border:1px solid #eee;text-align:left;font-weight:700;">Date Uploaded</th>
+                  <th style="padding:10px;border:1px solid #eee;text-align:left;font-weight:700;">Week Coverage</th>
+                  <th style="padding:10px;border:1px solid #eee;text-align:left;font-weight:700;">Attachment</th>
+                </tr>
+              </thead>
+              <tbody id="view_journals_tbody">
+                <tr class="empty">
+                  <td colspan="3" style="padding:18px;text-align:center;color:#6b7280">No weekly journals found.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
 
@@ -939,6 +1015,142 @@ if ($moa_q) {
       t.removeAttribute('onclick'); // optional: avoid duplicate handlers
       t.addEventListener('click', switchViewTab);
     });
+
+    function normalizeAttachmentPath(filePath){
+      const v = (filePath || '').toString().trim();
+      if (!v) return '';
+      if (/^(https?:)?\/\//i.test(v) || v.startsWith('data:')) return v;
+      if (v.startsWith('../') || v.startsWith('./') || v.startsWith('/')) return v;
+      return '../' + v.replace(/^\/+/, '');
+    }
+
+    function formatDateLong(value){
+      const s = (value || '').toString().trim();
+      if (!s) return '—';
+      const d = new Date(s);
+      if (isNaN(d.getTime())) return s;
+      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    }
+
+    function escapeHtml(v){
+      return String(v == null ? '' : v)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function extractIsoDates(text){
+      const raw = (text || '').toString();
+      const m = raw.match(/\b\d{4}-\d{1,2}-\d{1,2}\b/g);
+      if (!m || !m.length) return [];
+      return m
+        .map(s => {
+          const p = s.split('-');
+          const y = Number(p[0]);
+          const mo = Number(p[1]);
+          const d = Number(p[2]);
+          if (!y || !mo || !d) return null;
+          const dt = new Date(y, mo - 1, d);
+          return isNaN(dt.getTime()) ? null : dt;
+        })
+        .filter(Boolean);
+    }
+
+    function formatCoverageRange(startDate, endDate){
+      const s = startDate;
+      const e = endDate || startDate;
+      if (!s) return '—';
+
+      const sameYear = s.getFullYear() === e.getFullYear();
+      const sameMonth = sameYear && s.getMonth() === e.getMonth();
+      const sameDay = sameMonth && s.getDate() === e.getDate();
+
+      const monthS = s.toLocaleDateString('en-US', { month: 'long' });
+      const monthE = e.toLocaleDateString('en-US', { month: 'long' });
+      const yearS = s.getFullYear();
+      const yearE = e.getFullYear();
+
+      if (sameDay) return monthS + ' ' + s.getDate() + ', ' + yearS;
+      if (sameMonth) return monthS + ' ' + s.getDate() + '-' + e.getDate() + ', ' + yearS;
+      if (sameYear) return monthS + ' ' + s.getDate() + ' - ' + monthE + ' ' + e.getDate() + ', ' + yearS;
+      return monthS + ' ' + s.getDate() + ', ' + yearS + ' - ' + monthE + ' ' + e.getDate() + ', ' + yearE;
+    }
+
+    function formatWeekCoverage(weekCoverageRaw, uploadedRaw, index){
+      const raw = (weekCoverageRaw || '').toString().trim();
+      const wm = raw.match(/week\s*\d+/i);
+      const weekLabel = wm ? ('Week ' + wm[0].replace(/week\s*/i, '').trim()) : ('Week ' + (index + 1));
+
+      let dates = extractIsoDates(raw);
+      if (!dates.length && uploadedRaw) {
+        const du = new Date(uploadedRaw);
+        if (!isNaN(du.getTime())) dates = [du];
+      }
+
+      if (!dates.length) {
+        return raw ? raw : weekLabel + ' (—)';
+      }
+
+      dates.sort((a, b) => a.getTime() - b.getTime());
+      const rangeText = formatCoverageRange(dates[0], dates[dates.length - 1]);
+      return weekLabel + ' (' + rangeText + ')';
+    }
+
+    function renderJournals(rows){
+      const tbody = document.getElementById('view_journals_tbody');
+      if (!tbody) return;
+      const data = Array.isArray(rows) ? rows : [];
+
+      if (!data.length) {
+        tbody.innerHTML = '<tr class="empty"><td colspan="3" style="padding:18px;text-align:center;color:#6b7280">No weekly journals found.</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = data.map((r, idx) => {
+        const dateText = formatDateLong(r.date_uploaded || '');
+        const week = formatWeekCoverage(r.week_coverage || '', r.date_uploaded || '', idx);
+        const rawAttachment = (r.attachment || '').toString().trim();
+        if (!rawAttachment) {
+          return '<tr>' +
+            '<td style="padding:10px;border:1px solid #eee">' + escapeHtml(dateText) + '</td>' +
+            '<td style="padding:10px;border:1px solid #eee">' + escapeHtml(week) + '</td>' +
+            '<td style="padding:10px;border:1px solid #eee;color:#6b7280">—</td>' +
+          '</tr>';
+        }
+
+        const href = normalizeAttachmentPath(rawAttachment);
+        const fileName = rawAttachment.split(/[\\/]/).pop().split('?')[0].split('#')[0] || 'Attachment';
+        return '<tr>' +
+          '<td style="padding:10px;border:1px solid #eee">' + escapeHtml(dateText) + '</td>' +
+          '<td style="padding:10px;border:1px solid #eee">' + escapeHtml(week) + '</td>' +
+          '<td style="padding:10px;border:1px solid #eee">' +
+            '<a class="tool-link" href="' + escapeHtml(href) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(fileName) + '</a>' +
+          '</td>' +
+        '</tr>';
+      }).join('');
+    }
+
+    async function loadJournals(userId){
+      const tbody = document.getElementById('view_journals_tbody');
+      if (!tbody || !userId) return;
+
+      tbody.innerHTML = '<tr class="empty"><td colspan="3" style="padding:18px;text-align:center;color:#6b7280">Loading...</td></tr>';
+
+      try {
+        const res = await fetch('hr_head_ojts.php?ajax=view_journals&student_user_id=' + encodeURIComponent(userId) + '&_ts=' + Date.now(), { cache: 'no-store' });
+        const json = await res.json();
+        if (!json || !json.success) {
+          tbody.innerHTML = '<tr class="empty"><td colspan="3" style="padding:18px;text-align:center;color:#6b7280">Unable to load weekly journals.</td></tr>';
+          return;
+        }
+        renderJournals(json.rows || []);
+      } catch (err) {
+        tbody.innerHTML = '<tr class="empty"><td colspan="3" style="padding:18px;text-align:center;color:#6b7280">Unable to load weekly journals.</td></tr>';
+      }
+    }
+
     // openViewModal: fetch application details and populate modal
     // accepts optional precomputed values from the table row to display immediately:
     // openViewModal(appId, userId, preRenderedHours:number|null, preRequiredHours:number|null)
@@ -949,6 +1161,9 @@ if ($moa_q) {
          const el = document.getElementById(id);
          if(el) el.textContent = '—';
        });
+       const journalsBody = document.getElementById('view_journals_tbody');
+       if (journalsBody) journalsBody.innerHTML = '<tr class="empty"><td colspan="3" style="padding:18px;text-align:center;color:#6b7280">No weekly journals found.</td></tr>';
+       switchViewTab('info');
        // avatar
        const avatarEl = document.getElementById('view_avatar');
        avatarEl.innerHTML = '👤';
@@ -1460,6 +1675,9 @@ if ($moa_q) {
             if (tbody) tbody.innerHTML = '<tr class="empty"><td colspan="7" style="padding:18px;text-align:center;color:#6b7280">Failed to load DTR.</td></tr>';
           }
         })();
+
+        // Fetch weekly journals for the Weekly Journals tab.
+        loadJournals(parseInt(userId, 10));
 
       }catch(err){
         console.error(err);
