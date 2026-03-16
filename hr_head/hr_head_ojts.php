@@ -578,7 +578,6 @@ if ($moa_q) {
           </div>
 
           <div class="view-tools" aria-hidden="true">
-            <button class="tool-link" id="printDTR">Print DTR</button>
           </div>
         </div>
       </div>
@@ -1461,9 +1460,6 @@ if ($moa_q) {
             if (tbody) tbody.innerHTML = '<tr class="empty"><td colspan="7" style="padding:18px;text-align:center;color:#6b7280">Failed to load DTR.</td></tr>';
           }
         })();
-
-        // wire print buttons (simple open new window to printable endpoint)
-        document.getElementById('printDTR').onclick = function(){ window.open('print_dtr.php?id=' + encodeURIComponent(appId),'_blank'); };
 
       }catch(err){
         console.error(err);
