@@ -162,22 +162,23 @@
 
             <!-- Apply Now Button -->
             <div style="width:100%; display:flex; justify-content:center;">
-                <button class="mainbtn">
-                    <a style="color:white; text-decoration:none; display:inline-block; padding:10px 10px;" href="application_form1.php">
-                        Apply Now
-                    </a>
-                </button>
+                                <button class="mainbtn" type="button" onclick="goToOffices()">Apply Now</button>
             </div>
 
             <!-- Requirements + Date -->
             <div style="display:flex; justify-content:center; width:100%; margin-top:-2px;">
-              <button class="secondbtn">
-                <a style="color:#3a4163; text-decoration:none;" href="requirements.html">
-                  Requirements
-                </a>
-              </button>
+                            <button class="secondbtn" type="button" onclick="goToRequirements()">Requirements</button>
             </div>
         </div>
     </div>
+<script>
+function goToOffices(){
+        window.location.href = 'offices.php';
+}
+
+function goToRequirements(){
+        window.location.href = 'requirements.html';
+}
+</script>
 </body>
 </html>
