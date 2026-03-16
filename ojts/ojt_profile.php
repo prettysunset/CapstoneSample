@@ -335,6 +335,9 @@ if ($user_id) {
                     ?>
                     <?php echo htmlspecialchars($status_display . ' OJT • ' . $office_display); ?>
                 </p>
+                <div style="margin-top:4px;">
+                    <a href="print_dtr.php" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:5px 10px;border:1px solid #7b7b7b;border-radius:2px;background:#f3f3f3;color:#111;text-decoration:none;font-size:16px;line-height:1;">Print DTR</a>
+                </div>
                                 <?php
                                     // prefer status from users table (title-cased). fallback to 'active'.
                                     $status_display = ucwords(strtolower($ur['status'] ?? 'active'));
