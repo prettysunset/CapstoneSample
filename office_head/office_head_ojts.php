@@ -262,6 +262,64 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
+// AJAX: view weekly journals for a student user (read-only)
+if (isset($_GET['ajax']) && $_GET['ajax'] === 'view_journals') {
+  if (ob_get_length()) ob_clean();
+  header('Content-Type: application/json');
+
+  try {
+    $student_user_id = isset($_GET['student_user_id']) ? (int)$_GET['student_user_id'] : 0;
+    if ($student_user_id <= 0) {
+      echo json_encode(['success' => false, 'message' => 'Invalid student_user_id']);
+      exit;
+    }
+
+    $student_id = 0;
+    $qStudent = $conn->prepare("SELECT student_id FROM students WHERE user_id = ? LIMIT 1");
+    if ($qStudent) {
+      $qStudent->bind_param('i', $student_user_id);
+      $qStudent->execute();
+      $rowStudent = $qStudent->get_result()->fetch_assoc();
+      $qStudent->close();
+      if ($rowStudent && !empty($rowStudent['student_id'])) {
+        $student_id = (int)$rowStudent['student_id'];
+      }
+    }
+
+    $rows = [];
+    $targetJournalUserId = $student_id > 0 ? $student_id : $student_user_id;
+
+    $qj = $conn->prepare("SELECT journal_id, date_uploaded, week_coverage, attachment FROM weekly_journal WHERE user_id = ? ORDER BY date_uploaded DESC, journal_id DESC LIMIT 50");
+    if ($qj) {
+      $qj->bind_param('i', $targetJournalUserId);
+      $qj->execute();
+      $rj = $qj->get_result();
+      while ($r = $rj->fetch_assoc()) $rows[] = $r;
+      $qj->close();
+    }
+
+    // Fallback: some deployments may store weekly_journal.user_id as users.user_id.
+    if (empty($rows) && $targetJournalUserId !== $student_user_id) {
+      $qj2 = $conn->prepare("SELECT journal_id, date_uploaded, week_coverage, attachment FROM weekly_journal WHERE user_id = ? ORDER BY date_uploaded DESC, journal_id DESC LIMIT 50");
+      if ($qj2) {
+        $qj2->bind_param('i', $student_user_id);
+        $qj2->execute();
+        $rj2 = $qj2->get_result();
+        while ($r2 = $rj2->fetch_assoc()) $rows[] = $r2;
+        $qj2->close();
+      }
+    }
+
+    echo json_encode(['success' => true, 'rows' => $rows]);
+    exit;
+  } catch (Throwable $e) {
+    if (ob_get_length()) ob_clean();
+    http_response_code(500);
+    echo json_encode(['success' => false, 'message' => 'Server error while fetching journals', 'error' => $e->getMessage()]);
+    exit;
+  }
+}
+
 // AJAX: view evaluation details (read-only)
 if (isset($_GET['ajax']) && $_GET['ajax'] === 'view_eval') {
   if (ob_get_length()) ob_clean();
@@ -848,11 +906,6 @@ if (!empty($completedArr)) {
 
     <div class="controls">
       <input class="search" placeholder="Search" id="searchInput" />
-      <select id="sortSelect" style="padding:10px;border-radius:10px;border:1px solid #e6e9f2;background:#fff">
-        <option value="">Sort by</option>
-        <option value="name">Name</option>
-        <option value="hours">Hours</option>
-      </select>
     </div>
 
     <div id="panel-active" class="tab-panel active">
@@ -1026,6 +1079,7 @@ if (!empty($completedArr)) {
           <div class="view-tab active" data-view-tab="info">Information</div>
           <div class="view-tab" data-view-tab="late">DTR</div>
           <div class="view-tab" data-view-tab="atts">Attachments</div>
+          <div class="view-tab" data-view-tab="journals">Weekly Journals</div>
         </div>
 
         <div id="view-panel-info" class="view-panel" style="display:block;">
@@ -1113,6 +1167,25 @@ if (!empty($completedArr)) {
         <div id="view-panel-atts" class="view-panel" style="display:none;padding:12px 6px;">
           <div style="background:#fff;border-radius:10px;padding:12px;border:1px solid #eef2f6;min-height:160px;">
             <div id="view_attachments_list" style="display:flex;flex-direction:column;gap:8px;"></div>
+          </div>
+        </div>
+
+        <div id="view-panel-journals" class="view-panel" style="display:none;padding:12px 6px;">
+          <div style="background:#fff;border-radius:10px;padding:12px;border:1px solid #eef2f6;min-height:160px;">
+            <div style="overflow:auto;">
+              <table style="width:100%;border-collapse:collapse;font-size:14px;">
+                <thead>
+                  <tr style="background:#f3f4f6;color:#111;">
+                    <th style="padding:10px;border:1px solid #eee;text-align:left;">DATE UPLOADED</th>
+                    <th style="padding:10px;border:1px solid #eee;text-align:left;">WEEK</th>
+                    <th style="padding:10px;border:1px solid #eee;text-align:left;">ATTACHMENT</th>
+                  </tr>
+                </thead>
+                <tbody id="view_journals_tbody">
+                  <tr class="empty"><td colspan="3" style="padding:18px;text-align:center;color:#6b7280">No weekly journals found.</td></tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
 
@@ -1462,7 +1535,7 @@ if (!empty($completedArr)) {
     document.querySelectorAll('[data-view-tab]').forEach(function(el){ el.classList.remove('active'); });
     const targetBtn = document.querySelector('[data-view-tab="' + tab + '"]');
     if (targetBtn) targetBtn.classList.add('active');
-    ['info','late','atts'].forEach(function(name){
+    ['info','late','atts','journals'].forEach(function(name){
       const panel = qs('view-panel-' + name);
       if (panel) panel.style.display = (name === tab) ? 'block' : 'none';
     });
@@ -1476,9 +1549,65 @@ if (!empty($completedArr)) {
     const av = qs('view_avatar'); if (av) av.innerHTML = '👤';
     const list = qs('view_attachments_list'); if (list) list.innerHTML = '';
     const dtrBody = qs('late_dtr_tbody'); if (dtrBody) dtrBody.innerHTML = '<tr class="empty"><td colspan="7" style="padding:18px;text-align:center;color:#6b7280">No DTR records yet.</td></tr>';
+    const journalsBody = qs('view_journals_tbody');
+    if (journalsBody) journalsBody.innerHTML = '<tr class="empty"><td colspan="3" style="padding:18px;text-align:center;color:#6b7280">No weekly journals found.</td></tr>';
     setPrintVisibility(false);
     setDonut(0);
     switchTab('info');
+  }
+  function formatDateLong(value){
+    const s = (value || '').toString().trim();
+    if (!s) return '—';
+    const d = new Date(s);
+    if (isNaN(d.getTime())) return s;
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  }
+  function renderJournals(rows){
+    const tbody = qs('view_journals_tbody');
+    if (!tbody) return;
+    const data = Array.isArray(rows) ? rows : [];
+    if (!data.length) {
+      tbody.innerHTML = '<tr class="empty"><td colspan="3" style="padding:18px;text-align:center;color:#6b7280">No weekly journals found.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = data.map(function(r){
+      const uploaded = formatDateLong(r.date_uploaded || '');
+      const week = r.week_coverage || '—';
+      const attRaw = (r.attachment || '').toString().trim();
+      let attHtml = '—';
+      if (attRaw) {
+        const href = normalizeFile(attRaw);
+        const parts = attRaw.replace(/\\/g, '/').split('/');
+        const fileName = parts.length ? parts[parts.length - 1] : attRaw;
+        // Open attachment in a new page/tab.
+        attHtml = '<a href="' + esc(href) + '" target="_blank" rel="noopener noreferrer" style="color:#1d4ed8;text-decoration:underline;">' + esc(fileName) + '</a>';
+      }
+
+      return '<tr>' +
+        '<td style="padding:10px;border:1px solid #eee;">' + esc(uploaded) + '</td>' +
+        '<td style="padding:10px;border:1px solid #eee;">' + esc(week) + '</td>' +
+        '<td style="padding:10px;border:1px solid #eee;">' + attHtml + '</td>' +
+      '</tr>';
+    }).join('');
+  }
+  function loadJournals(userId){
+    const tbody = qs('view_journals_tbody');
+    if (!tbody || !userId) return;
+    tbody.innerHTML = '<tr class="empty"><td colspan="3" style="padding:18px;text-align:center;color:#6b7280">Loading...</td></tr>';
+
+    fetch('office_head_ojts.php?ajax=view_journals&student_user_id=' + encodeURIComponent(userId) + '&_ts=' + Date.now(), { cache: 'no-store' })
+      .then(function(r){ return r.json(); })
+      .then(function(j){
+        if (!j || !j.success) {
+          renderJournals([]);
+          return;
+        }
+        renderJournals(j.rows || []);
+      })
+      .catch(function(){
+        tbody.innerHTML = '<tr class="empty"><td colspan="3" style="padding:18px;text-align:center;color:#6b7280">Unable to load weekly journals.</td></tr>';
+      });
   }
   function renderAttachments(d){
     const list = qs('view_attachments_list');
@@ -1671,6 +1800,7 @@ if (!empty($completedArr)) {
       const req = Number(btn.getAttribute('data-required') || 0);
       const userStatus = (btn.getAttribute('data-user-status') || '').toLowerCase();
       loadDtr(userId, req, userStatus);
+      loadJournals(userId);
 
       if (!appId) {
         if (qs('view_status_badge')) qs('view_status_badge').textContent = statusLabel;
@@ -1741,7 +1871,6 @@ if (!empty($completedArr)) {
         const rendered = Number(s.hours_rendered || btn.getAttribute('data-rendered') || 0);
         if (qs('view_hours_text')) qs('view_hours_text').textContent = rendered + ' out of ' + (req > 0 ? req : '—') + ' hours';
         setDonut(req > 0 ? (rendered / req) * 100 : 0);
-        if (qs('view_dates')) qs('view_dates').textContent = 'Date Started: —\nExpected End Date: —';
 
         if (qs('view_assigned_office')) qs('view_assigned_office').textContent = d.office1 || d.office2 || OFFICE_NAME || '—';
         if (qs('view_office_head')) qs('view_office_head').textContent = OFFICE_HEAD_NAME || '—';
