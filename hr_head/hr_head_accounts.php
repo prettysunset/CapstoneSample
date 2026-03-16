@@ -216,15 +216,26 @@ if (is_array($inputJson) && isset($inputJson['action']) && $inputJson['action'] 
     $q = trim($inputJson['q'] ?? '');
     if ($q === '') { echo json_encode([]); exit; }
     $out = [];
-    $like = '%' . $conn->real_escape_string($q) . '%';
-    $sql = "SELECT DISTINCT course_name FROM courses WHERE course_name LIKE ? OR course_code LIKE ? ORDER BY course_name LIMIT 12";
-    if ($stmt = $conn->prepare($sql)) {
-        $p = $like;
-        $stmt->bind_param('ss', $p, $p);
-        $stmt->execute();
-        $res = $stmt->get_result();
-        while ($r = $res->fetch_assoc()) $out[] = $r['course_name'];
-        $stmt->close();
+    $like = $q . '%';
+
+    $sql = "SELECT DISTINCT course_name FROM school_courses WHERE course_name LIKE ? ORDER BY course_name LIMIT 12";
+    $stmt = $conn->prepare($sql);
+    if ($stmt) {
+      $stmt->bind_param('s', $like);
+      if ($stmt->execute()) {
+        $courseName = null;
+        $stmt->bind_result($courseName);
+        while ($stmt->fetch()) {
+          if ($courseName !== null && $courseName !== '') $out[] = $courseName;
+        }
+      }
+      $stmt->close();
+    }
+
+    if (!empty($out)) {
+      $out = array_values(array_unique(array_map('strval', $out)));
+      natcasesort($out);
+      $out = array_slice(array_values($out), 0, 12);
     }
     echo json_encode($out);
     exit;
@@ -414,6 +425,31 @@ $ojt_offices = [];
 foreach ($ojts as $zz) {
     $on = trim($zz['office_name'] ?? '');
     if ($on !== '' && !in_array($on, $ojt_offices)) $ojt_offices[] = $on;
+}
+
+// preload course_name suggestions from school_courses for frontend fallback
+$courseSuggestions = [];
+try {
+  $r1 = $conn->query("SELECT DISTINCT course_name FROM school_courses WHERE course_name IS NOT NULL AND TRIM(course_name) <> ''");
+  if ($r1) {
+    while ($row = $r1->fetch_assoc()) {
+      $v = trim((string)($row['course_name'] ?? ''));
+      if ($v !== '') $courseSuggestions[] = $v;
+    }
+    $r1->free();
+  }
+} catch (Throwable $e) { /* ignore */ }
+if (!empty($courseSuggestions)) {
+  $seen = [];
+  $uniq = [];
+  foreach ($courseSuggestions as $name) {
+    $k = mb_strtolower($name);
+    if (isset($seen[$k])) continue;
+    $seen[$k] = true;
+    $uniq[] = $name;
+  }
+  natcasesort($uniq);
+  $courseSuggestions = array_slice(array_values($uniq), 0, 500);
 }
 
 // prepare office head details for client-side edit-prefill (lookup office metadata if available)
@@ -1302,6 +1338,9 @@ document.getElementById('btnAddHr').addEventListener('click', function(e){
   const suggestions = document.getElementById('m_course_suggestions');
   const tagsWrap = document.getElementById('m_course_tags');
   const hidden = document.getElementById('m_accept_courses');
+  const localSource = Array.isArray(window._courseSuggestSource)
+    ? window._courseSuggestSource.map(v => String(v || '').trim()).filter(Boolean)
+    : [];
   let tags = [];
   let suggItems = [];
   let sel = -1;
@@ -1389,6 +1428,17 @@ document.getElementById('btnAddHr').addEventListener('click', function(e){
 
   function fetchSuggestions(q){
     if (!q || !q.trim()) { hideSuggestions(); return; }
+
+    // fast local suggestions first (avoids AJAX/session/runtime issues)
+    if (localSource.length) {
+      const qq = q.toLowerCase().trim();
+      const localItems = localSource.filter(name => name.toLowerCase().startsWith(qq)).slice(0, 12);
+      if (localItems.length) {
+        showSuggestions(localItems);
+        return;
+      }
+    }
+
     // debounce
     clearTimeout(debounce);
     debounce = setTimeout(async () => {
@@ -1458,6 +1508,7 @@ document.getElementById('btnAddHr').addEventListener('click', function(e){
 <?php else: ?>
 <script>window._officeHeadData = {};</script>
 <?php endif; ?>
+<script>window._courseSuggestSource = <?= json_encode($courseSuggestions ?? [], JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT) ?>;</script>
 
 <?php
 // prepare simple OJT details (email prioritizes student email if available)

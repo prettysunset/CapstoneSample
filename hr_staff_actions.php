@@ -65,6 +65,24 @@ if (!is_array($input)) {
 
 $action = $input['action'] ?? '';
 
+// Keep school_courses.course_id aligned with courses.course_id when names match.
+function sync_school_course_id($conn, $courseName, $courseId) {
+    $courseName = trim((string)$courseName);
+    $courseId = (int)$courseId;
+    if ($courseName === '' || $courseId <= 0) return;
+
+    try {
+        $up = $conn->prepare("UPDATE school_courses SET course_id = ? WHERE LOWER(TRIM(course_name)) = LOWER(TRIM(?))");
+        if ($up) {
+            $up->bind_param('is', $courseId, $courseName);
+            $up->execute();
+            $up->close();
+        }
+    } catch (Throwable $e) {
+        // Non-fatal: account creation/update should continue even if sync fails.
+    }
+}
+
 /* new: check_capacity action
    Request body: { action: 'check_capacity', office1: <int|null>, office2: <int|null> }
    Response: { success: true, assigned: "Office Name" } or assigned: "" if none available
@@ -1228,6 +1246,9 @@ if ($action === 'create_account') {
                     }
                 }
 
+                // If this course name exists in school_courses, link its course_id too.
+                sync_school_course_id($conn, $cname, $course_id);
+
                 // map to office if we resolved/created one
                 if (!empty($office_id) && !empty($course_id)) {
                     $map = $conn->prepare("INSERT IGNORE INTO office_courses (office_id, course_id) VALUES (?, ?)");
@@ -1266,6 +1287,9 @@ if (!empty($courses)) {
             $course_id = $ins->insert_id;
             $ins->close();
         }
+
+        // If this course name exists in school_courses, link its course_id too.
+        sync_school_course_id($conn, $cname, $course_id);
 
         // map to office if we have an office_id
         if (!empty($office_id)) {
