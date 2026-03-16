@@ -1520,10 +1520,15 @@ if ($office_id) {
   const password = document.getElementById('password');
   const officeId = document.getElementById('office_id').value;
   const msg = document.getElementById('msg');
+    const SUPPRESS_ERROR_MESSAGES = true;
 
     // message hide timeout handle so we can control exact display duration
     var _pc_msg_hide_timeout = null;
     function showMsg(text, ok=true, durationMs = 3500){
+                if (!ok && SUPPRESS_ERROR_MESSAGES) {
+                    try { console.debug('suppressed UI error message:', text); } catch(e) {}
+                    return;
+                }
                 if (_pc_msg_hide_timeout) { try { clearTimeout(_pc_msg_hide_timeout); } catch(e){} _pc_msg_hide_timeout = null; }
                 // show a fixed toast so it's always visible above the video/canvas
                 msg.style.display = 'block';

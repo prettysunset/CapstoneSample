@@ -661,8 +661,22 @@ if ($action === 'approve_send') {
         $orientation_display = $orientation;
     }
 
-    // format time for display (HH:MM)
-    $time_display = substr($orientation_time,0,5);
+    // format time for display (h:mm A.M./P.M.)
+    $time_display = substr($orientation_time, 0, 5);
+    try {
+        if (!empty($orientation_time)) {
+            $timeObj = DateTime::createFromFormat('H:i:s', $orientation_time);
+            if (!$timeObj) {
+                $timeObj = DateTime::createFromFormat('H:i', $orientation_time);
+            }
+            if ($timeObj) {
+                $ampm = $timeObj->format('A') === 'AM' ? 'A.M.' : 'P.M.';
+                $time_display = $timeObj->format('g:i') . ' ' . $ampm;
+            }
+        }
+    } catch (Exception $e) {
+        // fallback keeps previous HH:MM value
+    }
 
     try {
         $remarks_formatted = "Orientation/Start: {$orientation_display} {$time_display} | Location: {$orientation_location}";
