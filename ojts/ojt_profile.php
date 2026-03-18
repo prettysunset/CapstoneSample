@@ -796,6 +796,20 @@ if ($user_id) {
                                     $qj->close();
                                 }
 
+                                // Allow uploads/creation only when there is at least one DTR record
+                                // where hours and minutes are not both zero.
+                                $hasDtrActivity = false;
+                                $dtrCheckUserId = !empty($user_id) ? (int)$user_id : (!empty($student_id) ? (int)$student_id : 0);
+                                if (!empty($dtrCheckUserId)) {
+                                    $qdtr = $conn->prepare("SELECT 1 FROM dtr WHERE student_id = ? AND (IFNULL(hours,0) <> 0 OR IFNULL(minutes,0) <> 0) LIMIT 1");
+                                    if ($qdtr) {
+                                        $qdtr->bind_param('i', $dtrCheckUserId);
+                                        $qdtr->execute();
+                                        $hasDtrActivity = (bool)$qdtr->get_result()->fetch_row();
+                                        $qdtr->close();
+                                    }
+                                }
+
                                 // Compute next week number and default From/To based on actual DTR logs
                                 $nextWeekNumber = count($journals) + 1;
                                 $fromDate = '';
@@ -896,15 +910,20 @@ if ($user_id) {
                                     <div style="color:#6b6f8b;font-size:16px;">Weekly Journals (<?php echo count($journals); ?>)</div>
                                     <?php if (!empty($student_id)): ?>
                                         <div style="display:flex;gap:8px;align-items:center">
-                                            <button id="btn-upload-journal" type="button" style="display:inline-flex;gap:8px;align-items:center;padding:8px 12px;border-radius:8px;border:0;background:#2f3459;color:#fff !important;cursor:pointer;font-size:14px;">
+                                            <button id="btn-upload-journal" type="button" <?php echo $hasDtrActivity ? '' : 'disabled'; ?> title="<?php echo $hasDtrActivity ? 'Upload journal' : 'Add at least one DTR entry with non-zero hours or minutes to enable this action.'; ?>" style="display:inline-flex;gap:8px;align-items:center;padding:8px 12px;border-radius:8px;border:0;background:#2f3459;color:#fff !important;cursor:<?php echo $hasDtrActivity ? 'pointer' : 'not-allowed'; ?>;font-size:14px;opacity:<?php echo $hasDtrActivity ? '1' : '0.55'; ?>;">
                                                 <span style="color:#fff !important;font-weight:700;font-size:18px;line-height:0;">+</span> Upload Journal
                                             </button>
-                                            <a href="#" id="btn-create-journal" role="button" data-href="create_journal.php" style="display:inline-flex;gap:8px;align-items:center;padding:8px 12px;border-radius:8px;text-decoration:none;background:#4b5bd6;color:#fff !important;cursor:pointer;font-size:14px;">
+                                            <a href="#" id="btn-create-journal" role="button" data-disabled="<?php echo $hasDtrActivity ? '0' : '1'; ?>" data-href="create_journal.php" aria-disabled="<?php echo $hasDtrActivity ? 'false' : 'true'; ?>" <?php if (!$hasDtrActivity) echo 'tabindex="-1"'; ?> title="<?php echo $hasDtrActivity ? 'Create journal' : 'Add at least one DTR entry with non-zero hours or minutes to enable this action.'; ?>" style="display:inline-flex;gap:8px;align-items:center;padding:8px 12px;border-radius:8px;text-decoration:none;background:#4b5bd6;color:#fff !important;cursor:<?php echo $hasDtrActivity ? 'pointer' : 'not-allowed'; ?>;font-size:14px;opacity:<?php echo $hasDtrActivity ? '1' : '0.55'; ?>;pointer-events:<?php echo $hasDtrActivity ? 'auto' : 'none'; ?>;">
                                                 + Create Journal
                                             </a>
                                         </div>
                                     <?php endif; ?>
                                 </div>
+                                <?php if (!empty($student_id) && !$hasDtrActivity): ?>
+                                    <div style="margin:-2px 0 10px 0;color:#8a8f9d;font-size:13px;">
+                                        Upload and Create Journal are disabled until you have at least one DTR entry where hours or minutes is not zero.
+                                    </div>
+                                <?php endif; ?>
 
                                 <!-- Upload modal -->
                                 <form id="frm-upload-journal" action="" method="post" enctype="multipart/form-data" style="display:none;">
@@ -1582,6 +1601,7 @@ if ($user_id) {
                     (function(){
                         var btn = document.getElementById('btn-create-journal');
                         if (!btn) return;
+                        if (btn.getAttribute('data-disabled') === '1') return;
 
                         // create overlay element lazily (matches hr_head_home.php pattern)
                         var createOverlay = document.createElement('div');

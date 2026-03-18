@@ -463,6 +463,7 @@ CSS;
         $date2 = '';
         $date3 = '';
         $date4 = '';
+        $date5 = '';
         // Build initial rows based on DTR log dates within defaultFrom..defaultTo
         $initialLogDates = [];
         if (!empty($defaultFrom) && !empty($defaultTo) && !empty($allDtrDates)) {
@@ -470,26 +471,29 @@ CSS;
                 if ($dd >= $defaultFrom && $dd <= $defaultTo) $initialLogDates[] = $dd;
             }
         }
-        // fallback to Mon..Thu if no log dates found
+        // fallback to Mon..Fri if no log dates found
         if (empty($initialLogDates) && !empty($defaultFrom)) {
             try {
                 $d1 = new DateTime($defaultFrom);
                 $d2 = (clone $d1)->modify('+1 day');
                 $d3 = (clone $d1)->modify('+2 day');
                 $d4 = (clone $d1)->modify('+3 day');
+                $d5 = (clone $d1)->modify('+4 day');
                 $date1 = $d1->format('F j, Y');
                 $date2 = $d2->format('F j, Y');
                 $date3 = $d3->format('F j, Y');
                 $date4 = $d4->format('F j, Y');
+                $date5 = $d5->format('F j, Y');
             } catch (Exception $e) {
                 $date1 = '';
                 $date2 = '';
                 $date3 = '';
                 $date4 = '';
+                $date5 = '';
             }
         }
 
-        // Build rows HTML: prefer initialLogDates; if empty use the four weekdays computed above
+        // Build rows HTML: prefer initialLogDates; if empty use the five weekdays computed above
         $rowsHtml = '';
         $totalInitial = 0.0;
         if (!empty($initialLogDates)) {
@@ -502,27 +506,32 @@ CSS;
                 $rowsHtml .= "<tr>\n<td>" . htmlspecialchars($label) . "<br>" . htmlspecialchars($fmt) . "</td>\n<td class=\"editable-cell\" contenteditable=\"true\"></td>\n<td class=\"editable-cell\" contenteditable=\"true\" style=\"text-align:center;\">" . htmlspecialchars($hrsDisplay) . "</td>\n</tr>\n";
             }
         } else {
-            // fallback rows (Mon-Thu) — use $d1..$d4 DateTime objects computed earlier
+            // fallback rows (Mon-Fri) — use $d1..$d5 DateTime objects computed earlier
             $d1k = isset($d1) ? $d1->format('Y-m-d') : '';
             $d2k = isset($d2) ? $d2->format('Y-m-d') : '';
             $d3k = isset($d3) ? $d3->format('Y-m-d') : '';
             $d4k = isset($d4) ? $d4->format('Y-m-d') : '';
+            $d5k = isset($d5) ? $d5->format('Y-m-d') : '';
             $d1h = ($d1k && isset($dtrHours[$d1k])) ? $dtrHours[$d1k] : '';
             $d2h = ($d2k && isset($dtrHours[$d2k])) ? $dtrHours[$d2k] : '';
             $d3h = ($d3k && isset($dtrHours[$d3k])) ? $dtrHours[$d3k] : '';
             $d4h = ($d4k && isset($dtrHours[$d4k])) ? $dtrHours[$d4k] : '';
+            $d5h = ($d5k && isset($dtrHours[$d5k])) ? $dtrHours[$d5k] : '';
             $d1hDisplay = $d1h === '' ? '' : (string)((int)floor($d1h));
             $d2hDisplay = $d2h === '' ? '' : (string)((int)floor($d2h));
             $d3hDisplay = $d3h === '' ? '' : (string)((int)floor($d3h));
             $d4hDisplay = $d4h === '' ? '' : (string)((int)floor($d4h));
+            $d5hDisplay = $d5h === '' ? '' : (string)((int)floor($d5h));
             if ($d1h !== '') $totalInitial += (int)floor($d1h);
             if ($d2h !== '') $totalInitial += (int)floor($d2h);
             if ($d3h !== '') $totalInitial += (int)floor($d3h);
             if ($d4h !== '') $totalInitial += (int)floor($d4h);
+            if ($d5h !== '') $totalInitial += (int)floor($d5h);
             $rowsHtml .= "<tr>\n<td>Monday<br>" . htmlspecialchars($date1) . "</td>\n<td class=\"editable-cell\" contenteditable=\"true\"></td>\n<td class=\"editable-cell\" contenteditable=\"true\" style=\"text-align:center;\">" . htmlspecialchars($d1hDisplay) . "</td>\n</tr>\n";
             $rowsHtml .= "<tr>\n<td>Tuesday<br>" . htmlspecialchars($date2) . "</td>\n<td class=\"editable-cell\" contenteditable=\"true\"></td>\n<td class=\"editable-cell\" contenteditable=\"true\" style=\"text-align:center;\">" . htmlspecialchars($d2hDisplay) . "</td>\n</tr>\n";
             $rowsHtml .= "<tr>\n<td>Wednesday<br>" . htmlspecialchars($date3) . "</td>\n<td class=\"editable-cell\" contenteditable=\"true\"></td>\n<td class=\"editable-cell\" contenteditable=\"true\" style=\"text-align:center;\">" . htmlspecialchars($d3hDisplay) . "</td>\n</tr>\n";
             $rowsHtml .= "<tr>\n<td>Thursday<br>" . htmlspecialchars($date4) . "</td>\n<td class=\"editable-cell\" contenteditable=\"true\"></td>\n<td class=\"editable-cell\" contenteditable=\"true\" style=\"text-align:center;\">" . htmlspecialchars($d4hDisplay) . "</td>\n</tr>\n";
+            $rowsHtml .= "<tr>\n<td>Friday<br>" . htmlspecialchars($date5) . "</td>\n<td class=\"editable-cell\" contenteditable=\"true\"></td>\n<td class=\"editable-cell\" contenteditable=\"true\" style=\"text-align:center;\">" . htmlspecialchars($d5hDisplay) . "</td>\n</tr>\n";
         }
 
         // always add Total Hours row (centered)
@@ -854,6 +863,20 @@ CSS;
             return d.toISOString().slice(0,10);
         }
 
+        function getWeekdayIndex(dateStr) {
+            if (!dateStr) return -1;
+            return new Date(dateStr + 'T00:00:00').getDay(); // 0=Sun..6=Sat
+        }
+
+        function getSameWeekFriday(dateStr) {
+            if (!dateStr) return '';
+            var d = new Date(dateStr + 'T00:00:00');
+            var day = d.getDay();
+            var diffToFriday = 5 - day;
+            d.setDate(d.getDate() + diffToFriday);
+            return d.toISOString().slice(0,10);
+        }
+
         var inpFrom = document.getElementById('week_from');
         var inpTo = document.getElementById('week_to');
         // initialize min constraint from server-side computation (matches ojt_profile.php)
@@ -869,7 +892,7 @@ CSS;
             }
         } catch(e) {}
         if (inpFrom && inpTo) {
-            // ensure To is always at least From + 4 days (Mon-Fri)
+            // ensure To is always strictly after From and never beyond Friday of same week
             // expose server-side DTR dates and per-date hours to client
             var userDtrMap = <?php echo json_encode(isset($dtrHours) ? $dtrHours : []); ?> || {};
             var userDtrDates = <?php echo json_encode($allDtrDates); ?> || [];
@@ -913,7 +936,7 @@ CSS;
                 var tbody = ed.querySelector('.journal-table tbody');
                 if (!tbody) return;
                 if (!fromVal) return;
-                if (!toVal) toVal = addDays(fromVal,4);
+                if (!toVal) toVal = getSameWeekFriday(fromVal);
                 // find log dates from DTR within range
                 var matched = userDtrDates.filter(function(x){ return x >= fromVal && x <= toVal; });
                 if (matched.length === 0){
@@ -923,30 +946,70 @@ CSS;
                 tbody.innerHTML = buildRowsFromDateList(matched);
             }
 
+            function applyToConstraintsFromFromDate(fromVal) {
+                if (!fromVal) {
+                    inpTo.disabled = false;
+                    return { minTo: '', maxTo: '' };
+                }
+
+                var fromDay = getWeekdayIndex(fromVal);
+                if (fromDay === 0 || fromDay === 6) {
+                    alert('Please select a weekday (Monday to Friday) for From date.');
+                    inpFrom.value = '';
+                    inpTo.value = '';
+                    inpTo.disabled = false;
+                    return { minTo: '', maxTo: '' };
+                }
+
+                var minTo = addDays(fromVal, 1); // disallow same day and earlier
+                var maxTo = getSameWeekFriday(fromVal); // same-week Friday cap
+
+                inpTo.min = minTo;
+                inpTo.max = maxTo;
+
+                // If From is Friday, there is no valid To date in the same week.
+                if (minTo > maxTo) {
+                    inpTo.value = '';
+                    inpTo.disabled = true;
+                    alert('From date is already Friday. Please select Monday to Thursday so To date can be selected within the same week.');
+                } else {
+                    inpTo.disabled = false;
+                    if (!inpTo.value || inpTo.value < minTo || inpTo.value > maxTo) {
+                        inpTo.value = minTo;
+                    }
+                }
+
+                return { minTo: minTo, maxTo: maxTo };
+            }
+
             inpFrom.addEventListener('change', function(){
                 if (!this.value) return;
                 try {
-                    var suggested = addDays(this.value, 4);
-                    if (!inpTo.value || inpTo.value < this.value || inpTo.value < suggested) {
-                        inpTo.value = suggested;
-                    }
-                    inpTo.min = this.value;
+                    var limits = applyToConstraintsFromFromDate(this.value);
+                    if (!limits.minTo || !limits.maxTo) return;
                 } catch(e) {}
                 // render rows based on selected range
-                try { renderJournalRowsForRange(this.value, inpTo.value || addDays(this.value,4)); } catch(e) {}
+                try { renderJournalRowsForRange(this.value, inpTo.value); } catch(e) {}
             });
 
             inpTo.addEventListener('change', function(){
                 if (!this.value || !inpFrom.value) return;
-                if (this.value < inpFrom.value) {
-                    alert('Invalid range: "To" must be the same or after "From".');
-                    this.value = addDays(inpFrom.value, 4);
+                var minTo = addDays(inpFrom.value, 1);
+                var maxTo = getSameWeekFriday(inpFrom.value);
+                if (this.value < minTo || this.value > maxTo) {
+                    alert('Invalid range: "To" must be after "From" and within the same week up to Friday.');
+                    this.value = minTo <= maxTo ? minTo : '';
                 }
                 try { renderJournalRowsForRange(inpFrom.value, this.value); } catch(e) {}
             });
 
             // initial render on load
-            try { if (inpFrom && inpFrom.value) renderJournalRowsForRange(inpFrom.value, inpTo.value || addDays(inpFrom.value,4)); } catch(e) {}
+            try {
+                if (inpFrom && inpFrom.value) {
+                    applyToConstraintsFromFromDate(inpFrom.value);
+                    renderJournalRowsForRange(inpFrom.value, inpTo.value);
+                }
+            } catch(e) {}
         }
 
         // submit: validate rows and copy content

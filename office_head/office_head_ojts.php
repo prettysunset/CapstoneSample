@@ -320,6 +320,40 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'view_journals') {
   }
 }
 
+// AJAX: resolve MOA file by school name (priority source for attachments tab)
+if (isset($_GET['ajax']) && $_GET['ajax'] === 'resolve_moa') {
+  if (ob_get_length()) ob_clean();
+  header('Content-Type: application/json');
+
+  try {
+    $college = trim((string)($_GET['college'] ?? ''));
+    if ($college === '') {
+      echo json_encode(['success' => true, 'moa_file' => '']);
+      exit;
+    }
+
+    $moaFile = '';
+    $qm = $conn->prepare("SELECT moa_file FROM moa WHERE LOWER(TRIM(school_name)) = LOWER(TRIM(?)) ORDER BY date_uploaded DESC, moa_id DESC LIMIT 1");
+    if ($qm) {
+      $qm->bind_param('s', $college);
+      $qm->execute();
+      $rm = $qm->get_result()->fetch_assoc();
+      $qm->close();
+      if ($rm && !empty($rm['moa_file'])) {
+        $moaFile = (string)$rm['moa_file'];
+      }
+    }
+
+    echo json_encode(['success' => true, 'moa_file' => $moaFile]);
+    exit;
+  } catch (Throwable $e) {
+    if (ob_get_length()) ob_clean();
+    http_response_code(500);
+    echo json_encode(['success' => false, 'message' => 'Server error while resolving MOA']);
+    exit;
+  }
+}
+
 // AJAX: view evaluation details (read-only)
 if (isset($_GET['ajax']) && $_GET['ajax'] === 'view_eval') {
   if (ob_get_length()) ob_clean();
@@ -1459,6 +1493,18 @@ if (!empty($completedArr)) {
     const printBtn = qs('printDTR');
     if (printBtn) printBtn.style.display = isForEval ? 'inline-flex' : 'none';
   }
+  function formatStatusLabel(rawStatus){
+    const s = (rawStatus || '').toString().trim().toLowerCase();
+    if (!s) return '—';
+    return s
+      .replace(/_/g, ' ')
+      .replace(/\b\w/g, function(ch){ return ch.toUpperCase(); });
+  }
+  function formatHoursMax2(value){
+    const n = Number(value);
+    if (!isFinite(n)) return '—';
+    return n.toFixed(2).replace(/\.00$/, '').replace(/(\.\d)0$/, '$1');
+  }
   function esc(v){
     return String(v == null ? '' : v)
       .replace(/&/g, '&amp;')
@@ -1609,6 +1655,18 @@ if (!empty($completedArr)) {
         tbody.innerHTML = '<tr class="empty"><td colspan="3" style="padding:18px;text-align:center;color:#6b7280">Unable to load weekly journals.</td></tr>';
       });
   }
+  function resolveMoaByCollege(college){
+    const school = (college || '').toString().trim();
+    if (!school) return Promise.resolve('');
+    const url = 'office_head_ojts.php?ajax=resolve_moa&college=' + encodeURIComponent(school) + '&_ts=' + Date.now();
+    return fetch(url, { cache: 'no-store' })
+      .then(function(r){ return r.json(); })
+      .then(function(j){
+        if (!j || !j.success) return '';
+        return (j.moa_file || '').toString().trim();
+      })
+      .catch(function(){ return ''; });
+  }
   function renderAttachments(d){
     const list = qs('view_attachments_list');
     if (!list) return;
@@ -1617,6 +1675,7 @@ if (!empty($completedArr)) {
       { label: 'Letter of Intent', file: d.letter_of_intent },
       { label: 'Endorsement Letter', file: d.endorsement_letter },
       { label: 'Resume', file: d.resume },
+      { label: 'MOA', file: d.moa_file || d.moa },
       { label: 'Picture', file: d.picture }
     ].filter(function(a){ return !!(a.file && String(a.file).trim()); });
 
@@ -1723,8 +1782,7 @@ if (!empty($completedArr)) {
       totalM = totalM % 60;
       const rendered = totalH + (totalM / 60);
       const req = Number(requiredHours || 0);
-      const reqTxt = req > 0 ? req : '—';
-      if (qs('view_hours_text')) qs('view_hours_text').textContent = rendered.toFixed(2).replace(/\.00$/, '') + ' out of ' + reqTxt + ' hours';
+      if (qs('view_hours_text')) qs('view_hours_text').textContent = formatHoursMax2(rendered) + ' out of ' + formatHoursMax2(req) + ' hours';
       setDonut(req > 0 ? (rendered / req) * 100 : 0);
 
       const dates = rows.map(function(r){ return normalizeDateOnly(r.log_date); }).filter(Boolean).sort();
@@ -1780,7 +1838,8 @@ if (!empty($completedArr)) {
       const userId = Number(btn.getAttribute('data-id') || 0);
       const viewContext = getViewContext(btn);
       const isForEval = viewContext === 'for-eval';
-      const statusLabel = isForEval ? 'For Evaluation' : 'Ongoing';
+      const rowUserStatus = (btn.getAttribute('data-user-status') || '').toLowerCase();
+      const statusLabel = formatStatusLabel(rowUserStatus) || (isForEval ? 'For Evaluation' : 'Ongoing');
 
       if (!userId) {
         throw new Error('Missing user id on view button (data-id).');
@@ -1793,7 +1852,11 @@ if (!empty($completedArr)) {
       if (qs('view_name')) qs('view_name').textContent = btn.getAttribute('data-name') || '—';
       if (qs('view_college')) qs('view_college').textContent = btn.getAttribute('data-school') || '—';
       if (qs('view_course')) qs('view_course').textContent = btn.getAttribute('data-course') || '—';
-      if (qs('view_hours_text')) qs('view_hours_text').textContent = (btn.getAttribute('data-hours') || '—');
+      if (qs('view_hours_text')) {
+        const renderedInit = Number(btn.getAttribute('data-rendered') || 0);
+        const requiredInit = Number(btn.getAttribute('data-required') || 0);
+        qs('view_hours_text').textContent = formatHoursMax2(renderedInit) + ' out of ' + formatHoursMax2(requiredInit) + ' hours';
+      }
       if (qs('view_status_badge')) qs('view_status_badge').textContent = statusLabel;
       setPrintVisibility(isForEval);
 
@@ -1810,7 +1873,7 @@ if (!empty($completedArr)) {
         if (qs('view_office_contact')) qs('view_office_contact').textContent = OFFICE_HEAD_EMAIL || '—';
         if (qs('view_dates')) qs('view_dates').textContent = 'Date Started: —\nExpected End Date: —';
         const renderedFallback = Number(btn.getAttribute('data-rendered') || 0);
-        if (qs('view_hours_text')) qs('view_hours_text').textContent = renderedFallback + ' out of ' + (req > 0 ? req : '—') + ' hours';
+        if (qs('view_hours_text')) qs('view_hours_text').textContent = formatHoursMax2(renderedFallback) + ' out of ' + formatHoursMax2(req) + ' hours';
         setDonut(req > 0 ? (renderedFallback / req) * 100 : 0);
         renderAttachments({});
         return;
@@ -1844,9 +1907,8 @@ if (!empty($completedArr)) {
 
         if (qs('view_name')) qs('view_name').textContent = ((s.first_name || '') + ' ' + (s.last_name || '')).trim() || (btn.getAttribute('data-name') || '—');
         if (qs('view_status_badge')) {
-          qs('view_status_badge').textContent = isForEval
-            ? 'For Evaluation'
-            : (d.status || 'ongoing').toString().replace(/^\w/, function(c){ return c.toUpperCase(); });
+          const apiUserStatus = (d.user_status || '').toString().toLowerCase();
+          qs('view_status_badge').textContent = formatStatusLabel(apiUserStatus || rowUserStatus || d.status || 'ongoing');
         }
         if (qs('view_department')) qs('view_department').textContent = d.office1 || d.office2 || OFFICE_NAME || '—';
 
@@ -1869,14 +1931,18 @@ if (!empty($completedArr)) {
 
         const req = Number(s.total_hours_required || btn.getAttribute('data-required') || 0);
         const rendered = Number(s.hours_rendered || btn.getAttribute('data-rendered') || 0);
-        if (qs('view_hours_text')) qs('view_hours_text').textContent = rendered + ' out of ' + (req > 0 ? req : '—') + ' hours';
+        if (qs('view_hours_text')) qs('view_hours_text').textContent = formatHoursMax2(rendered) + ' out of ' + formatHoursMax2(req) + ' hours';
         setDonut(req > 0 ? (rendered / req) * 100 : 0);
 
         if (qs('view_assigned_office')) qs('view_assigned_office').textContent = d.office1 || d.office2 || OFFICE_NAME || '—';
         if (qs('view_office_head')) qs('view_office_head').textContent = OFFICE_HEAD_NAME || '—';
         if (qs('view_office_contact')) qs('view_office_contact').textContent = OFFICE_HEAD_EMAIL || '—';
 
-        renderAttachments(d);
+        resolveMoaByCollege(s.college || '').then(function(moaFromSchool){
+          // Priority: MOA matched by school from moa table, fallback to application moa_file.
+          d.moa_file = moaFromSchool || d.moa_file || '';
+          renderAttachments(d);
+        });
       })
       .catch(function(err){
         reportViewError('profile-fetch', err);
