@@ -446,8 +446,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && strpos($_SERVER['CONTENT_TYPE'] ?? 
 
               $msg = "Orientation Rescheduled: {$full}'s orientation is now scheduled on {$dtPart}.";
 
-              $ins = $conn->prepare("INSERT INTO notifications (message) VALUES (?)");
-              if ($ins) { $ins->bind_param('s', $msg); $ins->execute(); $nid = $conn->insert_id; $ins->close();
+              $createdAt = date('Y-m-d H:i:s');
+              $ins = $conn->prepare("INSERT INTO notifications (message, created_at) VALUES (?, ?)");
+              if ($ins) { $ins->bind_param('ss', $msg, $createdAt); $ins->execute(); $nid = $conn->insert_id; $ins->close();
                 $ins2 = $conn->prepare("INSERT INTO notification_users (notification_id, user_id, is_read) VALUES (?, ?, 0)");
                 if ($ins2) { foreach ($recipients as $uid) { $uI = (int)$uid; $ins2->bind_param('ii', $nid, $uI); $ins2->execute(); } $ins2->close(); }
               }

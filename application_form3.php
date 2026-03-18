@@ -1,5 +1,6 @@
 <?php 
 session_start();
+date_default_timezone_set('Asia/Manila');
 require 'conn.php';
 
 // fetch offices for the select filtered by course from AF2
@@ -582,9 +583,10 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                   $recipients = array_values(array_unique(array_filter($recipients, function($v){ return $v > 0; })));
 
                   if (!empty($recipients)) {
-                    $ins = $conn->prepare("INSERT INTO notifications (message) VALUES (?)");
+                    $createdAt = date('Y-m-d H:i:s');
+                    $ins = $conn->prepare("INSERT INTO notifications (message, created_at) VALUES (?, ?)");
                     if ($ins) {
-                      $ins->bind_param('s', $msg);
+                      $ins->bind_param('ss', $msg, $createdAt);
                       $ins->execute();
                       $nid = $conn->insert_id;
                       $ins->close();

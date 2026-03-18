@@ -154,8 +154,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['action']) && $_POST[
         $recipients = array_values(array_unique(array_filter($recipients, function($v) use ($uploader){ return $v > 0 && $v !== $uploader; })));
 
         if (!empty($recipients)) {
-          $ins = $conn->prepare("INSERT INTO notifications (message) VALUES (?)");
-          if ($ins) { $ins->bind_param('s', $msg); $ins->execute(); $nid = $conn->insert_id; $ins->close();
+          $createdAt = date('Y-m-d H:i:s');
+          $ins = $conn->prepare("INSERT INTO notifications (message, created_at) VALUES (?, ?)");
+          if ($ins) { $ins->bind_param('ss', $msg, $createdAt); $ins->execute(); $nid = $conn->insert_id; $ins->close();
             $ins2 = $conn->prepare("INSERT INTO notification_users (notification_id, user_id, is_read) VALUES (?, ?, 0)");
             if ($ins2) { foreach ($recipients as $uid) { $ins2->bind_param('ii', $nid, $uid); $ins2->execute(); } $ins2->close(); }
           }
