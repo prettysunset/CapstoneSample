@@ -1791,10 +1791,34 @@ if ($office_id) {
         const DETECT_INTERVAL_MS = 300; // target detection interval (~3 FPS)
         const MIN_SEND_INTERVAL_MS = 900; // throttle server-side checks
         const MAX_INFLIGHT = 1; // max concurrent server requests
+        const ANTI_SPOOF_CACHE_MS = 4000; // reuse anti-spoof result briefly for similar descriptors
         let lastDetectTime = 0;
         let lastSentAt = 0;
         let inflight = 0;
         let lastDescriptor = null;
+        const antiSpoofCache = new Map();
+        const antiSpoofInFlightKeys = new Set();
+
+        function descriptorSignature(descriptor) {
+            if (!Array.isArray(descriptor) || descriptor.length === 0) return '';
+            return descriptor.slice(0, 16).map(v => Number(v).toFixed(3)).join('|');
+        }
+
+        function getAntiSpoofCache(cacheKey) {
+            if (!cacheKey) return null;
+            const hit = antiSpoofCache.get(cacheKey);
+            if (!hit) return null;
+            if ((Date.now() - Number(hit.checkedAt || 0)) > ANTI_SPOOF_CACHE_MS) {
+                antiSpoofCache.delete(cacheKey);
+                return null;
+            }
+            return hit;
+        }
+
+        function setAntiSpoofCache(cacheKey, isLive) {
+            if (!cacheKey) return;
+            antiSpoofCache.set(cacheKey, { live: !!isLive, checkedAt: Date.now() });
+        }
 
         // Reduce inputSize to speed up detection (tradeoff: slightly lower accuracy).
         // Try 128 for a good balance; set lower (96) if you need more speed.
@@ -1898,36 +1922,21 @@ if ($office_id) {
                         off.width = w; off.height = h;
                         const octx = off.getContext('2d');
                         octx.drawImage(videoEl, box.x, box.y, box.width, box.height, 0, 0, w, h);
-                        // compute full landmarks + descriptor only for this crop
                         const full = await faceapi.detectSingleFace(off, TINY_OPTIONS).withFaceLandmarks().withFaceDescriptor();
-                        if (!full || !full.descriptor) { inflight--; return; }
+                        if (!full || !full.descriptor) return;
                         descriptor = Array.from(full.descriptor);
-                    } catch (e) { console.warn('descriptor compute failed', e); inflight--; return; }
+                    } catch (e) {
+                        console.warn('descriptor compute failed', e);
+                        return;
+                    }
                 }
 
-                // probe_match first
-                let skipAnti = false;
-                try {
-                    const probeForm = new FormData(); probeForm.append('action','probe_match'); probeForm.append('descriptor', JSON.stringify(descriptor));
-                    const pmResp = await fetch(window.location.href, { method:'POST', body: probeForm });
-                    const pmj = await pmResp.json().catch(()=>null);
-                    const bypassDist = (typeof window.ANTISPOOF_BYPASS_DISTANCE !== 'undefined') ? Number(window.ANTISPOOF_BYPASS_DISTANCE) : -1.0;
-                    if (pmj && pmj.ok && pmj.user_id && pmj.best_distance !== undefined && Number(pmj.best_distance) <= Number(bypassDist)) {
-                        skipAnti = true; showMsg('High recognition confidence — skipping anti-spoof', true);
-                    }
-
-                    // If server suggests a time_out, ask user to confirm before proceeding
-                    if (pmj && pmj.suggested_action === 'time_out') {
-                        let who = pmj.user_id ? ('user ' + pmj.user_id) : 'the detected user';
-                        try { who = pmj.display_name || pmj.username || who; } catch(e){}
-                        const confirmMsg = 'Detected ' + who + '. Confirm Time Out for today?';
-                        const proceed = window.confirm(confirmMsg);
-                        if (!proceed) { inflight--; return; }
-                    }
-                } catch (e) { console.warn('probe_match error', e); }
-
-                if (!skipAnti) {
-                    // anti-spoof: crop face into offscreen canvas and send
+                // direct anti-spoof flow (probe removed for speed)
+                const antiKey = descriptorSignature(descriptor);
+                const cachedAnti = getAntiSpoofCache(antiKey);
+                if (!(cachedAnti && cachedAnti.live)) {
+                    if (antiSpoofInFlightKeys.has(antiKey)) return;
+                    antiSpoofInFlightKeys.add(antiKey);
                     if (!antiReady) { console.debug('Anti-spoof ping not confirmed — attempting anti-spoof call anyway'); }
                     try {
                         const off = document.createElement('canvas');
@@ -1942,12 +1951,34 @@ if ($office_id) {
                             method: 'POST', headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({ image: base64 })
                         }).catch(e=>{ console.warn('Anti-spoof fetch error', e); return { ok:false, error:e }; });
-                        if (!antiResp || antiResp.ok === false) { console.debug('Anti-spoof service unreachable', antiResp); showMsg('Anti-spoof service unreachable — scan denied', false); inflight--; return; }
+                        if (!antiResp || antiResp.ok === false) {
+                            console.debug('Anti-spoof service unreachable', antiResp);
+                            setAntiSpoofCache(antiKey, false);
+                            showMsg('Anti-spoof service unreachable — scan denied', false);
+                            return;
+                        }
                         const antiJson = await antiResp.json().catch((e)=>{ console.debug('Anti-spoof JSON parse error', e); return null; });
                         console.log('antispoof result', antiJson);
-                        if (!antiJson) { console.debug('Invalid anti-spoof response', antiResp); showMsg('Invalid anti-spoof response — scan denied', false); inflight--; return; }
-                        if (!antiJson.live) { console.debug('Anti-spoof check failed (spoof detected)', antiJson); /* showMsg('Anti-spoof failed — possible spoof detected', false); */ inflight--; return; }
-                    } catch (e) { console.warn('Anti-spoof error', e); console.debug('Anti-spoof check error', e); inflight--; return; }
+                        if (!antiJson) {
+                            console.debug('Invalid anti-spoof response', antiResp);
+                            setAntiSpoofCache(antiKey, false);
+                            showMsg('Invalid anti-spoof response — scan denied', false);
+                            return;
+                        }
+                        if (!antiJson.live) {
+                            console.debug('Anti-spoof check failed (spoof detected)', antiJson);
+                            setAntiSpoofCache(antiKey, false);
+                            return;
+                        }
+                        setAntiSpoofCache(antiKey, true);
+                    } catch (e) {
+                        console.warn('Anti-spoof error', e);
+                        console.debug('Anti-spoof check error', e);
+                        setAntiSpoofCache(antiKey, false);
+                        return;
+                    } finally {
+                        antiSpoofInFlightKeys.delete(antiKey);
+                    }
                 }
 
                 // final: send face_scan (time-in/out) — server will respond with success or not
@@ -1958,23 +1989,20 @@ if ($office_id) {
                     const localTime = String(dNow.getHours()).padStart(2,'0') + ':' + String(dNow.getMinutes()).padStart(2,'0') + ':' + String(dNow.getSeconds()).padStart(2,'0');
                     fd.append('client_local_date', localDate); fd.append('client_local_time', localTime);
                     const res = await fetch(window.location.href, { method:'POST', body: fd });
-                    if (!res.ok) { const txt = await res.text().catch(()=> ''); showMsg('Server error', false); inflight--; return; }
+                    if (!res.ok) { showMsg('Server error', false); return; }
                     let j = await res.json().catch(()=>null);
                     if (j && j.confirm === 'time_out') {
                         const proceed = window.confirm('ARE YOU SURE YOU WILL TIME OUT?');
-                        if (!proceed) { showMsg('Time out cancelled', false); inflight--; return; }
+                        if (!proceed) { showMsg('Time out cancelled', false); return; }
                         fd.append('confirm', '1');
                         const res2 = await fetch(window.location.href, { method: 'POST', body: fd });
-                        if (!res2.ok) { const txt = await res2.text().catch(()=> ''); showMsg('Server error', false); inflight--; return; }
+                        if (!res2.ok) { showMsg('Server error', false); return; }
                         j = await res2.json().catch(()=>null);
                     }
 
                     if (j && j.success) {
                         const who = j.display_name || j.username || (j.user_id ? ('user id ' + j.user_id) : '');
-                        const dist = (j.distance !== undefined) ? j.distance : j.best_distance;
-                        const distText = (dist !== undefined) ? (' dist=' + Number(dist).toFixed(3)) : '';
                         const follow = (j && j.message) ? j.message : ('Time in/out recorded. Have a good day' + (who ? (', ' + who) : ''));
-                        // suppress initial debug; immediately show friendly follow-up for 5s
                         showMsgThenGreet('', follow, 3000, true);
                     } else {
                         let msgText = (j && j.message) ? j.message : 'No match';
@@ -1982,8 +2010,12 @@ if ($office_id) {
                         if (j && j.templates_scanned !== undefined) msgText += ' scanned=' + j.templates_scanned;
                         showMsg(msgText, false);
                     }
-                } catch (e) { console.warn('face_scan error', e); }
-            } finally { inflight--; }
+                } catch (e) {
+                    console.warn('face_scan error', e);
+                }
+            } finally {
+                inflight--;
+            }
         }
 
         // start live camera automatically
