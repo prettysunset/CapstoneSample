@@ -62,7 +62,7 @@ function friendly_time_for_display($ts) {
     if (!$ts) return '';
     $s = (string)$ts;
     // match optional leading date then HH:MM[:SS]
-    if (preg_match('/(?:\d{4}-\d{2}-\d{2}\s+)?(\d{1,2}):(\d{2})(?::\d{2})?$/', $s, $m)) {
+        if (preg_match('/(?:\d{4}-\d{2}-\d{2}\s+)?(\d{1,2}):(\d{2})(?::\d{2})?$/', $s, $m)) {
         $h = (int)$m[1];
         $min = $m[2];
         $hh = $h % 12;
@@ -468,25 +468,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $client_ts = trim($_POST['client_ts'] ?? '');
         $today = null; $now = null;
         if ($client_local_date && $client_local_time) { $today = $client_local_date; $now = $client_local_time; }
-        elseif ($client_ts) { try { $cdt = new DateTime($client_ts); $today = $cdt->format('Y-m-d'); $now = $cdt->format('g:i'); } catch(Exception $e) { } }
+        elseif ($client_ts) { try { $cdt = new DateTime($client_ts); $today = $cdt->format('Y-m-d'); $now = $cdt->format('H:i'); } catch(Exception $e) { } }
         if (!$today || !$now) {
             $dtRow = $conn->query("SELECT DATE_FORMAT(NOW(), '%Y-%m-%d') AS today, DATE_FORMAT(NOW(), '%H:%i:%s') AS now_time")->fetch_assoc();
             $today = $dtRow['today'] ?? date('Y-m-d');
             if (!empty($dtRow['now_time'])) {
                 $tmpNow = DateTime::createFromFormat('H:i:s', $dtRow['now_time']);
-                $now = $tmpNow ? $tmpNow->format('g:i') : date('g:i');
+                $now = $tmpNow ? $tmpNow->format('H:i') : date('H:i');
             } else {
-                $now = date('g:i');
+                $now = date('H:i');
             }
         }
-        // determine hour (24-hour) for deciding AM vs PM, then normalize stored time to 12-hour like "2:01"
+        // determine hour (24-hour) for deciding AM vs PM, then normalize stored time to 24-hour
         $hourForDecision = null;
         try {
             if (!empty($now)) {
                 $tmpHour = DateTime::createFromFormat('H:i:s', $now) ?: DateTime::createFromFormat('H:i', $now) ?: new DateTime($today . ' ' . $now);
                 if ($tmpHour) $hourForDecision = (int)$tmpHour->format('H');
-                // store normalized time in 12-hour form for display/storage
-                if ($tmpHour) $now = $tmpHour->format('g:i');
+                // keep normalized stored time in 24-hour form
+                if ($tmpHour) $now = $tmpHour->format('H:i');
             }
         } catch (Exception $e) { /* leave $now as-is on parse error */ }
 
@@ -762,24 +762,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $client_ts = trim($_POST['client_ts'] ?? '');
                 $today = null; $now = null;
                 if ($client_local_date && $client_local_time) { $today = $client_local_date; $now = $client_local_time; }
-                elseif ($client_ts) { try { $cdt = new DateTime($client_ts); $today = $cdt->format('Y-m-d'); $now = $cdt->format('g:i'); } catch(Exception $e) { } }
+                elseif ($client_ts) { try { $cdt = new DateTime($client_ts); $today = $cdt->format('Y-m-d'); $now = $cdt->format('H:i'); } catch(Exception $e) { } }
                 if (!$today || !$now) {
                     $dtRow = $conn->query("SELECT DATE_FORMAT(NOW(), '%Y-%m-%d') AS today, DATE_FORMAT(NOW(), '%H:%i:%s') AS now_time")->fetch_assoc();
                     $today = $dtRow['today'] ?? date('Y-m-d');
                     if (!empty($dtRow['now_time'])) {
                         $tmpNow = DateTime::createFromFormat('H:i:s', $dtRow['now_time']);
-                        $now = $tmpNow ? $tmpNow->format('g:i') : date('g:i');
+                        $now = $tmpNow ? $tmpNow->format('H:i') : date('H:i');
                     } else {
-                        $now = date('g:i');
+                        $now = date('H:i');
                     }
                 }
-                // determine hour (24-hour) for deciding AM vs PM, then normalize stored time to 12-hour like "2:01"
+                // determine hour (24-hour) for deciding AM vs PM, then normalize stored time to 24-hour
                 $hourForDecision = null;
                 try {
                     if (!empty($now)) {
                         $tmpHour = DateTime::createFromFormat('H:i:s', $now) ?: DateTime::createFromFormat('H:i', $now) ?: new DateTime($today . ' ' . $now);
                         if ($tmpHour) $hourForDecision = (int)$tmpHour->format('H');
-                        if ($tmpHour) $now = $tmpHour->format('g:i');
+                        if ($tmpHour) $now = $tmpHour->format('H:i');
                     }
                 } catch (Exception $e) { /* leave $now as-is on parse error */ }
 
@@ -1065,7 +1065,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             // client_ts is an ISO string (UTC). Convert to server timezone only if needed.
             $cdt = new DateTime($client_ts);
             $today = $cdt->format('Y-m-d');
-            $now = $cdt->format('g:i');
+            $now = $cdt->format('H:i');
         } catch (Exception $e) { /* ignore, fallback to DB */ }
     }
         if (!$today || !$now) {
@@ -1073,9 +1073,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $today = $dtRow['today'] ?? date('Y-m-d');
             if (!empty($dtRow['now_time'])) {
             	$tmpNow = DateTime::createFromFormat('H:i:s', $dtRow['now_time']);
-            	$now = $tmpNow ? $tmpNow->format('g:i') : date('g:i');
+                $now = $tmpNow ? $tmpNow->format('H:i') : date('H:i');
         	} else {
-        		$now = date('g:i');
+            	$now = date('H:i');
         	}
     }
 
@@ -1449,6 +1449,26 @@ if ($office_id) {
   .btn:disabled{background:#c7c7c7;cursor:not-allowed;color:#444}
   .msg{display:none;text-align:center;margin-top:12px;padding:10px;border-radius:8px;font-size:14px}
   .office-name{font-size:13px;color:#4b5563;text-align:center;margin-bottom:8px}
+    .detection-hint{
+        margin-top:8px;
+        padding:8px 10px;
+        border-radius:8px;
+        border:1px solid #cbd5e1;
+        background:#f8fafc;
+        color:#334155;
+        font-size:12px;
+        text-align:center;
+    }
+    .detection-hint.good{
+        border-color:#86efac;
+        background:#f0fdf4;
+        color:#166534;
+    }
+    .detection-hint.warn{
+        border-color:#fcd34d;
+        background:#fffbeb;
+        color:#92400e;
+    }
 
   /* hide native scrollbar visuals in WebKit/Firefox (keeps ability to scroll if overflow occurs) */
   ::-webkit-scrollbar { width:0; height:0; }
@@ -1485,6 +1505,8 @@ if ($office_id) {
                     <canvas id="canvas" style="position:absolute;left:0;top:0;width:100%;height:100%;border-radius:8px;pointer-events:none;display:block;transform:scaleX(-1);-webkit-transform:scaleX(-1);"></canvas>
                 </div>
 
+                <div id="detectionHint" class="detection-hint" aria-live="polite">Initializing camera...</div>
+
                 <div style="text-align:center;margin-top:10px;font-size:13px;color:#475569">
                     New OJT? <a id="registerFaceLink" href="register_face.php?return=<?php echo urlencode($_SERVER['REQUEST_URI']); ?>" title="For new OJTs or to update an existing face" aria-label="Register or update face" style="color:#3b82f6;text-decoration:underline;margin-left:6px">Click here to register your face</a>
                 </div>
@@ -1520,7 +1542,21 @@ if ($office_id) {
   const password = document.getElementById('password');
   const officeId = document.getElementById('office_id').value;
   const msg = document.getElementById('msg');
+    const detectionHint = document.getElementById('detectionHint');
     const SUPPRESS_ERROR_MESSAGES = true;
+
+        let _lastHintText = '';
+        let _lastHintKind = '';
+        function setDetectionHint(text, kind){
+                if (!detectionHint) return;
+                const safeKind = (kind === 'good' || kind === 'warn') ? kind : '';
+                if (_lastHintText === text && _lastHintKind === safeKind) return;
+                _lastHintText = text;
+                _lastHintKind = safeKind;
+                detectionHint.textContent = text;
+                detectionHint.classList.remove('good', 'warn');
+                if (safeKind) detectionHint.classList.add(safeKind);
+        }
 
     // message hide timeout handle so we can control exact display duration
     var _pc_msg_hide_timeout = null;
@@ -1839,6 +1875,7 @@ if ($office_id) {
                     } catch(e) { /* ignore */ }
                 });
                 showMsg('Camera started.', true);
+                setDetectionHint('Face not detected yet. Tumapat sa camera.', 'warn');
 
                 // check antispoof service availability once (ping only for info)
                 try {
@@ -1878,6 +1915,7 @@ if ($office_id) {
                     faceapi.detectSingleFace(videoEl, TINY_OPTIONS).withFaceLandmarks().then(async (det) => {
                         if (!det) {
                             const ctx = canvasEl.getContext('2d'); ctx.clearRect(0,0,canvasEl.width,canvasEl.height);
+                            setDetectionHint('Face not detected. Tumapat sa camera and keep still.', 'warn');
                             return;
                         }
 
@@ -1895,6 +1933,31 @@ if ($office_id) {
                                 for (let p of pts) { ctx.fillRect(p.x-1, p.y-1, 2, 2); }
                             }
                         } catch (e) { console.warn('overlay draw failed', e); }
+
+                        // Live guidance based on face box size and position.
+                        try {
+                            const frameW = canvasEl.width || videoEl.videoWidth || 640;
+                            const frameH = canvasEl.height || videoEl.videoHeight || 480;
+                            const faceArea = Math.max(1, box.width * box.height);
+                            const frameArea = Math.max(1, frameW * frameH);
+                            const areaRatio = faceArea / frameArea;
+                            const cx = box.x + (box.width / 2);
+                            const cy = box.y + (box.height / 2);
+                            const centerOffsetX = Math.abs((cx / frameW) - 0.5);
+                            const centerOffsetY = Math.abs((cy / frameH) - 0.5);
+
+                            if (areaRatio < 0.08) {
+                                setDetectionHint('Face detected pero malayo. Please lumapit pa ng konti.', 'warn');
+                            } else if (areaRatio > 0.52) {
+                                setDetectionHint('Masyadong malapit sa camera. Umatras ng konti.', 'warn');
+                            } else if (centerOffsetX > 0.22 || centerOffsetY > 0.22) {
+                                setDetectionHint('I-center ang face sa frame for faster detection.', 'warn');
+                            } else {
+                                setDetectionHint('Good position. Hold still 1 to 2 seconds...', 'good');
+                            }
+                        } catch (e) {
+                            console.debug('hint update error', e);
+                        }
 
                         // throttle sending descriptors: only send when MIN_SEND_INTERVAL_MS elapsed
                         const nowTs = Date.now();
