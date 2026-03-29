@@ -127,6 +127,15 @@ if (!empty($_SESSION['user_id'])) {
 }
 if (!$signer_name) $signer_name = 'City Human Resource Management Officer';
 
+$logo_web_path = '';
+if (is_file(__DIR__ . '/logo_certt.jpg')) {
+  $logo_web_path = 'logo_certt.jpg';
+} elseif (is_file(__DIR__ . '/logo_certt.jpeg')) {
+  $logo_web_path = 'logo_certt.jpeg';
+} elseif (is_file(__DIR__ . '/logo_certt.png')) {
+  $logo_web_path = 'logo_certt.png';
+}
+
 ?>
 <!doctype html>
 <html lang="en">
@@ -135,40 +144,71 @@ if (!$signer_name) $signer_name = 'City Human Resource Management Officer';
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Certificate of Completion - <?= htmlspecialchars($student_name) ?></title>
   <style>
-    @page { size: A4; margin: 20mm; }
+    @page { size: A4; margin: 1in 1in .5in 1in; }
     html,body{height:100%;margin:0;background:#fff}
-    body{display:flex;align-items:center;justify-content:center;padding:20mm;font-family:Georgia, 'Times New Roman', serif;color:#111}
-    .cert{width:100%;max-width:800px;padding:36px;border:0;background:#fff}
+    body{padding:0;box-sizing:border-box;font-family:Arial, Helvetica, sans-serif;color:#111}
+    .cert{width:100%;padding:0;box-sizing:border-box;border:0;background:#fff;height:calc(297mm - 1.5in);min-height:calc(297mm - 1.5in);display:flex;flex-direction:column;margin:0 auto}
     .seal{display:block;text-align:center;margin-bottom:6px}
     .org{display:block;text-align:center;color:#d34e4e;font-weight:700;margin-bottom:6px}
-    h1{font-size:28px;text-align:center;letter-spacing:2px;margin:18px 0}
-    p{font-size:14px;line-height:1.6;text-align:justify}
+    .header{margin-bottom:20px;text-align:center;padding-top:.5in}
+    .seal img{width:56px;height:56px;object-fit:contain;display:block;margin:0 auto}
+    .govline{display:block;width:100%;max-width:none;font-size:12px;line-height:1.2;text-align:center;margin:0;color:#222}
+    .org{font-size:16px;line-height:1.15;margin:8px 0 4px;text-shadow:.3px .3px 0 #ab3d3d}
+    .rule{border:0;border-top:1px solid #777;width:calc(100% - 2in);margin:8px 1in 0}
+    h1{font-size:22px;text-align:center;letter-spacing:1px;margin:22px 0 22px;font-weight:800}
+    p{font-size:12px;line-height:1.35;text-align:center;margin:0 auto 18px;max-width:88%}
     .center{text-align:center}
     .big{font-weight:700}
-    .signature{margin-top:56px;text-align:center}
-    .sigline{display:block;margin-top:10px;border-top:1px solid #000;width:60%;margin-left:auto;margin-right:auto;padding-top:6px}
+    .mainpara{font-size:18px;padding-left:1in;padding-right:1in;box-sizing:border-box;max-width:none;width:100%;text-align:justify;text-indent:1in}
+    .signature{margin-top:36px;text-align:center}
+    .sigline{display:block;margin-top:10px;width:52%;margin-left:auto;margin-right:auto;padding-top:6px;font-size:18px;font-weight:700}
+    .sigtitle{font-size:18px}
+    .footer{margin-top:auto;text-align:center;padding-top:24px;padding-bottom:0;padding-left:.5in;padding-right:.5in;position:relative;top:50px}
+    .footer .rule{width:calc(100% - 1in);margin:8px .5in 0}
+    .motto{color:#a24545;font-size:13px;font-weight:700;margin:10px 0 2px}
+    .addr{color:#222;font-size:10px;margin:0;max-width:none}
+    @media screen {
+      body{padding:1in 1in .5in 1in}
+      .cert{max-width:calc(210mm - 2in)}
+    }
     @media print { body{padding:0} .cert{box-shadow:none} }
   </style>
 </head>
 <body>
   <div class="cert" role="document">
-    <div class="seal"><img src="" alt=""></div>
-    <div class="org">Office of the City Human Resource Management Office</div>
+    <div class="header">
+      <div class="seal">
+        <?php if ($logo_web_path): ?>
+          <img src="<?= htmlspecialchars($logo_web_path) ?>" alt="City of Malolos Seal">
+        <?php endif; ?>
+      </div>
+      <p class="govline">Republic of the Philippines</p>
+      <p class="govline">Province of Bulacan</p>
+      <p class="govline">City of Malolos</p>
+      <div class="org">Office of the City Human Resource Management Officer</div>
+      <hr class="rule">
+    </div> 
     <h1>CERTIFICATE OF COMPLETION</h1>
 
-        <p>This is to certify that <span class="big"><?= htmlspecialchars(strtoupper($student_name)) ?></span> has completed the <strong><?= htmlspecialchars($required_hours) ?></strong> hours of internship in the City Government of Malolos under the <strong><?= htmlspecialchars($office_name ?: 'the appropriate office') ?></strong>, covering the Period of <strong><?= htmlspecialchars($period_label ?: 'N/A') ?></strong>.</p>
+        <p class="mainpara">This is to certify that <span class="big"><?= htmlspecialchars(strtoupper($student_name)) ?></span> has completed the <strong><?= htmlspecialchars($required_hours) ?></strong> hours of internship in the City Government of Malolos under the <strong><?= htmlspecialchars($office_name ?: 'the appropriate office') ?></strong>, covering the Period of <strong><?= htmlspecialchars($period_label ?: 'N/A') ?></strong>.</p>
 
         <?php if ($school_eval_val !== null && $school_eval_val !== ''): ?>
-          <p>Based on the performance evaluation, Mr./Ms. <?= htmlspecialchars($row['s_last'] ?? '') ?> got a total rating of <strong><?= htmlspecialchars(number_format((float)$school_eval_val, 2, '.', '')) ?></strong>, which is highly commendable and evidence of excellent performance.</p>
+          <p class="mainpara">Based on the performance evaluation, Mr./Ms. <?= htmlspecialchars($row['s_last'] ?? '') ?> got a total rating of <strong><?= htmlspecialchars(number_format((float)$school_eval_val, 2, '.', '')) ?></strong>, which is highly commendable and evidence of excellent performance.</p>
         <?php elseif ($rating !== null): ?>
-          <p>Based on the performance evaluation, Mr./Ms. <?= htmlspecialchars($row['s_last'] ?? '') ?> got a total rating of <strong><?= htmlspecialchars($rating) ?></strong>.</p>
+          <p class="mainpara">Based on the performance evaluation, Mr./Ms. <?= htmlspecialchars($row['s_last'] ?? '') ?> got a total rating of <strong><?= htmlspecialchars($rating) ?></strong>.</p>
         <?php endif; ?>
 
-        <p style="margin-top:20px"><?= htmlspecialchars($issued_label) ?> at the Office of the City Human Resource Management Office, 3rd Floor City Hall Building, Mac Arthur Highway, Bulacan, City of Malolos, Bulacan.</p>
+        <p class="mainpara" style="margin-top:20px"><?= htmlspecialchars($issued_label) ?> at the Office of the City Human Resource Management Office, 3rd Floor City Hall Building, Mac Arthur Highway, Bulacan, City of Malolos, Bulacan.</p>
 
     <div class="signature">
       <div class="sigline"><?= htmlspecialchars($signer_name) ?></div>
-      <div style="margin-top:6px;font-weight:700">City Human Resource Management Officer</div>
+      <div class="sigtitle" style="margin-top:6px;font-weight:700">City Human Resource Management Officer</div>
+    </div>
+
+    <div class="footer">
+      <hr class="rule">
+      <div class="motto">"DAKILA ANG BAYAN NA MAY MALASAKIT SA MAMAMAYAN"</div>
+      <p class="addr">3F City Government Building, Mac Arthur Highway, Barangay Bulihan, City of Malolos 3000</p>
     </div>
   </div>
   <script>
