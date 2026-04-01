@@ -89,11 +89,16 @@ function render_letter($data){
     $office_head = htmlspecialchars($data['office_head_name'] ?? '');
     $hr_head = htmlspecialchars($data['hr_head_name'] ?? '');
     // Layout tuned to match the provided endorsement photo
-    $html = "<div style='page-break-after:always;padding:36px 40px;font-family:Arial, Helvetica, sans-serif;color:#111'>";
+    $html = "<div style='page-break-after:always;padding:30px 40px;font-family:Arial, Helvetica, sans-serif;color:#111'>";
 
     // centered seal / emblem (hidden if missing)
     $html .= "<div style='text-align:center;margin-bottom:6px'>";
     $html .= "<img src='../assets/seal.png' alt='' style='width:64px;height:auto;display:block;margin:0 auto' onerror='this.style.display=\"none\"'/>";
+    $html .= "</div>";
+
+    // department logo above authority lines (hidden if missing)
+    $html .= "<div style='text-align:center;margin-bottom:6px'>";
+    $html .= "<img src='logo_certt.png' alt='' style='width:64px;height:auto;display:block;margin:0 auto' onerror='this.style.display=\"none\"'/>";
     $html .= "</div>";
 
     // authority lines and red office header with underline
@@ -110,11 +115,8 @@ function render_letter($data){
     $html .= "<div style='margin-bottom:10px'>City of Malolos</div>";
     $html .= "</div>";
 
-    // greeting
-    $html .= "<div style='margin-bottom:12px;font-size:13px'>Sir:</div>";
-
     // body paragraph (left-justified, narrow column)
-    $html .= "<div style='max-width:620px;font-size:13px;line-height:1.6;text-align:justify;margin-bottom:18px'>";
+    $html .= "<div style='font-size:13px;line-height:1.6;text-align:justify;margin-bottom:18px'>";
     $html .= "The state is committed to enriching and developing young individuals to be productive citizens through education and social welfare programs. Immersion in the working environment provides the students with the essential experience of being part of an organization outside of the school platform through internship program. Whereas the City Government upholds the values of capacitating its citizenry and thus endorses to your good office, the student:";
     $html .= "</div>";
 
@@ -126,7 +128,7 @@ function render_letter($data){
     $html .= "</div>";
 
     // follow-up paragraph and closing
-    $html .= "<div style='max-width:620px;font-size:13px;line-height:1.6;text-align:justify;margin-bottom:18px'>We kindly request the guidance of your office and supervisor to assist in meeting the above students' training requirement. Thank you very much.</div>";
+    $html .= "<div style='font-size:13px;line-height:1.6;text-align:justify;margin-bottom:18px'>We kindly request the guidance of your office and supervisor to assist in meeting the above students' training requirement. Thank you very much.</div>";
 
     $html .= "<div style='margin-top:12px;font-size:13px;margin-bottom:24px'>Respectfully yours,<br><br></div>";
 
