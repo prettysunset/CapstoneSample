@@ -105,16 +105,71 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // Begin DB transaction: insert evaluation and update statuses
         $conn->begin_transaction();
         $success = false;
+        $cert_serial = '';
+        $serial_lock_name = '';
+        $releaseSerialLock = function() use ($conn, &$serial_lock_name) {
+          if ($serial_lock_name === '') return;
+          $rl = $conn->prepare("SELECT RELEASE_LOCK(?)");
+          if ($rl) {
+            $rl->bind_param('s', $serial_lock_name);
+            $rl->execute();
+            $rl->close();
+          }
+          $serial_lock_name = '';
+        };
+
+        // Generate certificate serial as YYYY-0001 with per-year reset.
+        $serial_year = (int)date('Y');
+        $serial_lock_name = 'cert_serial_' . $serial_year;
+        $ls = $conn->prepare("SELECT GET_LOCK(?, 10) AS got_lock");
+        if (!$ls) {
+          $conn->rollback();
+          echo json_encode(['success' => false, 'message' => 'Failed to prepare serial lock']);
+          exit;
+        }
+        $ls->bind_param('s', $serial_lock_name);
+        $ls->execute();
+        $lr = $ls->get_result()->fetch_assoc();
+        $ls->close();
+        if (!$lr || (int)($lr['got_lock'] ?? 0) !== 1) {
+          $conn->rollback();
+          echo json_encode(['success' => false, 'message' => 'Unable to lock serial generator. Please try again.']);
+          exit;
+        }
+
+        $like_year = $serial_year . '-%';
+        $next_seq = 1;
+        $qs = $conn->prepare("SELECT COALESCE(MAX(CAST(SUBSTRING_INDEX(cert_serial, '-', -1) AS UNSIGNED)), 0) + 1 AS next_seq FROM evaluations WHERE cert_serial LIKE ? FOR UPDATE");
+        if (!$qs) {
+          $releaseSerialLock();
+          $conn->rollback();
+          echo json_encode(['success' => false, 'message' => 'Failed to prepare serial query']);
+          exit;
+        }
+        $qs->bind_param('s', $like_year);
+        if (!$qs->execute()) {
+          $qs->close();
+          $releaseSerialLock();
+          $conn->rollback();
+          echo json_encode(['success' => false, 'message' => 'Failed to generate serial number']);
+          exit;
+        }
+        $sr = $qs->get_result()->fetch_assoc();
+        $qs->close();
+        $next_seq = isset($sr['next_seq']) ? (int)$sr['next_seq'] : 1;
+        if ($next_seq < 1) $next_seq = 1;
+        $cert_serial = sprintf('%04d-%04d', $serial_year, $next_seq);
 
         // insert evaluation row and store overall text fields separately
-        $ins = $conn->prepare("INSERT INTO evaluations (student_id, rating, rating_desc, feedback, school_eval, strengths, improvement, comments, hiring, date_evaluated, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?)");
+        $ins = $conn->prepare("INSERT INTO evaluations (student_id, rating, rating_desc, feedback, school_eval, strengths, improvement, comments, hiring, cert_serial, date_evaluated, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?)");
         if ($ins) {
-          // bind types: i (student_id), d (ratingValue), s (ratingDesc), s (feedback), d (school_eval), s (strengths), s (improvements), s (other_comments), s (hire_decision), i (evaluator_id)
-          $ins->bind_param("idssdssssi", $student_id, $ratingValue, $ratingDesc, $remarks, $school_eval, $strengths, $improvements, $other_comments, $hire_decision, $evaluator_id);
+          // bind types: i (student_id), d (ratingValue), s (ratingDesc), s (feedback), d (school_eval), s (strengths), s (improvements), s (other_comments), s (hire_decision), s (cert_serial), i (evaluator_id)
+          $ins->bind_param("idssdsssssi", $student_id, $ratingValue, $ratingDesc, $remarks, $school_eval, $strengths, $improvements, $other_comments, $hire_decision, $cert_serial, $evaluator_id);
           $insOk = $ins->execute();
           $eval_insert_id = $conn->insert_id;
           $ins->close();
         } else {
+          $releaseSerialLock();
           echo json_encode(['success' => false, 'message' => 'DB prepare failed (evaluations insert)']);
           $conn->rollback();
           exit;
@@ -162,6 +217,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             if (!$respOk) {
+              $releaseSerialLock();
               $conn->rollback();
               echo json_encode(['success' => false, 'message' => 'Failed to save individual responses']);
               exit;
@@ -183,12 +239,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($u3) { $u3->bind_param("i", $student_id); $u3Ok = $u3->execute(); $u3->close(); }
 
             if ($u1Ok && $u2Ok && $u3Ok) {
+              $releaseSerialLock();
                 $conn->commit();
                 $success = true;
             } else {
+              $releaseSerialLock();
                 $conn->rollback();
             }
         } else {
+            $releaseSerialLock();
             $conn->rollback();
         }
 
@@ -253,7 +312,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
           }
 
-          echo json_encode(['success' => true, 'message' => 'Evaluation saved and statuses updated', 'rating' => $avgRounded, 'rating_text' => $ratingDesc]);
+          echo json_encode(['success' => true, 'message' => 'Evaluation saved and statuses updated', 'rating' => $avgRounded, 'rating_text' => $ratingDesc, 'cert_serial' => $cert_serial]);
           exit;
         } else {
           echo json_encode(['success' => false, 'message' => 'DB operation failed']);
@@ -2115,6 +2174,10 @@ if (!empty($completedArr)) {
     }
     // normalize payload value to number
     payload.school_eval = gradeVal;
+
+    if (!confirm('Are you sure you want to submit this evaluation?')) {
+      return;
+    }
 
     // disable submit to avoid duplicates
     this.disabled = true;

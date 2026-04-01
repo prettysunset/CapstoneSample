@@ -9,7 +9,7 @@ if ($eval_id <= 0) {
 }
 
 // fetch evaluation + student + evaluator
-$stmt = $conn->prepare("SELECT e.eval_id, e.rating, e.school_eval, e.feedback, e.date_evaluated,
+$stmt = $conn->prepare("SELECT e.eval_id, e.rating, e.school_eval, e.feedback, e.date_evaluated, e.cert_serial,
   s.student_id, s.first_name AS s_first, s.last_name AS s_last, s.college AS s_college, s.course AS s_course, s.total_hours_required, s.user_id AS s_user_id,
   u.first_name AS eval_first, u.last_name AS eval_last
   FROM evaluations e
@@ -31,6 +31,7 @@ $student_name = trim(($row['s_first'] ?? '') . ' ' . ($row['s_last'] ?? '')) ?: 
 $rating = $row['rating'] ?? null;
 $feedback = $row['feedback'] ?? '';
 $date_evaluated = $row['date_evaluated'] ?? null;
+$cert_serial = trim((string)($row['cert_serial'] ?? ''));
 
 // determine hours rendered (sum from dtr) if user_id present
 $hours_rendered = 0;
@@ -147,13 +148,14 @@ if (is_file(__DIR__ . '/logo_certt.jpg')) {
     @page { size: A4; margin: 1in 1in .5in 1in; }
     html,body{height:100%;margin:0;background:#fff}
     body{padding:0;box-sizing:border-box;font-family:Arial, Helvetica, sans-serif;color:#111}
-    .cert{width:100%;padding:0;box-sizing:border-box;border:0;background:#fff;height:calc(297mm - 1.5in);min-height:calc(297mm - 1.5in);display:flex;flex-direction:column;margin:0 auto}
+    .cert{width:100%;padding:0;box-sizing:border-box;border:0;background:#fff;height:calc(297mm - 1.5in);min-height:calc(297mm - 1.5in);display:flex;flex-direction:column;margin:0 auto;position:relative}
+    .serial-top-right{position:absolute;top:1cm;right:1cm;font-size:12px;font-weight:700;color:#222;letter-spacing:.4px}
     .seal{display:block;text-align:center;margin-bottom:6px}
     .org{display:block;text-align:center;color:#d34e4e;font-weight:700;margin-bottom:6px}
     .header{margin-bottom:20px;text-align:center;padding-top:.5in}
     .seal img{width:56px;height:56px;object-fit:contain;display:block;margin:0 auto}
     .govline{display:block;width:100%;max-width:none;font-size:12px;line-height:1.2;text-align:center;margin:0;color:#222}
-    .org{font-size:16px;line-height:1.15;margin:8px 0 4px;text-shadow:.3px .3px 0 #ab3d3d}
+    .org{font-size:21px;line-height:1.15;margin:8px 0 4px;text-shadow:.3px .3px 0 #ab3d3d;font-weight:700}
     .rule{border:0;border-top:1px solid #777;width:calc(100% - 2in);margin:8px 1in 0}
     h1{font-size:22px;text-align:center;letter-spacing:1px;margin:22px 0 22px;font-weight:800}
     p{font-size:12px;line-height:1.35;text-align:center;margin:0 auto 18px;max-width:88%}
@@ -161,9 +163,9 @@ if (is_file(__DIR__ . '/logo_certt.jpg')) {
     .big{font-weight:700}
     .mainpara{font-size:18px;padding-left:1in;padding-right:1in;box-sizing:border-box;max-width:none;width:100%;text-align:justify;text-indent:1in}
     .signature{margin-top:36px;text-align:center}
-    .sigline{display:block;margin-top:10px;width:52%;margin-left:auto;margin-right:auto;padding-top:6px;font-size:18px;font-weight:700}
+    .sigline{display:block;margin-top:10px;width:52%;margin-left:auto;margin-right:auto;padding-top:6px;font-size:18px;font-weight:700;text-transform:uppercase}
     .sigtitle{font-size:18px}
-    .footer{margin-top:auto;text-align:center;padding-top:24px;padding-bottom:0;padding-left:.5in;padding-right:.5in;position:relative;top:50px}
+    .footer{margin-top:auto;text-align:center;padding-top:24px;padding-bottom:0;padding-left:.5in;padding-right:.5in;position:relative;top:80px}
     .footer .rule{width:calc(100% - 1in);margin:8px .5in 0}
     .motto{color:#a24545;font-size:13px;font-weight:700;margin:10px 0 2px}
     .addr{color:#222;font-size:10px;margin:0;max-width:none}
@@ -176,6 +178,9 @@ if (is_file(__DIR__ . '/logo_certt.jpg')) {
 </head>
 <body>
   <div class="cert" role="document">
+    <?php if ($cert_serial !== ''): ?>
+      <div class="serial-top-right">Serial No.: <?= htmlspecialchars($cert_serial) ?></div>
+    <?php endif; ?>
     <div class="header">
       <div class="seal">
         <?php if ($logo_web_path): ?>
@@ -202,7 +207,7 @@ if (is_file(__DIR__ . '/logo_certt.jpg')) {
 
     <div class="signature">
       <div class="sigline"><?= htmlspecialchars($signer_name) ?></div>
-      <div class="sigtitle" style="margin-top:6px;font-weight:700">City Human Resource Management Officer</div>
+      <div class="sigtitle" style="margin-top:6px;font-weight:200">City Human Resource Management Officer</div>
     </div>
 
     <div class="footer">
