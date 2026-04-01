@@ -1476,14 +1476,31 @@ if ($moa_q) {
               } catch (e) { return raw; }
             };
 
+            // helper to format 24-hour time strings (e.g. 13:01[:00]) to 12-hour format.
+            const formatTime12 = (raw) => {
+              if (raw === null || raw === undefined) return '';
+              const v = raw.toString().trim();
+              if (!v || v === '00:00:00') return '';
+
+              const m = v.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+              if (!m) return v;
+
+              const h = Number(m[1]);
+              const min = m[2];
+              if (Number.isNaN(h) || h < 0 || h > 23) return v;
+
+              const h12 = (h % 12) || 12;
+              return `${h12}:${min}`;
+            };
+
             matched.forEach(r => {
               const tr = document.createElement('tr');
               tr.innerHTML = `
                 <td style="padding:8px;text-align:center">${formatDateCell(r.log_date) || ''}</td>
-                <td style="padding:8px;text-align:center">${r.am_in || ''}</td>
-                <td style="padding:8px;text-align:center">${r.am_out || ''}</td>
-                <td style="padding:8px;text-align:center">${r.pm_in || ''}</td>
-                <td style="padding:8px;text-align:center">${r.pm_out || ''}</td>
+                <td style="padding:8px;text-align:center">${formatTime12(r.am_in)}</td>
+                <td style="padding:8px;text-align:center">${formatTime12(r.am_out)}</td>
+                <td style="padding:8px;text-align:center">${formatTime12(r.pm_in)}</td>
+                <td style="padding:8px;text-align:center">${formatTime12(r.pm_out)}</td>
                 <td style="padding:8px;text-align:center">${r.hours != null ? r.hours : ''}</td>
                 <td style="padding:8px;text-align:center">${r.minutes != null ? r.minutes : ''}</td>
               `;

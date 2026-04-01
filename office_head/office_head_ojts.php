@@ -1599,6 +1599,17 @@ if (!empty($completedArr)) {
     const yyyy = d.getFullYear();
     return mm + '/' + dd + '/' + yyyy;
   }
+  function formatTime12NoSuffix(value){
+    const s = (value || '').toString().trim();
+    if (!s || s === '00:00:00') return '-';
+    const m = s.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+    if (!m) return s;
+    const h = Number(m[1]);
+    const min = m[2];
+    if (!Number.isFinite(h) || h < 0 || h > 23) return s;
+    const h12 = (h % 12) || 12;
+    return String(h12) + ':' + min;
+  }
   function setDonut(percent){
     const p = Math.max(0, Math.min(100, Number(percent) || 0));
     const circle = qs('donut_fore');
@@ -1878,10 +1889,10 @@ if (!empty($completedArr)) {
       tbody.innerHTML = rows.map(function(r){
         return '<tr>' +
           '<td style="padding:8px;border:1px solid #eee;text-align:center">' + esc(formatDateMMDDYYYY(r.log_date || '')) + '</td>' +
-          '<td style="padding:8px;border:1px solid #eee;text-align:center">' + esc(r.am_in || '-') + '</td>' +
-          '<td style="padding:8px;border:1px solid #eee;text-align:center">' + esc(r.am_out || '-') + '</td>' +
-          '<td style="padding:8px;border:1px solid #eee;text-align:center">' + esc(r.pm_in || '-') + '</td>' +
-          '<td style="padding:8px;border:1px solid #eee;text-align:center">' + esc(r.pm_out || '-') + '</td>' +
+          '<td style="padding:8px;border:1px solid #eee;text-align:center">' + esc(formatTime12NoSuffix(r.am_in || '')) + '</td>' +
+          '<td style="padding:8px;border:1px solid #eee;text-align:center">' + esc(formatTime12NoSuffix(r.am_out || '')) + '</td>' +
+          '<td style="padding:8px;border:1px solid #eee;text-align:center">' + esc(formatTime12NoSuffix(r.pm_in || '')) + '</td>' +
+          '<td style="padding:8px;border:1px solid #eee;text-align:center">' + esc(formatTime12NoSuffix(r.pm_out || '')) + '</td>' +
           '<td style="padding:8px;border:1px solid #eee;text-align:center">' + esc(r.hours || '0') + '</td>' +
           '<td style="padding:8px;border:1px solid #eee;text-align:center">' + esc(r.minutes || '0') + '</td>' +
         '</tr>';

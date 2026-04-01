@@ -370,10 +370,10 @@ $stmtOff->close();
            + '<td>' + escapeHtml(name) + '</td>'
            + '<td>' + escapeHtml(r.school||'') + '</td>'
            + '<td>' + escapeHtml(r.course||'') + '</td>'
-           + '<td class="center">' + escapeHtml(r.am_in||'') + '</td>'
-           + '<td class="center">' + escapeHtml(r.am_out||'') + '</td>'
-           + '<td class="center">' + escapeHtml(r.pm_in||'') + '</td>'
-           + '<td class="center">' + escapeHtml(r.pm_out||'') + '</td>'
+           + '<td class="center">' + escapeHtml(formatTime12NoSuffix(r.am_in||'')) + '</td>'
+           + '<td class="center">' + escapeHtml(formatTime12NoSuffix(r.am_out||'')) + '</td>'
+           + '<td class="center">' + escapeHtml(formatTime12NoSuffix(r.pm_in||'')) + '</td>'
+           + '<td class="center">' + escapeHtml(formatTime12NoSuffix(r.pm_out||'')) + '</td>'
            + '<td class="center">' + ((r.hours !== undefined && r.hours !== null) ? String(parseInt(r.hours)) : ((r.minutes !== undefined && r.minutes !== null) ? '0' : '')) + '</td>'
            + '<td class="center">' + (r.minutes !== undefined && r.minutes !== null ? String(parseInt(r.minutes)) : '') + '</td>'
            + '<td>' + escapeHtml(r.office||'') + '</td>'
@@ -393,6 +393,20 @@ $stmtOff->close();
   }
 
   function escapeHtml(s){ return (s===null||s===undefined)?'': String(s).replace(/[&<>"']/g, function(m){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]; }); }
+
+  // convert HH:MM[:SS] to 12-hour format without AM/PM suffix
+  function formatTime12NoSuffix(v){
+    if (v === null || v === undefined) return '';
+    const s = String(v).trim();
+    if (!s || s === '00:00:00') return '';
+    const m = s.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+    if (!m) return s;
+    const h = parseInt(m[1], 10);
+    const mm = m[2];
+    if (isNaN(h) || h < 0 || h > 23) return s;
+    const h12 = (h % 12) || 12;
+    return String(h12) + ':' + mm;
+  }
 
   // format 'YYYY-MM-DD' or similar into 'MM-DD-YYYY'
   function formatDateToMMDDYYYY(v){

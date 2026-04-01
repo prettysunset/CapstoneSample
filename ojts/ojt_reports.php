@@ -25,6 +25,24 @@ function normalize_avatar_url($rawPath) {
   return '../' . ltrim($raw, '/\\');
 }
 
+function format_time_12_no_suffix($rawTime) {
+  $s = trim((string)$rawTime);
+  if ($s === '' || $s === '00:00:00') return '—';
+
+  if (!preg_match('/^(\d{1,2}):(\d{2})(?::\d{2})?$/', $s, $m)) {
+    return $s;
+  }
+
+  $h = (int)$m[1];
+  $min = $m[2];
+  if ($h < 0 || $h > 23) return $s;
+
+  $h12 = $h % 12;
+  if ($h12 === 0) $h12 = 12;
+
+  return $h12 . ':' . $min;
+}
+
 $resCols = $conn->query("SHOW COLUMNS FROM users");
 if ($resCols) {
   $cols = [];
@@ -573,10 +591,10 @@ if (!empty($dtrUserId)) {
                     // format log_date as "November 17, 2025"
                     $logDate = (!empty($r['log_date']) && strtotime($r['log_date'])) ? date('F j, Y', strtotime($r['log_date'])) : ($r['log_date'] ?: '—');
                     echo '<td style="padding:10px 14px">'.htmlspecialchars($logDate).'</td>';
-                    echo '<td style="padding:10px 14px">'.htmlspecialchars($r['am_in'] ?: '—').'</td>';
-                    echo '<td style="padding:10px 14px">'.htmlspecialchars($r['am_out'] ?: '—').'</td>';
-                    echo '<td style="padding:10px 14px">'.htmlspecialchars($r['pm_in'] ?: '—').'</td>';
-                    echo '<td style="padding:10px 14px">'.htmlspecialchars($r['pm_out'] ?: '—').'</td>';
+                    echo '<td style="padding:10px 14px">'.htmlspecialchars(format_time_12_no_suffix($r['am_in'] ?? '')).'</td>';
+                    echo '<td style="padding:10px 14px">'.htmlspecialchars(format_time_12_no_suffix($r['am_out'] ?? '')).'</td>';
+                    echo '<td style="padding:10px 14px">'.htmlspecialchars(format_time_12_no_suffix($r['pm_in'] ?? '')).'</td>';
+                    echo '<td style="padding:10px 14px">'.htmlspecialchars(format_time_12_no_suffix($r['pm_out'] ?? '')).'</td>';
                     echo '<td style="padding:10px 14px">'.((int)$r['hours']).'h</td>';
                     echo '<td style="padding:10px 14px">'.(isset($r['minutes']) ? ((int)$r['minutes']).'m' : '—').'</td>';
                     echo '</tr>';

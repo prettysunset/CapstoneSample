@@ -4,6 +4,20 @@ date_default_timezone_set('Asia/Manila');
 
 function h($s){ return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
 
+function format_time_12_no_suffix($rawTime){
+  $s = trim((string)$rawTime);
+  if ($s === '' || $s === '00:00:00') return '';
+  if (!preg_match('/^(\d{1,2}):(\d{2})(?::\d{2})?$/', $s, $m)) return $s;
+
+  $h = (int)$m[1];
+  $min = $m[2];
+  if ($h < 0 || $h > 23) return $s;
+
+  $h12 = $h % 12;
+  if ($h12 === 0) $h12 = 12;
+  return $h12 . ':' . $min;
+}
+
 $app_id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
 if ($app_id <= 0 && isset($_GET['application_id'])) {
   $app_id = (int)$_GET['application_id'];
@@ -306,6 +320,10 @@ $student_name = trim(($student['first_name'] ?? '') . ' ' . ($student['last_name
             $am_out = $row['am_out'] ?? '';
             $pm_in = $row['pm_in'] ?? '';
             $pm_out = $row['pm_out'] ?? '';
+            $am_in_disp = format_time_12_no_suffix($am_in);
+            $am_out_disp = format_time_12_no_suffix($am_out);
+            $pm_in_disp = format_time_12_no_suffix($pm_in);
+            $pm_out_disp = format_time_12_no_suffix($pm_out);
             $mins = isset($row['minutes_total']) ? (int)$row['minutes_total'] : 0;
             $hval = floor($mins/60);
             $mval = $mins % 60;
@@ -319,10 +337,10 @@ $student_name = trim(($student['first_name'] ?? '') . ' ' . ($student['last_name
         ?>
         <tr class="row-fixed<?php echo $isWeekend ? ' weekend' : ''; ?>">
           <td style="text-align:center;padding:0"><?php echo $d; ?></td>
-          <td><?php echo $isBlank ? '' : h($am_in); ?></td>
-          <td><?php echo $isBlank ? '' : h($am_out); ?></td>
-          <td><?php echo $isBlank ? '' : h($pm_in); ?></td>
-          <td><?php echo $isBlank ? '' : h($pm_out); ?></td>
+          <td><?php echo $isBlank ? '' : h($am_in_disp); ?></td>
+          <td><?php echo $isBlank ? '' : h($am_out_disp); ?></td>
+          <td><?php echo $isBlank ? '' : h($pm_in_disp); ?></td>
+          <td><?php echo $isBlank ? '' : h($pm_out_disp); ?></td>
           <td><?php echo ($hval>0 && !$isBlank) ? $hval : ''; ?></td>
           <td><?php echo ($mval>0 && !$isBlank) ? $mval : ''; ?></td>
         </tr>

@@ -296,6 +296,18 @@ $user_name = $display_name ?? 'Office Head';
     if (p.length !== 3) return iso;
     return p[1] + '/' + p[2] + '/' + p[0];
   }
+
+  function formatTime12NoSuffix(value) {
+    const s = (value || '').toString().trim();
+    if (!s || s === '00:00:00') return '-';
+    const m = s.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+    if (!m) return s;
+    const h = Number(m[1]);
+    const min = m[2];
+    if (!Number.isFinite(h) || h < 0 || h > 23) return s;
+    const h12 = (h % 12) || 12;
+    return String(h12) + ':' + min;
+  }
  
   // disable future dates client-side (extra safety)
   const today = new Date().toISOString().slice(0,10);
@@ -316,10 +328,10 @@ $user_name = $display_name ?? 'Office Head';
                    + '<td>'+ (name||'') +'</td>'
                    + '<td>'+ (r.school||'-') +'</td>'
                    + '<td>'+ (r.course||'-') +'</td>'
-                   + '<td class="center">'+ (r.am_in||'-') +'</td>'
-                   + '<td class="center">'+ (r.am_out||'-') +'</td>'
-                   + '<td class="center">'+ (r.pm_in||'-') +'</td>'
-                   + '<td class="center">'+ (r.pm_out||'-') +'</td>'
+                   + '<td class="center">'+ formatTime12NoSuffix(r.am_in||'') +'</td>'
+                   + '<td class="center">'+ formatTime12NoSuffix(r.am_out||'') +'</td>'
+                   + '<td class="center">'+ formatTime12NoSuffix(r.pm_in||'') +'</td>'
+                   + '<td class="center">'+ formatTime12NoSuffix(r.pm_out||'') +'</td>'
                    + '<td class="center">'+ (r.hours !== undefined ? r.hours : '-') +'</td>'
                    + '<td class="center">'+ (r.minutes !== undefined ? r.minutes : '-') +'</td>';
       dtrBody.appendChild(tr);
