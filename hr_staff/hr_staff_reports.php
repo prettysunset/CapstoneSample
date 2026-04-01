@@ -106,7 +106,7 @@ function fetch_evaluations($conn){
   $check2 = $conn->query("SHOW COLUMNS FROM evaluations LIKE 'school_eval'");
   if ($check2) { $hasSchoolEval = $check2->num_rows > 0; $check2->free(); }
 
-  $cols = "e.eval_id, e.rating, e.feedback, e.hiring, e.date_evaluated";
+  $cols = "e.eval_id, e.rating, e.feedback, e.hiring, e.date_evaluated, e.cert_serial";
   if ($hasRatingDesc) $cols .= ", e.rating_desc";
   if ($hasSchoolEval) $cols .= ", e.school_eval";
   $cols .= ", s.first_name AS student_first, s.last_name AS student_last, u.first_name AS eval_first, u.last_name AS eval_last, su.office_name AS student_office";
@@ -192,7 +192,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'view_eval') {
     exit;
   } catch (Throwable $e) {
     http_response_code(500);
-    error_log('[hr_staff_reports view_eval] ' . $e->getMessage());
+    error_log('[hr_head_reports view_eval] ' . $e->getMessage());
     echo json_encode(['success' => false, 'message' => 'Server error while loading evaluation']);
     exit;
   }
@@ -238,7 +238,7 @@ if (!empty($students)) {
         $stmtDtr->close();
     } else {
         // log only; do not show any UI message
-        error_log('hr_staff_reports: failed prepare for DTR override - ' . $conn->error);
+        error_log('hr_head_reports: failed prepare for DTR override - ' . $conn->error);
     }
 }
 
@@ -298,35 +298,35 @@ $evaluations = fetch_evaluations($conn);
     </div>
 
     <div class="nav">
-      <a href="hr_staff_home.php">
+      <a href="hr_head_home.php">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px">
           <path d="M3 11.5L12 4l9 7.5"></path>
           <path d="M5 12v7a1 1 0 0 0 1 1h3v-5h6v5h3a1 1 0 0 0 1-1v-7"></path>
         </svg>
         Home
       </a>
-      <a href="hr_staff_ojts.php">
+      <a href="hr_head_ojts.php">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px">
           <circle cx="12" cy="8" r="3"></circle>
           <path d="M5.5 20a6.5 6.5 0 0 1 13 0"></path>
         </svg>
         OJTs
       </a>
-      <a href="hr_staff_dtr.php">
+      <a href="hr_head_dtr.php">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px">
           <circle cx="12" cy="12" r="8"></circle>
           <path d="M12 8v5l3 2"></path>
         </svg>
         DTR
       </a>
-      <a href="hr_staff_moa.php">
+      <a href="hr_head_moa.php">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px">
           <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
           <polyline points="14 2 14 8 20 8"></polyline>
         </svg>
         MOA
       </a>
-      <a href="hr_staff_accounts.php">
+      <a href="hr_head_accounts.php">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px">
           <circle cx="12" cy="12" r="3"></circle>
           <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06A2 2 0 1 1 2.28 16.8l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09c.7 0 1.3-.4 1.51-1A1.65 1.65 0 0 0 4.27 6.3L4.2 6.23A2 2 0 1 1 6 3.4l.06.06c.5.5 1.2.7 1.82.33.7-.4 1.51-.4 2.21 0 .62.37 1.32.17 1.82-.33L12.6 3.4a2 2 0 1 1 1.72 3.82l-.06.06c-.5.5-.7 1.2-.33 1.82.4.7.4 1.51 0 2.21-.37.62-.17 1.32.33 1.82l.06.06A2 2 0 1 1 19.4 15z"></path>
@@ -500,6 +500,7 @@ $evaluations = fetch_evaluations($conn);
             <thead>
               <tr>
                       <th style="text-align:center">Date Evaluated</th>
+                      <th style="text-align:center">Serial No.</th>
                       <th style="text-align:center">Student Name</th>
                       <th style="text-align:center">Rating</th>
                       <th style="text-align:center">School Grade</th>
@@ -514,8 +515,9 @@ $evaluations = fetch_evaluations($conn);
               <?php if (empty($evaluations)): ?>
                 <tr><td colspan="8" class="empty">No evaluations found.</td></tr>
               <?php else: foreach ($evaluations as $e): ?>
-                <tr data-search="<?= htmlspecialchars(strtolower(($e['student_first'] ?? '') . ' ' . ($e['student_last'] ?? '') . ' ' . ($e['eval_first'] ?? '') . ' ' . ($e['eval_last'] ?? '') . ' ' . ($e['hiring'] ?? ''))) ?>">
+                <tr data-search="<?= htmlspecialchars(strtolower(($e['student_first'] ?? '') . ' ' . ($e['student_last'] ?? '') . ' ' . ($e['eval_first'] ?? '') . ' ' . ($e['eval_last'] ?? '') . ' ' . ($e['hiring'] ?? '') . ' ' . ($e['cert_serial'] ?? ''))) ?>">
                   <td style="text-align:center"><?= htmlspecialchars(fmtDate($e['date_evaluated'] ?? '')) ?></td>
+                  <td style="text-align:center"><?= htmlspecialchars($e['cert_serial'] ?? '-') ?></td>
                   <td style="text-align:center"><?= htmlspecialchars(trim(($e['student_first'] ?? '') . ' ' . ($e['student_last'] ?? ''))) ?: 'N/A' ?></td>
                   <td style="text-align:center"><?= htmlspecialchars($e['rating_desc'] ?? '') ?></td>
                   <td style="text-align:center"><?php
@@ -897,7 +899,7 @@ $evaluations = fetch_evaluations($conn);
       openModal();
 
       try {
-        const res = await fetch('hr_staff_reports.php?ajax=view_eval&eval_id=' + encodeURIComponent(evalId), {
+        const res = await fetch('hr_head_reports.php?ajax=view_eval&eval_id=' + encodeURIComponent(evalId), {
           headers: { 'X-Requested-With': 'XMLHttpRequest' }
         });
         const payload = await res.json();
@@ -993,7 +995,7 @@ $evaluations = fetch_evaluations($conn);
     calendarOverlay.setAttribute('aria-hidden','true');
     calendarOverlay.innerHTML = `
       <div style="width:100%;height:100vh;max-width:100%;max-height:100vh;padding:0;background:transparent;display:flex;align-items:center;justify-content:center;position:relative;">
-        <iframe src="calendar_staff.php" title="Calendar" style="width:100%;height:100%;border:0;display:block;"></iframe>
+        <iframe src="calendar.php" title="Calendar" style="width:100%;height:100%;border:0;display:block;"></iframe>
       </div>`;
     document.body.appendChild(calendarOverlay);
     function showCalendar(){ calendarOverlay.style.display = 'flex'; calendarOverlay.setAttribute('aria-hidden','false'); }
@@ -1021,7 +1023,7 @@ $evaluations = fetch_evaluations($conn);
       if (!btn) return;
       const evalId = btn.getAttribute('data-eval-id');
       if (!evalId) return alert('Missing evaluation id');
-      const url = 'print_certificate_staff.php?eval_id=' + encodeURIComponent(evalId);
+      const url = 'print_certificate.php?eval_id=' + encodeURIComponent(evalId);
       window.open(url, '_blank');
     });
   })();
