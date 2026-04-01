@@ -15,11 +15,30 @@ $student_college = $student_course = $student_year = '';
 $app_picture = ''; // NEW: path to picture from application (relative)
 $app_picture_url = ''; // ensure defined
 $user_id = $_SESSION['user_id'] ?? null;
+$avatarCol = null;
+
+function normalize_avatar_url($rawPath) {
+    $raw = trim((string)$rawPath);
+    if ($raw === '') return '';
+    if (preg_match('/^(https?:)?\/\//i', $raw) || strpos($raw, 'data:') === 0) return $raw;
+    if (strpos($raw, '../') === 0 || strpos($raw, '/') === 0) return $raw;
+    return '../' . ltrim($raw, '/\\');
+}
+
+$resCols = $conn->query("SHOW COLUMNS FROM users");
+if ($resCols) {
+    $cols = [];
+    while ($r = $resCols->fetch_assoc()) $cols[] = $r['Field'];
+    foreach (['avatar', 'profile_pic', 'photo', 'picture'] as $c) {
+        if (in_array($c, $cols, true)) { $avatarCol = $c; break; }
+    }
+}
 
 if ($user_id) {
     // load user
     // include status so we can display the user's status from `users`
-    $u = $conn->prepare("SELECT username, first_name, middle_name, last_name, role, office_name, status FROM users WHERE user_id = ? LIMIT 1");
+    $avatarSelect = $avatarCol ? ", `$avatarCol` AS user_avatar" : '';
+    $u = $conn->prepare("SELECT username, first_name, middle_name, last_name, role, office_name, status" . $avatarSelect . " FROM users WHERE user_id = ? LIMIT 1");
     $u->bind_param("i", $user_id);
     $u->execute();
     $ur = $u->get_result()->fetch_assoc();
@@ -35,6 +54,9 @@ if ($user_id) {
         }
         // define $office_display for use in the status line
         $office_display = preg_replace('/\s+Office\s*$/i', '', trim($ur['office_name'] ?? ''));
+        if (!empty($ur['user_avatar'])) {
+            $app_picture_url = normalize_avatar_url($ur['user_avatar']);
+        }
     }
 
     // prefer student record linked to user account for profile fields (include student_id)
@@ -50,8 +72,8 @@ if ($user_id) {
         $student_college = $sr['college'] ?? '';
         $student_course = $sr['course'] ?? '';
         $student_year = $sr['year_level'] ?? '';
-        // get latest application picture for this student (if any)
-        if ($student_id) {
+        // fallback: get latest application picture only when no users avatar is available
+        if ($student_id && empty($app_picture_url)) {
             $ap = $conn->prepare("SELECT picture FROM ojt_applications WHERE student_id = ? AND COALESCE(picture,'') <> '' ORDER BY date_submitted DESC, application_id DESC LIMIT 1");
             $ap->bind_param("i", $student_id);
             $ap->execute();
@@ -75,7 +97,7 @@ if ($user_id) {
                 if ($found !== '') {
                     // store path relative to this PHP file for browser src
                     $app_picture = $found;
-                    $app_picture_url = '../' . ltrim($app_picture, "/\\");
+                    $app_picture_url = normalize_avatar_url($app_picture);
                 } else {
                     // log for debugging — do not expose to UI
                     error_log("ojt_profile: picture file not found for student_id {$student_id}. db='{$raw}' tried: ".implode(',', $candidates));
@@ -269,14 +291,14 @@ if ($user_id) {
     <div style="height:100%; display:flex; flex-direction:column; justify-content:space-between;">
       <div>
         <div style="text-align:center; padding: 8px 12px 20px;">
-          <div style="width:76px;height:76px;margin:0 auto 8px;border-radius:50%;background:#ffffff22;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:24px;overflow:hidden;">
+                    <div id="sidebarAvatarWrap" style="width:76px;height:76px;margin:0 auto 8px;border-radius:50%;background:#ffffff22;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:24px;overflow:hidden;">
   <?php if (!empty($app_picture_url)): ?>
-    <img src="<?php echo htmlspecialchars($app_picture_url); ?>" alt="Avatar" style="width:76px;height:76px;object-fit:cover;display:block;">
+        <img id="sidebarAvatarImg" src="<?php echo htmlspecialchars($app_picture_url . (strpos($app_picture_url, '?') === false ? '?' : '&') . 'v=' . time()); ?>" alt="Avatar" style="width:76px;height:76px;object-fit:cover;display:block;">
   <?php else: ?>
     <?php echo htmlspecialchars($initials); ?>
   <?php endif; ?>
 </div>
-<h3 style="color:#fff;font-size:16px;margin-bottom:4px;"><?php echo htmlspecialchars($display_name); ?></h3>
+<h3 id="sidebarDisplayName" style="color:#fff;font-size:16px;margin-bottom:4px;"><?php echo htmlspecialchars($display_name); ?></h3>
 <p style="color:#d6d9ee;font-size:13px;margin-top:0;"><?php echo htmlspecialchars($display_role); ?></p>
         </div>
 
@@ -921,7 +943,7 @@ if ($user_id) {
                                 </div>
                                 <?php if (!empty($student_id) && !$hasDtrActivity): ?>
                                     <div style="margin:-2px 0 10px 0;color:#8a8f9d;font-size:13px;">
-                                        Upload and Create Journal are disabled until you have at least one DTR entry where hours or minutes is not zero.
+                                        Upload and Create Journal are disabled until you have at least one DTR entry.
                                     </div>
                                 <?php endif; ?>
 
@@ -1585,14 +1607,26 @@ if ($user_id) {
       try{
         var d = e && e.data ? e.data : null;
         if (!d || d.type !== 'profile-updated') return;
-        if (typeof d.avatar !== 'undefined' && d.avatar) {
-          var img = document.querySelector('.profile img');
-          if (img) img.src = d.avatar;
-        }
-        if (typeof d.name !== 'undefined') {
-          var h = document.querySelector('.profile h3');
-          if (h) h.textContent = d.name;
-        }
+                if (typeof d.avatar !== 'undefined' && d.avatar) {
+                    var wrap = document.getElementById('sidebarAvatarWrap');
+                    var img = document.getElementById('sidebarAvatarImg');
+                    if (wrap && !img) {
+                        wrap.innerHTML = '';
+                        img = document.createElement('img');
+                        img.id = 'sidebarAvatarImg';
+                        img.alt = 'Avatar';
+                        img.style.width = '76px';
+                        img.style.height = '76px';
+                        img.style.objectFit = 'cover';
+                        img.style.display = 'block';
+                        wrap.appendChild(img);
+                    }
+                    if (img) img.src = d.avatar + (d.avatar.indexOf('?') === -1 ? '?' : '&') + 'v=' + Date.now();
+                }
+                if (typeof d.name !== 'undefined') {
+                    var h = document.getElementById('sidebarDisplayName');
+                    if (h) h.textContent = d.name;
+                }
       }catch(err){}
     });
   })();
