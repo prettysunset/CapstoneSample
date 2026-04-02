@@ -1505,7 +1505,7 @@ if ($office_id) {
                     <canvas id="canvas" style="position:absolute;left:0;top:0;width:100%;height:100%;border-radius:8px;pointer-events:none;display:block;transform:scaleX(-1);-webkit-transform:scaleX(-1);"></canvas>
                 </div>
 
-                <div id="detectionHint" class="detection-hint" aria-live="polite">Initializing camera...</div>
+                <div id="detectionHint" class="detection-hint" aria-live="polite" style="display:none;"></div>
 
                 <div style="text-align:center;margin-top:10px;font-size:13px;color:#475569">
                     New OJT? <a id="registerFaceLink" href="register_face.php?return=<?php echo urlencode($_SERVER['REQUEST_URI']); ?>" title="For new OJTs or to update an existing face" aria-label="Register or update face" style="color:#3b82f6;text-decoration:underline;margin-left:6px">Click here to register your face</a>
@@ -1548,14 +1548,7 @@ if ($office_id) {
         let _lastHintText = '';
         let _lastHintKind = '';
         function setDetectionHint(text, kind){
-                if (!detectionHint) return;
-                const safeKind = (kind === 'good' || kind === 'warn') ? kind : '';
-                if (_lastHintText === text && _lastHintKind === safeKind) return;
-                _lastHintText = text;
-                _lastHintKind = safeKind;
-                detectionHint.textContent = text;
-                detectionHint.classList.remove('good', 'warn');
-                if (safeKind) detectionHint.classList.add(safeKind);
+            return;
         }
 
     // message hide timeout handle so we can control exact display duration
@@ -1875,7 +1868,7 @@ if ($office_id) {
                     } catch(e) { /* ignore */ }
                 });
                 showMsg('Camera started.', true);
-                setDetectionHint('Face not detected yet. Tumapat sa camera.', 'warn');
+                setDetectionHint('Scanning...', '');
 
                 // check antispoof service availability once (ping only for info)
                 try {
@@ -1915,7 +1908,7 @@ if ($office_id) {
                     faceapi.detectSingleFace(videoEl, TINY_OPTIONS).withFaceLandmarks().then(async (det) => {
                         if (!det) {
                             const ctx = canvasEl.getContext('2d'); ctx.clearRect(0,0,canvasEl.width,canvasEl.height);
-                            setDetectionHint('Face not detected. Tumapat sa camera and keep still.', 'warn');
+                            setDetectionHint('Scanning...', '');
                             return;
                         }
 
