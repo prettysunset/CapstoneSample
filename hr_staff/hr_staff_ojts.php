@@ -1352,7 +1352,7 @@ if ($moa_q) {
           {label:'Letter of Intent', file:d.letter_of_intent},
           {label:'Endorsement', file:d.endorsement_letter},
           {label:'Resume', file:d.resume},
-          {label:'MOA (application)', file:d.moa_file},
+          {label:'MOA', file:d.moa_file},
           {label:'Picture', file:d.picture}
         ].filter(a=>a && a.file); // remove falsy items
 
