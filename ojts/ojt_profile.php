@@ -21,6 +21,7 @@ $avatarCol = null;
 function normalize_avatar_url($rawPath) {
     $raw = trim((string)$rawPath);
     if ($raw === '') return '';
+    if (strpos($raw, 'r2://') === 0) return r2_attachment_to_url($raw);
     if (preg_match('/^(https?:)?\/\//i', $raw) || strpos($raw, 'data:') === 0) return $raw;
     if (strpos($raw, '../') === 0 || strpos($raw, '/') === 0) return $raw;
     return '../' . ltrim($raw, '/\\');
@@ -82,6 +83,9 @@ if ($user_id) {
             $ap->close();
             if (!empty($apr['picture'])) {
                 $raw = $apr['picture'];
+                if (strpos($raw, 'r2://') === 0 || preg_match('/^https?:\/\//i', $raw)) {
+                    $app_picture_url = r2_attachment_to_url($raw);
+                } else {
                 // candidate URL/path patterns to try (prefer project-root relative)
                 $candidates = [
                   $raw,
@@ -104,6 +108,7 @@ if ($user_id) {
                     error_log("ojt_profile: picture file not found for student_id {$student_id}. db='{$raw}' tried: ".implode(',', $candidates));
                     $app_picture = '';
                     $app_picture_url = '';
+                }
                 }
             }
         }
@@ -1319,7 +1324,7 @@ if ($user_id) {
                                         <?php else: ?>
                                             <div style="display:flex;flex-direction:column;gap:12px;max-width:720px;">
                                                 <?php foreach ($requirements as $req): 
-                                                    $filePath = !empty($req['file']) ? '../' . ltrim($req['file'],'/\\') : '';
+                                                    $filePath = !empty($req['file']) ? r2_attachment_to_url($req['file']) : '';
                                                     $fileName = $req['file'] ? htmlspecialchars(basename($req['file'])) : '-';
                                                     // dates removed for all attachments per request
                                                     $dateLabel = '';
@@ -1332,7 +1337,7 @@ if ($user_id) {
                                                             </div>
                                                         </div>
                                                          <div style="display:flex;align-items:center;gap:10px;">
-                                                             <?php if (!empty($filePath) && is_file(__DIR__ . '/../' . ltrim($req['file'],'/\\'))): ?>
+                                                             <?php if (!empty($filePath)): ?>
                                                                  <a href="<?php echo htmlspecialchars($filePath); ?>" target="_blank" title="View" style="color:#6b6f8b;text-decoration:none;font-size:18px;">👁️</a>
                                                                  <a href="<?php echo htmlspecialchars($filePath); ?>" download title="Download" style="color:#6b6f8b;text-decoration:none;font-size:18px;">⬇️</a>
                                                              <?php else: ?>

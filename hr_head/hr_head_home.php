@@ -2,6 +2,7 @@
 session_start();
 date_default_timezone_set('Asia/Manila');
 require_once __DIR__ . '/../conn.php';
+require_once __DIR__ . '/../lib/r2_storage.php';
 
 // AJAX handler: create notification when an application is approved
 // This lets the frontend call this page to insert notifications for HR staff
@@ -189,6 +190,11 @@ $stmtApps->close();
 // current server date/time
 $current_time = date("g:i A");
 $current_date = date("l, F j, Y");
+$r2PublicBase = '';
+if (function_exists('r2_load_config')) {
+  $r2Cfg = r2_load_config();
+  $r2PublicBase = rtrim((string)($r2Cfg['public_base_url'] ?? ''), '/');
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -1866,6 +1872,31 @@ function handleAction(id, action) {
 }
 
 /* View Application Modal scripts */
+const R2_PUBLIC_BASE = <?php echo json_encode($r2PublicBase); ?>;
+
+function resolveAttachmentHref(raw) {
+  raw = (raw || '').toString().trim();
+  if (!raw) return '';
+
+  if (/^https?:\/\//i.test(raw) || raw.startsWith('/')) {
+    return raw;
+  }
+
+  if (raw.indexOf('r2://') === 0) {
+    if (!R2_PUBLIC_BASE) return '';
+    const objectKey = raw.substring(5).replace(/^\/+/, '');
+    if (!objectKey) return '';
+    const encoded = objectKey.split('/').map(function(part){ return encodeURIComponent(part); }).join('/');
+    return R2_PUBLIC_BASE + '/' + encoded;
+  }
+
+  if (/^uploads[\/\\]/i.test(raw)) {
+    return '../' + raw.replace(/^\/+/, '');
+  }
+
+  return '../uploads/' + raw.replace(/^\/+/, '');
+}
+
 async function openViewModal(appId) {
   const overlay = document.getElementById('viewOverlay');
   // clear
@@ -1924,14 +1955,10 @@ async function openViewModal(appId) {
       // prefer applicant picture (d.picture) if provided
       const picRaw = (d.picture || '').trim();
       if (picRaw) {
-        let picHref;
-        if (/^https?:\/\//i.test(picRaw) || picRaw.startsWith('/')) {
-          picHref = picRaw;
-        } else if (/^uploads[\/\\]/i.test(picRaw)) {
-          picHref = '../' + picRaw.replace(/^\/+/, '');
+        const picHref = resolveAttachmentHref(picRaw);
+        if (!picHref) {
+          avatarEl.innerHTML = (studentName && studentName !== 'N/A') ? studentName.trim().charAt(0).toUpperCase() : '👤';
         } else {
-          picHref = '../uploads/' + picRaw.replace(/^\/+/, '');
-        }
         // create image element and insert
         avatarEl.innerHTML = '';
         const img = document.createElement('img');
@@ -1946,6 +1973,7 @@ async function openViewModal(appId) {
           avatarEl.innerHTML = (studentName && studentName !== 'N/A') ? studentName.trim().charAt(0).toUpperCase() : '👤';
         };
         avatarEl.appendChild(img);
+        }
       } else {
         avatarEl.innerHTML = (studentName && studentName !== 'N/A') ? studentName.trim().charAt(0).toUpperCase() : '👤';
       }
@@ -1955,26 +1983,23 @@ async function openViewModal(appId) {
     const attachmentsEl = document.getElementById('view_attachments');
     if (attachmentsEl) {
       attachmentsEl.innerHTML = '';
-      const fileKeys = ['letter_of_intent','endorsement_letter','resume','moa_file','picture'];
+      const fileKeys = ['picture','letter_of_intent','endorsement_letter','resume','moa_file'];
+      const labels = {
+        picture: 'Formal Picture',
+        letter_of_intent: 'Letter of Intent',
+        endorsement_letter: 'Endorsement Letter',
+        resume: 'Resume',
+        moa_file: 'Memorandum of Agreement'
+      };
       const files = [];
-      fileKeys.forEach(k => { if (d[k]) files.push({ filepath: d[k], original_name: k.replace(/_/g,' ') }); });
+      fileKeys.forEach(k => { if (d[k]) files.push({ filepath: d[k], original_name: labels[k] || k.replace(/_/g,' ') }); });
       if (files.length) {
         files.forEach(file => {
           let raw = (file.filepath || '').trim();
           if (!raw) return; // skip empty
 
-          // Resolve href relative to this script (hr_head/ -> project root is ../)
-          let href;
-          if (/^https?:\/\//i.test(raw) || raw.startsWith('/')) {
-            // already a full URL or absolute path -> use as-is
-            href = raw;
-          } else if (/^uploads[\/\\]/i.test(raw)) {
-            // stored like "uploads/xxx" or "uploads\xxx" -> from hr_head file, prefix one level up
-            href = '../' + raw.replace(/^\/+/, '');
-          } else {
-            // stored as bare filename or relative path without uploads/ -> assume uploads/
-            href = '../uploads/' + raw.replace(/^\/+/, '');
-          }
+          const href = resolveAttachmentHref(raw);
+          if (!href) return;
 
           const a = document.createElement('a');
           a.href = href;

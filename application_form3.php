@@ -2,6 +2,33 @@
 session_start();
 date_default_timezone_set('Asia/Manila');
 require 'conn.php';
+require_once __DIR__ . '/lib/r2_storage.php';
+
+function build_r2_attachment_key($filename) {
+  $safeName = preg_replace('/[^A-Za-z0-9_\-.]/', '_', basename((string)$filename));
+  return 'attachments/' . time() . '_' . bin2hex(random_bytes(6)) . '_' . $safeName;
+}
+
+function ensure_db_connection(&$conn) {
+  global $DB_HOST, $DB_USER, $DB_PASS, $DB_NAME;
+
+  try {
+    if ($conn && $conn->ping()) {
+      return true;
+    }
+  } catch (Throwable $e) {
+    // Reconnect attempt below.
+  }
+
+  try {
+    $conn = new mysqli($DB_HOST, $DB_USER, $DB_PASS, $DB_NAME);
+    $conn->set_charset('utf8mb4');
+    return true;
+  } catch (Throwable $e) {
+    error_log('application_form3: DB reconnect failed: ' . $e->getMessage());
+    return false;
+  }
+}
 
 // fetch offices for the select filtered by course from AF2
 // only include offices that have available slots (capacity - approved - active > 0),
@@ -245,7 +272,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                     mkdir($uploadDir, 0777, true);
                 }
 
-                // Handle file uploads
+                // Handle file uploads (prefer R2 under attachments/, fallback to local uploads/)
                 function uploadFile($inputName, $uploadDir, array $allowedMimes, $maxBytes = 2097152) {
                     if (empty($_FILES[$inputName]['name']) || !is_uploaded_file($_FILES[$inputName]['tmp_name'])) {
                         return ''; // no file provided
@@ -257,6 +284,16 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                     if (!in_array($finfoType, $allowedMimes, true)) {
                         return ''; // wrong mime
                     }
+
+                    if (r2_is_enabled()) {
+                      $objectKey = build_r2_attachment_key($_FILES[$inputName]['name']);
+                      $uploadRes = r2_upload_file($_FILES[$inputName]['tmp_name'], $objectKey, $finfoType ?: 'application/octet-stream');
+                      if (!empty($uploadRes['ok']) && !empty($uploadRes['attachment'])) {
+                        return $uploadRes['attachment'];
+                      }
+                      error_log('AF3: R2 upload fallback to local for ' . $inputName . ' - ' . ($uploadRes['error'] ?? 'unknown error'));
+                    }
+
                     $fileName = time() . '_' . preg_replace('/[^A-Za-z0-9_\-\.]/', '_', basename($_FILES[$inputName]['name']));
                     $targetPath = $uploadDir . $fileName;
                     if (move_uploaded_file($_FILES[$inputName]['tmp_name'], $targetPath)) {
@@ -269,10 +306,26 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 $tmpDir = __DIR__ . DIRECTORY_SEPARATOR . 'uploads' . DIRECTORY_SEPARATOR . 'tmp' . DIRECTORY_SEPARATOR;
                 if (!file_exists($tmpDir)) mkdir($tmpDir, 0777, true);
 
-                function promoteTempFile($relPath, $uploadDir) {
+                function promoteTempFile($relPath, $uploadDir, array $allowedMimes) {
                   // $relPath expected like 'uploads/tmp/tmp_xxx_filename'
                   $src = __DIR__ . DIRECTORY_SEPARATOR . ltrim(str_replace('/', DIRECTORY_SEPARATOR, $relPath), DIRECTORY_SEPARATOR);
                   if (!file_exists($src)) return '';
+
+                  $finfoType = mime_content_type($src);
+                  if ($finfoType === false || !in_array($finfoType, $allowedMimes, true)) {
+                    return '';
+                  }
+
+                  if (r2_is_enabled()) {
+                    $objectKey = build_r2_attachment_key(basename($src));
+                    $uploadRes = r2_upload_file($src, $objectKey, $finfoType ?: 'application/octet-stream');
+                    if (!empty($uploadRes['ok']) && !empty($uploadRes['attachment'])) {
+                      @unlink($src);
+                      return $uploadRes['attachment'];
+                    }
+                    error_log('AF3: R2 promote fallback to local for ' . $relPath . ' - ' . ($uploadRes['error'] ?? 'unknown error'));
+                  }
+
                   // Preserve original basename when promoting; avoid collisions by prefixing timestamp only if needed
                   $origBasename = basename($src);
                   $newName = $origBasename;
@@ -293,28 +346,31 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 // Use session-saved temp files if user didn't re-upload on final submit
                 $sessionFiles = $_SESSION['af3']['files'] ?? [];
 
+                $mimeImage = ['image/jpeg','image/png'];
+                $mimePdf = ['application/pdf'];
+
                 // formal_pic: only JPG/PNG ; others: PDF only
-                $formal_pic      = uploadFile("formal_pic", $uploadDir, ['image/jpeg','image/png']);
+                $formal_pic      = uploadFile("formal_pic", $uploadDir, $mimeImage);
                 if (empty($formal_pic) && !empty($sessionFiles['formal_pic'])) {
-                  $formal_pic = promoteTempFile($sessionFiles['formal_pic'], $uploadDir);
+                  $formal_pic = promoteTempFile($sessionFiles['formal_pic'], $uploadDir, $mimeImage);
                   unset($sessionFiles['formal_pic']);
                 }
 
-                $letter_intent   = uploadFile("letter_intent", $uploadDir, ['application/pdf']);
+                $letter_intent   = uploadFile("letter_intent", $uploadDir, $mimePdf);
                 if (empty($letter_intent) && !empty($sessionFiles['letter_intent'])) {
-                  $letter_intent = promoteTempFile($sessionFiles['letter_intent'], $uploadDir);
+                  $letter_intent = promoteTempFile($sessionFiles['letter_intent'], $uploadDir, $mimePdf);
                   unset($sessionFiles['letter_intent']);
                 }
 
-                $resume          = uploadFile("resume", $uploadDir, ['application/pdf']);
+                $resume          = uploadFile("resume", $uploadDir, $mimePdf);
                 if (empty($resume) && !empty($sessionFiles['resume'])) {
-                  $resume = promoteTempFile($sessionFiles['resume'], $uploadDir);
+                  $resume = promoteTempFile($sessionFiles['resume'], $uploadDir, $mimePdf);
                   unset($sessionFiles['resume']);
                 }
 
-                $endorsement     = uploadFile("endorsement", $uploadDir, ['application/pdf']);
+                $endorsement     = uploadFile("endorsement", $uploadDir, $mimePdf);
                 if (empty($endorsement) && !empty($sessionFiles['endorsement'])) {
-                  $endorsement = promoteTempFile($sessionFiles['endorsement'], $uploadDir);
+                  $endorsement = promoteTempFile($sessionFiles['endorsement'], $uploadDir, $mimePdf);
                   unset($sessionFiles['endorsement']);
                 }
 
@@ -322,9 +378,9 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 if (!empty($existing_moa)) {
                   $moa = $existing_moa;
                 } else {
-                  $moa = uploadFile("moa", $uploadDir, ['application/pdf']);
+                  $moa = uploadFile("moa", $uploadDir, $mimePdf);
                   if (empty($moa) && !empty($sessionFiles['moa'])) {
-                    $moa = promoteTempFile($sessionFiles['moa'], $uploadDir);
+                    $moa = promoteTempFile($sessionFiles['moa'], $uploadDir, $mimePdf);
                     unset($sessionFiles['moa']);
                   }
                 }
@@ -378,6 +434,11 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 $s_total_hours = is_null($total_hours) ? null : (int)$total_hours;
                 $s_hours_rendered = (int)$hours_rendered;
                 $s_status = $status;
+
+                if (!ensure_db_connection($conn)) {
+                  echo "<script>alert('Database connection timed out. Please submit again.');</script>";
+                  exit;
+                }
 
                 // Insert into students table (include birthday)
                 $stmt = $conn->prepare("

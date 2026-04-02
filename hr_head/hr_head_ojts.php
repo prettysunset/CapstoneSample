@@ -3,6 +3,7 @@
 session_start();
 date_default_timezone_set('Asia/Manila');
 require_once __DIR__ . '/../conn.php';
+require_once __DIR__ . '/../lib/r2_storage.php';
 
 // require login
 if (!isset($_SESSION['user_id'])) {
@@ -154,6 +155,11 @@ if ($resAllOff) {
 
 $current_time = date("g:i A");
 $current_date = date("l, F j, Y");
+$r2PublicBase = '';
+if (function_exists('r2_load_config')) {
+  $r2Cfg = r2_load_config();
+  $r2PublicBase = rtrim((string)($r2Cfg['public_base_url'] ?? ''), '/');
+}
 
 // --- NEW: fetch offices + requested limits + active OJTs count ---
 $offices_for_requests = [];
@@ -1016,9 +1022,18 @@ if ($moa_q) {
       t.addEventListener('click', switchViewTab);
     });
 
+    const R2_PUBLIC_BASE = <?php echo json_encode($r2PublicBase); ?>;
+
     function normalizeAttachmentPath(filePath){
       const v = (filePath || '').toString().trim();
       if (!v) return '';
+      if (v.indexOf('r2://') === 0) {
+        if (!R2_PUBLIC_BASE) return '';
+        const objectKey = v.substring(5).replace(/^\/+/, '');
+        if (!objectKey) return '';
+        const encoded = objectKey.split('/').map(part => encodeURIComponent(part)).join('/');
+        return R2_PUBLIC_BASE + '/' + encoded;
+      }
       if (/^(https?:)?\/\//i.test(v) || v.startsWith('data:')) return v;
       if (v.startsWith('../') || v.startsWith('./') || v.startsWith('/')) return v;
       return '../' + v.replace(/^\/+/, '');
@@ -1121,6 +1136,13 @@ if ($moa_q) {
         }
 
         const href = normalizeAttachmentPath(rawAttachment);
+        if (!href) {
+          return '<tr>' +
+            '<td style="padding:10px;border:1px solid #eee">' + escapeHtml(dateText) + '</td>' +
+            '<td style="padding:10px;border:1px solid #eee">' + escapeHtml(week) + '</td>' +
+            '<td style="padding:10px;border:1px solid #eee;color:#6b7280">Unavailable</td>' +
+          '</tr>';
+        }
         const fileName = rawAttachment.split(/[\\/]/).pop().split('?')[0].split('#')[0] || 'Attachment';
         return '<tr>' +
           '<td style="padding:10px;border:1px solid #eee">' + escapeHtml(dateText) + '</td>' +
@@ -1230,10 +1252,14 @@ if ($moa_q) {
 
         // avatar image if available
         if (d.picture){
+          const picHref = normalizeAttachmentPath(d.picture);
           avatarEl.innerHTML = '';
           const img = document.createElement('img');
-          img.src = '../' + d.picture;
+          img.src = picHref || '';
           img.alt = 'avatar';
+          img.onerror = function(){
+            avatarEl.innerHTML = '👤';
+          };
           avatarEl.appendChild(img);
         }
 
@@ -1368,14 +1394,8 @@ if ($moa_q) {
           if (!filePath) return;
 
           // resolve href relative to this script (hr_head/ -> project root is ../)
-          let href;
-          if (/^https?:\/\//i.test(filePath) || filePath.startsWith('/')) {
-            href = filePath;
-          } else if (/^uploads[\/\\]/i.test(filePath)) {
-            href = '../' + filePath.replace(/^\/+/, '');
-          } else {
-            href = '../uploads/' + filePath.replace(/^\/+/, '');
-          }
+          const href = normalizeAttachmentPath(filePath);
+          if (!href) return;
 
           const row = document.createElement('div');
           row.style.display='flex';

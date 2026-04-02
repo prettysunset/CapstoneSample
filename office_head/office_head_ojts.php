@@ -2,6 +2,7 @@
 session_start();
 date_default_timezone_set('Asia/Manila');
 require_once __DIR__ . '/../conn.php';
+require_once __DIR__ . '/../lib/r2_storage.php';
 
 // prevent PHP notices/warnings breaking JSON responses; buffer output
 ob_start();
@@ -627,6 +628,9 @@ if (!$office) {
     $office = ['office_id'=>0,'office_name'=>'Unknown Office'];
 }
 $office_display = preg_replace('/\s+Office\s*$/i', '', trim($office['office_name'] ?? 'Unknown Office'));
+
+$r2Cfg = function_exists('r2_load_config') ? r2_load_config() : [];
+$r2PublicBase = !empty($r2Cfg['public_base_url']) ? rtrim((string)$r2Cfg['public_base_url'], '/') : '';
 
 // fetch OJTs for this office (include students.status and hours columns)
 $ojts = [];
@@ -1533,6 +1537,7 @@ if (!empty($completedArr)) {
 </script>
 <script>
 (function(){
+  const R2_PUBLIC_BASE = <?php echo json_encode($r2PublicBase); ?>;
   const OFFICE_HEAD_NAME = <?php echo json_encode($user_name); ?>;
   const OFFICE_HEAD_EMAIL = <?php echo json_encode($user_email); ?>;
   const OFFICE_NAME = <?php echo json_encode($office['office_name'] ?? ''); ?>;
@@ -1575,6 +1580,12 @@ if (!empty($completedArr)) {
   function normalizeFile(filePath){
     const v = (filePath || '').toString().trim();
     if (!v) return '';
+    if (v.toLowerCase().startsWith('r2://')) {
+      const key = v.slice(5).replace(/^\/+/, '');
+      if (!key) return '';
+      if (!R2_PUBLIC_BASE) return '';
+      return R2_PUBLIC_BASE + '/' + key.split('/').map(encodeURIComponent).join('/');
+    }
     if (/^(https?:)?\/\//i.test(v) || v.startsWith('data:')) return v;
     if (v.startsWith('../') || v.startsWith('./') || v.startsWith('/')) return v;
     return '../' + v.replace(/^\/+/, '');

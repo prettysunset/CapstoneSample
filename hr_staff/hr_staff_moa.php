@@ -2,6 +2,25 @@
 session_start();
 date_default_timezone_set('Asia/Manila');
 require_once __DIR__ . '/../conn.php';
+require_once __DIR__ . '/../lib/r2_storage.php';
+
+function build_r2_moa_key($filename) {
+  $safeName = preg_replace('/[^A-Za-z0-9_\-.]/', '_', basename((string)$filename));
+  return 'moa/' . time() . '_' . bin2hex(random_bytes(6)) . '_' . $safeName;
+}
+
+function attachment_display_name($attachment) {
+  $attachment = trim((string)$attachment);
+  if ($attachment === '') return '';
+  if (strpos($attachment, 'r2://') === 0) {
+    return basename(substr($attachment, 5));
+  }
+  if (preg_match('/^https?:\/\//i', $attachment)) {
+    $path = (string)parse_url($attachment, PHP_URL_PATH);
+    return $path !== '' ? basename($path) : $attachment;
+  }
+  return basename($attachment);
+}
 
 // require login
 if (!isset($_SESSION['user_id'])) {
@@ -80,29 +99,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['action']) && $_POST[
         exit;
     }
     if (isset($_FILES['moa_file']) && $_FILES['moa_file']['error'] === UPLOAD_ERR_OK) {
+       $orig = basename($_FILES['moa_file']['name']);
+       $ext = strtolower(pathinfo($orig, PATHINFO_EXTENSION));
+       $allowed = ['pdf','jpg','jpeg','png'];
+       if (!in_array($ext, $allowed, true)) {
+         http_response_code(400); header('Content-Type: application/json'); echo json_encode(['success'=>false,'message'=>'Invalid file type. Allowed: pdf,jpg,jpeg,png']); exit;
+       }
+
+       if ($_FILES['moa_file']['size'] > 5 * 1024 * 1024) {
+         http_response_code(400); header('Content-Type: application/json'); echo json_encode(['success'=>false,'message'=>'File too large (max 5MB).']); exit;
+       }
+
+       $tmpPath = $_FILES['moa_file']['tmp_name'];
+       $mimeType = mime_content_type($tmpPath) ?: 'application/octet-stream';
+
+       if (r2_is_enabled()) {
+         $objectKey = build_r2_moa_key($orig);
+         $upload = r2_upload_file($tmpPath, $objectKey, $mimeType);
+         if (!empty($upload['ok'])) {
+           $moa_file_path = (string)$upload['attachment'];
+         } else {
+           http_response_code(500);
+           header('Content-Type: application/json');
+           echo json_encode(['success'=>false,'message'=>($upload['error'] ?? 'R2 upload failed.')]);
+           exit;
+         }
+       } else {
          $uploadDir = __DIR__ . '/../uploads/moa/';
          if (!is_dir($uploadDir)) mkdir($uploadDir, 0755, true);
- 
-         $orig = basename($_FILES['moa_file']['name']);
-         $ext = strtolower(pathinfo($orig, PATHINFO_EXTENSION));
-         $allowed = ['pdf','jpg','jpeg','png'];
-         if (!in_array($ext, $allowed)) {
-             http_response_code(400); header('Content-Type: application/json'); echo json_encode(['success'=>false,'message'=>'Invalid file type. Allowed: pdf,jpg,jpeg,png']); exit;
-         }
- 
-         // limit file size (5MB)
-         if ($_FILES['moa_file']['size'] > 5 * 1024 * 1024) {
-             http_response_code(400); header('Content-Type: application/json'); echo json_encode(['success'=>false,'message'=>'File too large (max 5MB).']); exit;
-         }
- 
+
          $safe = preg_replace('/[^a-z0-9_\-]/i','_', pathinfo($orig, PATHINFO_FILENAME));
          $newName = $safe . '_' . time() . '.' . $ext;
          $dest = $uploadDir . $newName;
-         if (move_uploaded_file($_FILES['moa_file']['tmp_name'], $dest)) {
-             $moa_file_path = 'uploads/moa/' . $newName;
+         if (move_uploaded_file($tmpPath, $dest)) {
+           $moa_file_path = 'uploads/moa/' . $newName;
          } else {
-             http_response_code(500); header('Content-Type: application/json'); echo json_encode(['success'=>false,'message'=>'Failed to move uploaded file.']); exit;
+           http_response_code(500); header('Content-Type: application/json'); echo json_encode(['success'=>false,'message'=>'Failed to move uploaded file.']); exit;
          }
+       }
      }
 
     // insert into DB
@@ -162,6 +196,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['action']) && $_POST[
           'moa_id' => (int)$insertId,
           'school_name' => $school,
           'moa_file' => $moa_file_path,
+          'moa_url' => r2_attachment_to_url($moa_file_path),
           'date_signed' => $date_signed,
           'valid_until' => $valid_until,
           'students' => $students,
@@ -435,8 +470,9 @@ function fmtDate($d){ if (!$d) return '-'; $dt = date_create($d); return $dt ? d
                 <td><?= htmlspecialchars($m['date_signed'] ? fmtDate($m['date_signed']) : '-') ?></td>
                 <td><?= htmlspecialchars($m['valid_until'] ? fmtDate($m['valid_until']) : '-') ?></td>
                 <td>
-                  <?php if (!empty($m['moa_file'])): ?>
-                    <a href="<?= htmlspecialchars('../' . $m['moa_file']) ?>" target="_blank"><?= htmlspecialchars(basename($m['moa_file'])) ?></a>
+                  <?php $moaHref = r2_attachment_to_url($m['moa_file'] ?? ''); ?>
+                  <?php if (!empty($moaHref)): ?>
+                    <a href="<?= htmlspecialchars($moaHref) ?>" target="_blank" rel="noopener noreferrer"><?= htmlspecialchars(attachment_display_name($m['moa_file'] ?? '')) ?></a>
                   <?php else: ?>—<?php endif; ?>
                 </td>
               </tr>
@@ -603,7 +639,10 @@ function fmtDate($d){ if (!$d) return '-'; $dt = date_create($d); return $dt ? d
           const statusClass = (m.status === 'ACTIVE') ? 'status-active' : 'status-expired';
           const dateSigned = m.date_signed ? formatDate(m.date_signed) : '-';
           const validUntilFmt = m.valid_until ? formatDate(m.valid_until) : '-';
-          const fileHtml = m.moa_file ? `<a href="../${m.moa_file}" target="_blank">${m.moa_file.split('/').pop()}</a>` : '—';
+          const escapeHtml = (str) => String(str || '').replace(/[&<>"']/g, (ch) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#039;' }[ch] || ch));
+          const fileName = m.moa_file ? m.moa_file.replace(/^r2:\/\//i, '').split('/').pop() : '';
+          const link = m.moa_url || '';
+          const fileHtml = link ? `<a href="${escapeHtml(link)}" target="_blank" rel="noopener noreferrer">${escapeHtml(fileName)}</a>` : '—';
 
           const newRow = document.createElement('tr');
           newRow.setAttribute('data-search', (school || '').toLowerCase());

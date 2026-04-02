@@ -176,6 +176,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (!empty($_SERVER['HTTP_X_REQUESTED_
 
 // require DB connection (conn.php used elsewhere in project)
 require_once __DIR__ . '/../conn.php';
+require_once __DIR__ . '/../lib/r2_storage.php';
 
 // require login
 if (!isset($_SESSION['user_id'])) {
@@ -794,10 +795,10 @@ $late_dtr_res = $late_dtr->get_result();
                         data-emg_name="<?= htmlspecialchars($a['emergency_name'] ?? '') ?>"
                         data-emg_relation="<?= htmlspecialchars($a['emergency_relation'] ?? '') ?>"
                         data-emg_contact="<?= htmlspecialchars($a['emergency_contact'] ?? '') ?>"
-                        data-loi="<?= htmlspecialchars($a['letter_of_intent'] ?? '') ?>"
-                        data-endorse="<?= htmlspecialchars($a['endorsement_letter'] ?? '') ?>"
-                        data-resume="<?= htmlspecialchars($a['resume'] ?? '') ?>"
-                        data-picture="<?= htmlspecialchars($a['picture'] ?? '') ?>"
+                        data-loi="<?= htmlspecialchars(r2_attachment_to_url($a['letter_of_intent'] ?? '')) ?>"
+                        data-endorse="<?= htmlspecialchars(r2_attachment_to_url($a['endorsement_letter'] ?? '')) ?>"
+                        data-resume="<?= htmlspecialchars(r2_attachment_to_url($a['resume'] ?? '')) ?>"
+                        data-picture="<?= htmlspecialchars(r2_attachment_to_url($a['picture'] ?? '')) ?>"
                         style="background:transparent;border:0;color:#0b74de;cursor:pointer;font-size:18px" title="View">
                         👁️
                       </button>
@@ -850,10 +851,10 @@ $late_dtr_res = $late_dtr->get_result();
                         data-emg_name="<?= htmlspecialchars($ap['emergency_name'] ?? '') ?>"
                         data-emg_relation="<?= htmlspecialchars($ap['emergency_relation'] ?? '') ?>"
                         data-emg_contact="<?= htmlspecialchars($ap['emergency_contact'] ?? '') ?>"
-                        data-loi="<?= htmlspecialchars($ap['letter_of_intent'] ?? '') ?>"
-                        data-endorse="<?= htmlspecialchars($ap['endorsement_letter'] ?? '') ?>"
-                        data-resume="<?= htmlspecialchars($ap['resume'] ?? '') ?>"
-                        data-picture="<?= htmlspecialchars($ap['picture'] ?? '') ?>"
+                        data-loi="<?= htmlspecialchars(r2_attachment_to_url($ap['letter_of_intent'] ?? '')) ?>"
+                        data-endorse="<?= htmlspecialchars(r2_attachment_to_url($ap['endorsement_letter'] ?? '')) ?>"
+                        data-resume="<?= htmlspecialchars(r2_attachment_to_url($ap['resume'] ?? '')) ?>"
+                        data-picture="<?= htmlspecialchars(r2_attachment_to_url($ap['picture'] ?? '')) ?>"
                         style="background:transparent;border:0;color:#0b74de;cursor:pointer;font-size:18px" title="View">
                         👁️
                       </button>

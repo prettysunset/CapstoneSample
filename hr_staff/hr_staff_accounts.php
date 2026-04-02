@@ -2060,17 +2060,21 @@ async function submitEdit(){
 
     let res, j;
     if (role === 'ojt') {
-      // first update users via hr_actions.php (keeps behaviour consistent with Office Head edits)
-      res = await fetch('../hr_actions.php', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(Object.assign({}, { action: 'update_account' }, payload)) });
+      const addrEl = document.getElementById('m_address');
+      const address = addrEl ? (addrEl.value || '').trim() : '';
+      res = await fetch(window.location.href, {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({
+          action: 'update_ojt_account',
+          user_id: user_id,
+          first_name: first_name,
+          last_name: last_name,
+          email: email,
+          address: address
+        })
+      });
       j = await res.json().catch(()=>null);
-      // if users update succeeded, also update students table via local handler (students_only)
-      if (j && j.success) {
-        try {
-          const studs = await fetch(window.location.href, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ action: 'update_ojt_account', user_id: user_id, first_name: first_name, last_name: last_name, email: email, address: address, students_only: true }) });
-          const sj = await studs.json().catch(()=>null);
-          // ignore sj failure (students update non-fatal)
-        } catch(e) { /* ignore */ }
-      }
     } else {
       res = await fetch('../hr_actions.php', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) });
       j = await res.json().catch(()=>null);
