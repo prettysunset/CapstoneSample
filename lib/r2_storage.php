@@ -107,8 +107,7 @@ function r2_get_sdk_client() {
 
 function r2_build_object_key($studentId, $filename) {
     $safeName = preg_replace('/[^A-Za-z0-9_\-.]/', '_', (string)$filename);
-    $year = date('Y');
-    return 'journals/' . (int)$studentId . '/' . $year . '/' . time() . '_' . bin2hex(random_bytes(6)) . '_' . $safeName;
+    return 'journals/' . time() . '_' . bin2hex(random_bytes(6)) . '_' . $safeName;
 }
 
 function r2_upload_file($localPath, $objectKey, $contentType = 'application/octet-stream') {
