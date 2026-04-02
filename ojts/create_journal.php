@@ -1,6 +1,7 @@
 <?php
 session_start();
 require_once __DIR__ . '/../conn.php';
+require_once __DIR__ . '/../lib/r2_storage.php';
 
 // require login
 if (!isset($_SESSION['user_id'])) {
@@ -223,7 +224,20 @@ CSS;
                 }
 
                 if ($converted) {
-                    $savedAttachment = 'uploads/journals/' . $pdfFilename;
+                    if (r2_is_enabled()) {
+                        $objectKey = r2_build_object_key($student_id, $pdfFilename);
+                        $uploadRes = r2_upload_file($pdfPath, $objectKey, 'application/pdf');
+                        if (!empty($uploadRes['ok'])) {
+                            $savedAttachment = $uploadRes['attachment'];
+                            @unlink($pdfPath);
+                        } else {
+                            $error = !empty($uploadRes['error'])
+                                ? $uploadRes['error']
+                                : 'Unable to upload generated journal to Cloudflare R2.';
+                        }
+                    } else {
+                        $savedAttachment = 'uploads/journals/' . $pdfFilename;
+                    }
                 }
 
                 // Always remove the intermediate HTML file to avoid leaving journal_html_ pages.

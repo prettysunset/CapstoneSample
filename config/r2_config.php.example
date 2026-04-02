@@ -1,0 +1,17 @@
+<?php
+// Copy to config/r2_config.php and fill your keys.
+return [
+    'enabled' => true,
+    'account_id' => '54f48a37df09d699112ce30de3f87ef1',
+    'bucket' => 'ojtms',
+    'region' => 'auto',
+    // S3 API endpoint from Cloudflare R2
+    'endpoint' => 'https://54f48a37df09d699112ce30de3f87ef1.r2.cloudflarestorage.com',
+    // Optional: set to your public/custom domain if bucket objects are public
+    // Example: 'https://files.yourdomain.com'
+    'public_base_url' => '',
+
+    // Required for upload + signed URLs
+    'access_key_id' => 'YOUR_R2_ACCESS_KEY_ID',
+    'secret_access_key' => 'YOUR_R2_SECRET_ACCESS_KEY'
+];

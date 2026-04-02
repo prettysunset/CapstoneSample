@@ -1,6 +1,7 @@
 <?php
 session_start();
 require_once __DIR__ . '/../conn.php';
+require_once __DIR__ . '/../lib/r2_storage.php';
 
 // require login
 if (!isset($_SESSION['user_id'])) {
@@ -141,66 +142,81 @@ if ($user_id) {
                         if (!in_array($ext, $allowed, true)) {
                             $journal_upload_error = 'Unsupported file type. Allowed: DOCX, PDF.';
                         } else {
-                            $uploadDir = __DIR__ . '/../uploads/journals/';
-                            if (!is_dir($uploadDir)) @mkdir($uploadDir, 0755, true);
-                            $safe = preg_replace('/[^A-Za-z0-9_\-\.]/', '_', basename($f['name']));
-                            $filename = time() . '_' . bin2hex(random_bytes(6)) . '_' . $safe;
-                            $target = $uploadDir . $filename;
-                            if (move_uploaded_file($f['tmp_name'], $target)) {
-                                $relpath = 'uploads/journals/' . $filename;
-                                // if user provided a valid Y-m-d range, store it in ISO form inside parentheses for reliable parsing later
-                                $week_to_store = $week; // default
-                                $from_date = null;
-                                $to_date = null;
-                                if ($week_from !== '' && $week_to !== '') {
-                                    // basic validation: dates must be Y-m-d
-                                    $okFrom = DateTime::createFromFormat('Y-m-d', $week_from);
-                                    $okTo = DateTime::createFromFormat('Y-m-d', $week_to);
-                                    if ($okFrom && $okTo) {
-                                        // ensure both dates are weekdays (Mon-Fri)
-                                        $dowFrom = (int)$okFrom->format('N'); // 1 (Mon) .. 7 (Sun)
-                                        $dowTo = (int)$okTo->format('N');
-                                        if ($dowFrom <= 5 && $dowTo <= 5) {
-                                            $from_date = $okFrom->format('Y-m-d');
-                                            $to_date = $okTo->format('Y-m-d');
-                                            $week_to_store = $week . ' (' . $from_date . '|' . $to_date . ')';
-                                        } else {
-                                            $journal_upload_error = 'Please choose weekdays only (Monday to Friday) for the From/To dates.';
-                                        }
+                            // If user provided a valid Y-m-d range, store it in ISO form for reliable parsing later.
+                            $week_to_store = $week;
+                            $from_date = null;
+                            $to_date = null;
+                            if ($week_from !== '' && $week_to !== '') {
+                                $okFrom = DateTime::createFromFormat('Y-m-d', $week_from);
+                                $okTo = DateTime::createFromFormat('Y-m-d', $week_to);
+                                if ($okFrom && $okTo) {
+                                    $dowFrom = (int)$okFrom->format('N');
+                                    $dowTo = (int)$okTo->format('N');
+                                    if ($dowFrom <= 5 && $dowTo <= 5) {
+                                        $from_date = $okFrom->format('Y-m-d');
+                                        $to_date = $okTo->format('Y-m-d');
+                                        $week_to_store = $week . ' (' . $from_date . '|' . $to_date . ')';
+                                    } else {
+                                        $journal_upload_error = 'Please choose weekdays only (Monday to Friday) for the From/To dates.';
                                     }
                                 }
-                                $today = date('Y-m-d');
+                            }
 
-                                // SERVER-SIDE DUPLICATE PROTECTION
-                                // If the same user already uploaded the same week today, treat as duplicate and abort.
-                                $isDuplicate = false;
-                                $chk = $conn->prepare("SELECT COUNT(*) AS cnt FROM weekly_journal WHERE user_id = ? AND week_coverage = ? AND date_uploaded = ?");
-                                if ($chk) {
-                                    $chk->bind_param('iss', $student_id, $week_to_store, $today);
-                                    $chk->execute();
-                                    $cres = $chk->get_result()->fetch_assoc();
-                                    $chk->close();
-                                    if (!empty($cres['cnt'])) {
-                                        $isDuplicate = true;
-                                    }
+                            $today = date('Y-m-d');
+                            $isDuplicate = false;
+                            $chk = $conn->prepare("SELECT COUNT(*) AS cnt FROM weekly_journal WHERE user_id = ? AND week_coverage = ? AND date_uploaded = ?");
+                            if ($chk) {
+                                $chk->bind_param('iss', $student_id, $week_to_store, $today);
+                                $chk->execute();
+                                $cres = $chk->get_result()->fetch_assoc();
+                                $chk->close();
+                                if (!empty($cres['cnt'])) {
+                                    $isDuplicate = true;
                                 }
+                            }
 
-                                if ($isDuplicate) {
-                                    // remove the file we just moved so we don't leave orphans
-                                    if (is_file($target)) @unlink($target);
-                                    $journal_upload_error = 'Duplicate upload detected: you already uploaded this week.';
+                            if ($isDuplicate) {
+                                $journal_upload_error = 'Duplicate upload detected: you already uploaded this week.';
+                            } elseif ($journal_upload_error === '') {
+                                $safe = preg_replace('/[^A-Za-z0-9_\-\.]/', '_', basename($f['name']));
+                                $extToMime = [
+                                    'pdf' => 'application/pdf',
+                                    'docx' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+                                ];
+                                $attachmentPath = '';
+
+                                if (r2_is_enabled()) {
+                                    $objectKey = r2_build_object_key($student_id, $safe);
+                                    $uploadRes = r2_upload_file($f['tmp_name'], $objectKey, $extToMime[$ext] ?? 'application/octet-stream');
+                                    if (!empty($uploadRes['ok'])) {
+                                        $attachmentPath = $uploadRes['attachment'];
+                                    } else {
+                                        $journal_upload_error = !empty($uploadRes['error'])
+                                            ? $uploadRes['error']
+                                            : 'Unable to upload file to Cloudflare R2.';
+                                    }
                                 } else {
+                                    $uploadDir = __DIR__ . '/../uploads/journals/';
+                                    if (!is_dir($uploadDir)) @mkdir($uploadDir, 0755, true);
+                                    $filename = time() . '_' . bin2hex(random_bytes(6)) . '_' . $safe;
+                                    $target = $uploadDir . $filename;
+                                    if (move_uploaded_file($f['tmp_name'], $target)) {
+                                        $attachmentPath = 'uploads/journals/' . $filename;
+                                    } else {
+                                        $journal_upload_error = 'Unable to move uploaded file.';
+                                    }
+                                }
+
+                                if ($journal_upload_error === '') {
                                     if ($from_date !== null && $to_date !== null) {
                                         $stmt = $conn->prepare("INSERT INTO weekly_journal (user_id, week_coverage, date_uploaded, attachment, from_date, to_date) VALUES (?, ?, ?, ?, ?, ?)");
-                                        $stmt->bind_param('isssss', $student_id, $week_to_store, $today, $relpath, $from_date, $to_date);
+                                        $stmt->bind_param('isssss', $student_id, $week_to_store, $today, $attachmentPath, $from_date, $to_date);
                                     } else {
                                         $stmt = $conn->prepare("INSERT INTO weekly_journal (user_id, week_coverage, date_uploaded, attachment) VALUES (?, ?, ?, ?)");
-                                        $stmt->bind_param('isss', $student_id, $week_to_store, $today, $relpath);
+                                        $stmt->bind_param('isss', $student_id, $week_to_store, $today, $attachmentPath);
                                     }
                                     if ($stmt->execute()) {
                                         $stmt->close();
-                                        // redirect to avoid form resubmission
-                                        // include an uploaded=1 flag so the client-side will only activate the journals tab
                                         $redirect = $_SERVER['REQUEST_URI'];
                                         if (strpos($redirect, 'uploaded=1') === false) {
                                             $sep = (strpos($redirect, '?') === false) ? '?' : '&';
@@ -214,8 +230,6 @@ if ($user_id) {
                                         $stmt->close();
                                     }
                                 }
-                            } else {
-                                $journal_upload_error = 'Unable to move uploaded file.';
                             }
                         }
                     }
@@ -1106,14 +1120,13 @@ if ($user_id) {
                                           <td style="padding:12px;border-top:1px solid #f1f4f8;color:#2f3459;"><?php echo !empty($j['attachment']) ? htmlspecialchars(basename($j['attachment'])) : '-'; ?></td>
                                           <td style="padding:12px;border-top:1px solid #f1f4f8;text-align:center;color:#6b6f8b;">
                                                                                         <?php if (!empty($j['attachment'])):
-                                                                                                $path = '../' . ltrim($j['attachment'],'/\\');
-                                                                                                // mimic Attachments tab: open file directly in new tab (browser decides whether to preview or download)
-                                                                                                $viewHref = $path;
+                                                                                                $viewHref = r2_attachment_to_url($j['attachment']);
+                                                                                                $downloadHref = $viewHref;
                                                                                         ?>
                                                                                             <a href="<?php echo htmlspecialchars($viewHref); ?>" target="_blank" rel="noopener noreferrer" title="View" style="margin-right:8px;display:inline-flex;align-items:center;">
                                                                                                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8S1 12 1 12z"></path><circle cx="12" cy="12" r="3"></circle></svg>
                                                                                             </a>
-                                                                                            <a href="<?php echo htmlspecialchars($path); ?>" download title="Download" style="display:inline-flex;align-items:center;">
+                                                                                            <a href="<?php echo htmlspecialchars($downloadHref); ?>" download title="Download" style="display:inline-flex;align-items:center;">
                                                                                                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2f3459" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
                                                                                             </a>
                                                                                         <?php else: ?>-<?php endif; ?>
