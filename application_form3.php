@@ -30,6 +30,20 @@ function ensure_db_connection(&$conn) {
   }
 }
 
+function is_allowed_upload_file($originalName, $tmpPath, array $allowedMimes, array $allowedExts) {
+  $ext = strtolower(pathinfo((string)$originalName, PATHINFO_EXTENSION));
+  if ($ext === '' || !in_array($ext, $allowedExts, true)) {
+    return false;
+  }
+
+  $finfoType = mime_content_type($tmpPath);
+  if ($finfoType === false || !in_array($finfoType, $allowedMimes, true)) {
+    return false;
+  }
+
+  return true;
+}
+
 // fetch offices for the select filtered by course from AF2
 // only include offices that have available slots (capacity - approved - active > 0),
 // treat NULL capacity as unlimited (show). When a course is selected, DO NOT
@@ -171,15 +185,14 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
       if (!file_exists($tmpDir)) mkdir($tmpDir, 0777, true);
 
       // Helper: save uploaded file to tmp and return relative path or empty string
-      function tempSaveFile($inputName, $tmpDir, array $allowedMimes, $maxBytes = 2097152) {
+      function tempSaveFile($inputName, $tmpDir, array $allowedMimes, array $allowedExts, $maxBytes = 2097152) {
         if (empty($_FILES[$inputName]['name']) || !is_uploaded_file($_FILES[$inputName]['tmp_name'])) {
           return ''; // no file provided
         }
         if ($_FILES[$inputName]['size'] > $maxBytes) {
           return '';
         }
-        $finfoType = mime_content_type($_FILES[$inputName]['tmp_name']);
-        if (!in_array($finfoType, $allowedMimes, true)) {
+        if (!is_allowed_upload_file($_FILES[$inputName]['name'], $_FILES[$inputName]['tmp_name'], $allowedMimes, $allowedExts)) {
           return '';
         }
         // try to preserve the original filename for clarity; avoid collisions by adding a uniqid prefix only when needed
@@ -201,14 +214,14 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
       // Collect any uploaded files and save to session (cleanup previous temp if replaced)
       $sessionFiles = $_SESSION['af3']['files'] ?? [];
       $fields = [
-        'formal_pic' => ['mimes'=>['image/jpeg','image/png']],
-        'letter_intent' => ['mimes'=>['application/pdf']],
-        'resume' => ['mimes'=>['application/pdf']],
-        'endorsement' => ['mimes'=>['application/pdf']],
-        'moa' => ['mimes'=>['application/pdf']]
+        'formal_pic' => ['mimes'=>['image/jpeg','image/png'], 'exts'=>['jpg','jpeg','png']],
+        'letter_intent' => ['mimes'=>['application/pdf'], 'exts'=>['pdf']],
+        'resume' => ['mimes'=>['application/pdf'], 'exts'=>['pdf']],
+        'endorsement' => ['mimes'=>['application/pdf'], 'exts'=>['pdf']],
+        'moa' => ['mimes'=>['application/pdf'], 'exts'=>['pdf']]
       ];
       foreach ($fields as $fname => $meta) {
-        $saved = tempSaveFile($fname, $tmpDir, $meta['mimes']);
+        $saved = tempSaveFile($fname, $tmpDir, $meta['mimes'], $meta['exts']);
         if ($saved !== '') {
           // remove previous temp file if it exists and differs
           if (!empty($sessionFiles[$fname]) && $sessionFiles[$fname] !== $saved) {
@@ -273,17 +286,17 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 }
 
                 // Handle file uploads (prefer R2 under attachments/, fallback to local uploads/)
-                function uploadFile($inputName, $uploadDir, array $allowedMimes, $maxBytes = 2097152) {
+                function uploadFile($inputName, $uploadDir, array $allowedMimes, array $allowedExts, $maxBytes = 2097152) {
                     if (empty($_FILES[$inputName]['name']) || !is_uploaded_file($_FILES[$inputName]['tmp_name'])) {
                         return ''; // no file provided
                     }
                     if ($_FILES[$inputName]['size'] > $maxBytes) {
                         return ''; // too large
                     }
-                    $finfoType = mime_content_type($_FILES[$inputName]['tmp_name']);
-                    if (!in_array($finfoType, $allowedMimes, true)) {
+                  if (!is_allowed_upload_file($_FILES[$inputName]['name'], $_FILES[$inputName]['tmp_name'], $allowedMimes, $allowedExts)) {
                         return ''; // wrong mime
                     }
+                  $finfoType = mime_content_type($_FILES[$inputName]['tmp_name']);
 
                     if (r2_is_enabled()) {
                       $objectKey = build_r2_attachment_key($_FILES[$inputName]['name']);
@@ -306,15 +319,15 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 $tmpDir = __DIR__ . DIRECTORY_SEPARATOR . 'uploads' . DIRECTORY_SEPARATOR . 'tmp' . DIRECTORY_SEPARATOR;
                 if (!file_exists($tmpDir)) mkdir($tmpDir, 0777, true);
 
-                function promoteTempFile($relPath, $uploadDir, array $allowedMimes) {
+                function promoteTempFile($relPath, $uploadDir, array $allowedMimes, array $allowedExts) {
                   // $relPath expected like 'uploads/tmp/tmp_xxx_filename'
                   $src = __DIR__ . DIRECTORY_SEPARATOR . ltrim(str_replace('/', DIRECTORY_SEPARATOR, $relPath), DIRECTORY_SEPARATOR);
                   if (!file_exists($src)) return '';
 
-                  $finfoType = mime_content_type($src);
-                  if ($finfoType === false || !in_array($finfoType, $allowedMimes, true)) {
+                  if (!is_allowed_upload_file(basename($src), $src, $allowedMimes, $allowedExts)) {
                     return '';
                   }
+                  $finfoType = mime_content_type($src);
 
                   if (r2_is_enabled()) {
                     $objectKey = build_r2_attachment_key(basename($src));
@@ -347,30 +360,32 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 $sessionFiles = $_SESSION['af3']['files'] ?? [];
 
                 $mimeImage = ['image/jpeg','image/png'];
+                $extImage = ['jpg','jpeg','png'];
                 $mimePdf = ['application/pdf'];
+                $extPdf = ['pdf'];
 
                 // formal_pic: only JPG/PNG ; others: PDF only
-                $formal_pic      = uploadFile("formal_pic", $uploadDir, $mimeImage);
+                $formal_pic      = uploadFile("formal_pic", $uploadDir, $mimeImage, $extImage);
                 if (empty($formal_pic) && !empty($sessionFiles['formal_pic'])) {
-                  $formal_pic = promoteTempFile($sessionFiles['formal_pic'], $uploadDir, $mimeImage);
+                  $formal_pic = promoteTempFile($sessionFiles['formal_pic'], $uploadDir, $mimeImage, $extImage);
                   unset($sessionFiles['formal_pic']);
                 }
 
-                $letter_intent   = uploadFile("letter_intent", $uploadDir, $mimePdf);
+                $letter_intent   = uploadFile("letter_intent", $uploadDir, $mimePdf, $extPdf);
                 if (empty($letter_intent) && !empty($sessionFiles['letter_intent'])) {
-                  $letter_intent = promoteTempFile($sessionFiles['letter_intent'], $uploadDir, $mimePdf);
+                  $letter_intent = promoteTempFile($sessionFiles['letter_intent'], $uploadDir, $mimePdf, $extPdf);
                   unset($sessionFiles['letter_intent']);
                 }
 
-                $resume          = uploadFile("resume", $uploadDir, $mimePdf);
+                $resume          = uploadFile("resume", $uploadDir, $mimePdf, $extPdf);
                 if (empty($resume) && !empty($sessionFiles['resume'])) {
-                  $resume = promoteTempFile($sessionFiles['resume'], $uploadDir, $mimePdf);
+                  $resume = promoteTempFile($sessionFiles['resume'], $uploadDir, $mimePdf, $extPdf);
                   unset($sessionFiles['resume']);
                 }
 
-                $endorsement     = uploadFile("endorsement", $uploadDir, $mimePdf);
+                $endorsement     = uploadFile("endorsement", $uploadDir, $mimePdf, $extPdf);
                 if (empty($endorsement) && !empty($sessionFiles['endorsement'])) {
-                  $endorsement = promoteTempFile($sessionFiles['endorsement'], $uploadDir, $mimePdf);
+                  $endorsement = promoteTempFile($sessionFiles['endorsement'], $uploadDir, $mimePdf, $extPdf);
                   unset($sessionFiles['endorsement']);
                 }
 
@@ -378,9 +393,9 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 if (!empty($existing_moa)) {
                   $moa = $existing_moa;
                 } else {
-                  $moa = uploadFile("moa", $uploadDir, $mimePdf);
+                  $moa = uploadFile("moa", $uploadDir, $mimePdf, $extPdf);
                   if (empty($moa) && !empty($sessionFiles['moa'])) {
-                    $moa = promoteTempFile($sessionFiles['moa'], $uploadDir, $mimePdf);
+                    $moa = promoteTempFile($sessionFiles['moa'], $uploadDir, $mimePdf, $extPdf);
                     unset($sessionFiles['moa']);
                   }
                 }
@@ -1123,7 +1138,9 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     }
     if (fFormal && fFormal.files && fFormal.files.length > 0) {
       const f = fFormal.files[0];
-      if (!/image\/(jpeg|png)/.test(f.type)) {
+      const formalExtOk = /\.(jpe?g|png)$/i.test(f.name || '');
+      const formalMimeOk = !f.type || /image\/(jpeg|png)/.test(f.type);
+      if (!formalExtOk || !formalMimeOk) {
         alert('Formal Picture must be JPG or PNG.');
         e.preventDefault();
         return false;
@@ -1136,24 +1153,32 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     }
     // other required PDFs (accept saved drafts)
     const pdfFields = ['letter_intent','resume','endorsement'];
+    const pdfFieldLabels = {
+      letter_intent: 'Letter of Intent',
+      resume: 'Resume',
+      endorsement: 'Endorsement Letter'
+    };
     for (let i=0;i<pdfFields.length;i++){
       const name = pdfFields[i];
+      const fieldLabel = pdfFieldLabels[name] || name;
       const el = form.querySelector('input[name="'+name+'"]');
       const saved = form.querySelector('input[name="saved_'+name+'"]');
       if ((!el || !el.files || el.files.length === 0) && !saved) {
-        alert('Please upload ' + (el ? el.previousElementSibling.textContent.replace('*','').trim() : name) + ' (PDF).');
+        alert('Please upload ' + fieldLabel + ' (PDF).');
         e.preventDefault();
         return false;
       }
       if (el && el.files && el.files.length > 0) {
         const pf = el.files[0];
-        if (pf.type !== 'application/pdf' && !/\.pdf$/i.test(pf.name)) {
-          alert('Only PDF is accepted for ' + (el ? el.previousElementSibling.textContent.replace('*','').trim() : name) + '.');
+        const pdfExtOk = /\.pdf$/i.test(pf.name || '');
+        const pdfMimeOk = !pf.type || pf.type === 'application/pdf';
+        if (!pdfExtOk || !pdfMimeOk) {
+          alert('Only PDF is accepted for ' + fieldLabel + '.');
           e.preventDefault();
           return false;
         }
         if (pf.size > 2 * 1024 * 1024) {
-          alert((el ? el.previousElementSibling.textContent.replace('*','').trim() : name) + ' must be 2MB or smaller.');
+          alert(fieldLabel + ' must be 2MB or smaller.');
           e.preventDefault();
           return false;
         }

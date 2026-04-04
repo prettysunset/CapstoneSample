@@ -216,12 +216,22 @@ if (is_array($inputJson) && isset($inputJson['action']) && $inputJson['action'] 
     $q = trim($inputJson['q'] ?? '');
     if ($q === '') { echo json_encode([]); exit; }
     $out = [];
-    $like = $q . '%';
+    $like = '%' . $q . '%';
 
-    $sql = "SELECT DISTINCT course_name FROM school_courses WHERE course_name LIKE ? ORDER BY course_name LIMIT 12";
+    $sql = "
+      SELECT course_name
+      FROM (
+        SELECT DISTINCT course_name FROM school_courses WHERE course_name LIKE ?
+        UNION
+        SELECT DISTINCT course_name FROM courses WHERE course_name LIKE ?
+      ) t
+      WHERE course_name IS NOT NULL AND TRIM(course_name) <> ''
+      ORDER BY course_name
+      LIMIT 12
+    ";
     $stmt = $conn->prepare($sql);
     if ($stmt) {
-      $stmt->bind_param('s', $like);
+      $stmt->bind_param('ss', $like, $like);
       if ($stmt->execute()) {
         $courseName = null;
         $stmt->bind_result($courseName);
@@ -427,7 +437,7 @@ foreach ($ojts as $zz) {
     if ($on !== '' && !in_array($on, $ojt_offices)) $ojt_offices[] = $on;
 }
 
-// preload course_name suggestions from school_courses for frontend fallback
+// preload course_name suggestions from school_courses + courses for frontend fallback
 $courseSuggestions = [];
 try {
   $r1 = $conn->query("SELECT DISTINCT course_name FROM school_courses WHERE course_name IS NOT NULL AND TRIM(course_name) <> ''");
@@ -437,6 +447,15 @@ try {
       if ($v !== '') $courseSuggestions[] = $v;
     }
     $r1->free();
+  }
+
+  $r2 = $conn->query("SELECT DISTINCT course_name FROM courses WHERE course_name IS NOT NULL AND TRIM(course_name) <> ''");
+  if ($r2) {
+    while ($row = $r2->fetch_assoc()) {
+      $v = trim((string)($row['course_name'] ?? ''));
+      if ($v !== '') $courseSuggestions[] = $v;
+    }
+    $r2->free();
   }
 } catch (Throwable $e) { /* ignore */ }
 if (!empty($courseSuggestions)) {
@@ -1290,11 +1309,16 @@ document.getElementById('btnAddHr').addEventListener('click', function(e){
       <input id="m_initial_limit" type="number" min="0" placeholder="Initial OJT limit (e.g. 10)" style="padding:10px;border:1px solid #ddd;border-radius:8px" />
       <div style="display:flex;gap:8px;align-items:center">
         <div style="position:relative;flex:1;display:flex;gap:8px;align-items:center">
-          <input id="m_course_input" placeholder="Related course" autocomplete="off" style="padding:10px;border:1px solid #ddd;border-radius:8px;flex:1" />
+          <input id="m_course_input" list="course_suggest_list" placeholder="Related course" autocomplete="on" style="padding:10px;border:1px solid #ddd;border-radius:8px;flex:1" />
           <button type="button" id="m_add_course_btn" class="btn" style="padding:9px 12px;border-radius:8px;background:#3a4163;color:#fff;border:none">Add</button>
           <ul id="m_course_suggestions" style="position:absolute;left:0;top:calc(100% + 8px);z-index:9999;background:#fff;border:1px solid #ddd;border-radius:8px;list-style:none;padding:6px 0;margin:0;display:none;max-height:220px;overflow:auto;box-shadow:0 8px 20px rgba(0,0,0,0.08);min-width:320px;max-width:520px;width:420px;"></ul>
         </div>
       </div>
+      <datalist id="course_suggest_list">
+        <?php foreach (($courseSuggestions ?? []) as $cs): ?>
+          <option value="<?= htmlspecialchars($cs) ?>"></option>
+        <?php endforeach; ?>
+      </datalist>
       <div id="m_course_tags" style="grid-column:span 2;display:flex;flex-wrap:wrap;gap:8px"></div>
  
        <!-- hidden field to store CSV courses -->
@@ -1338,9 +1362,24 @@ document.getElementById('btnAddHr').addEventListener('click', function(e){
   const suggestions = document.getElementById('m_course_suggestions');
   const tagsWrap = document.getElementById('m_course_tags');
   const hidden = document.getElementById('m_accept_courses');
-  const localSource = Array.isArray(window._courseSuggestSource)
-    ? window._courseSuggestSource.map(v => String(v || '').trim()).filter(Boolean)
-    : [];
+  const datalistEl = document.getElementById('course_suggest_list');
+  function getLocalSource(){
+    const fromWindow = Array.isArray(window._courseSuggestSource)
+      ? window._courseSuggestSource.map(v => String(v || '').trim()).filter(Boolean)
+      : [];
+    const fromDatalist = datalistEl
+      ? Array.from(datalistEl.options || []).map(opt => String(opt.value || '').trim()).filter(Boolean)
+      : [];
+    const merged = fromWindow.concat(fromDatalist);
+    if (!merged.length) return [];
+    const seen = Object.create(null);
+    return merged.filter(function(v){
+      const key = v.toLowerCase();
+      if (seen[key]) return false;
+      seen[key] = true;
+      return true;
+    });
+  }
   let tags = [];
   let suggItems = [];
   let sel = -1;
@@ -1430,9 +1469,10 @@ document.getElementById('btnAddHr').addEventListener('click', function(e){
     if (!q || !q.trim()) { hideSuggestions(); return; }
 
     // fast local suggestions first (avoids AJAX/session/runtime issues)
+    const localSource = getLocalSource();
     if (localSource.length) {
       const qq = q.toLowerCase().trim();
-      const localItems = localSource.filter(name => name.toLowerCase().startsWith(qq)).slice(0, 12);
+      const localItems = localSource.filter(name => name.toLowerCase().indexOf(qq) !== -1).slice(0, 12);
       if (localItems.length) {
         showSuggestions(localItems);
         return;
