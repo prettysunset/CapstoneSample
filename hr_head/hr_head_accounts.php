@@ -1309,16 +1309,11 @@ document.getElementById('btnAddHr').addEventListener('click', function(e){
       <input id="m_initial_limit" type="number" min="0" placeholder="Initial OJT limit (e.g. 10)" style="padding:10px;border:1px solid #ddd;border-radius:8px" />
       <div style="display:flex;gap:8px;align-items:center">
         <div style="position:relative;flex:1;display:flex;gap:8px;align-items:center">
-          <input id="m_course_input" list="course_suggest_list" placeholder="Related course" autocomplete="on" style="padding:10px;border:1px solid #ddd;border-radius:8px;flex:1" />
+          <input id="m_course_input" placeholder="Related course" autocomplete="off" style="padding:10px;border:1px solid #ddd;border-radius:8px;flex:1" />
           <button type="button" id="m_add_course_btn" class="btn" style="padding:9px 12px;border-radius:8px;background:#3a4163;color:#fff;border:none">Add</button>
           <ul id="m_course_suggestions" style="position:absolute;left:0;top:calc(100% + 8px);z-index:9999;background:#fff;border:1px solid #ddd;border-radius:8px;list-style:none;padding:6px 0;margin:0;display:none;max-height:220px;overflow:auto;box-shadow:0 8px 20px rgba(0,0,0,0.08);min-width:320px;max-width:520px;width:420px;"></ul>
         </div>
       </div>
-      <datalist id="course_suggest_list">
-        <?php foreach (($courseSuggestions ?? []) as $cs): ?>
-          <option value="<?= htmlspecialchars($cs) ?>"></option>
-        <?php endforeach; ?>
-      </datalist>
       <div id="m_course_tags" style="grid-column:span 2;display:flex;flex-wrap:wrap;gap:8px"></div>
  
        <!-- hidden field to store CSV courses -->
@@ -1362,18 +1357,13 @@ document.getElementById('btnAddHr').addEventListener('click', function(e){
   const suggestions = document.getElementById('m_course_suggestions');
   const tagsWrap = document.getElementById('m_course_tags');
   const hidden = document.getElementById('m_accept_courses');
-  const datalistEl = document.getElementById('course_suggest_list');
   function getLocalSource(){
     const fromWindow = Array.isArray(window._courseSuggestSource)
       ? window._courseSuggestSource.map(v => String(v || '').trim()).filter(Boolean)
       : [];
-    const fromDatalist = datalistEl
-      ? Array.from(datalistEl.options || []).map(opt => String(opt.value || '').trim()).filter(Boolean)
-      : [];
-    const merged = fromWindow.concat(fromDatalist);
-    if (!merged.length) return [];
+    if (!fromWindow.length) return [];
     const seen = Object.create(null);
-    return merged.filter(function(v){
+    return fromWindow.filter(function(v){
       const key = v.toLowerCase();
       if (seen[key]) return false;
       seen[key] = true;
@@ -1430,6 +1420,19 @@ document.getElementById('btnAddHr').addEventListener('click', function(e){
     hideSuggestions();
   }
 
+  function addTagFromSuggestion(val){
+    const v = (val !== undefined ? val : '').trim();
+    if (!v) return;
+    const lc = v.toLowerCase();
+    if (tags.some(t => t.toLowerCase() === lc)) {
+      input.focus();
+      return;
+    }
+    tags.push(v);
+    renderTags();
+    input.focus();
+  }
+
   function showSuggestions(items){
     suggItems = items || [];
     sel = -1;
@@ -1437,13 +1440,35 @@ document.getElementById('btnAddHr').addEventListener('click', function(e){
     if (!suggItems || suggItems.length === 0) { hideSuggestions(); return; }
     suggItems.forEach((s, i) => {
       const li = document.createElement('li');
-      li.textContent = s;
       li.style.padding = '8px 10px';
       li.style.cursor = 'pointer';
       li.style.whiteSpace = 'nowrap';
-      li.addEventListener('mousedown', function(e){
-        e.preventDefault();
-        addTagFromInput(s);
+      li.style.display = 'flex';
+      li.style.alignItems = 'center';
+      li.style.gap = '8px';
+
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.checked = tags.some(t => t.toLowerCase() === String(s || '').toLowerCase());
+      checkbox.style.margin = '0';
+      checkbox.style.pointerEvents = 'auto';
+      checkbox.style.cursor = 'pointer';
+
+      const label = document.createElement('span');
+      label.textContent = s;
+      label.style.flex = '1';
+
+      li.appendChild(checkbox);
+      li.appendChild(label);
+
+      checkbox.addEventListener('change', function(e){
+        e.stopPropagation();
+        if (this.checked) addTagFromSuggestion(s);
+      });
+
+      li.addEventListener('click', function(e){
+        if (e.target === checkbox) return;
+        addTagFromSuggestion(s);
       });
       li.addEventListener('mouseover', () => highlight(i));
       suggestions.appendChild(li);
@@ -1463,6 +1488,16 @@ document.getElementById('btnAddHr').addEventListener('click', function(e){
     nodes.forEach((n, idx) => n.style.background = idx === i ? '#eef6ff' : '');
     sel = i;
     if (nodes[sel]) nodes[sel].scrollIntoView({block:'nearest'});
+  }
+
+  function refreshSuggestionCheckboxes(){
+    const nodes = suggestions.querySelectorAll('li');
+    nodes.forEach((node) => {
+      const label = node.querySelector('span');
+      const checkbox = node.querySelector('input[type="checkbox"]');
+      if (!label || !checkbox) return;
+      checkbox.checked = tags.some(t => t.toLowerCase() === label.textContent.toLowerCase());
+    });
   }
 
   function fetchSuggestions(q){
@@ -1531,6 +1566,11 @@ document.getElementById('btnAddHr').addEventListener('click', function(e){
 
   // hide suggestions on blur (allow click selection via mousedown above)
   input.addEventListener('blur', function(){ setTimeout(hideSuggestions, 120); });
+
+  // prevent input blur when clicking inside suggestions list
+  suggestions.addEventListener('mousedown', function(e){
+    e.preventDefault();
+  });
 
   // expose for submitAdd to read (allow setting courses programmatically)
   window.__hr_modal = {
