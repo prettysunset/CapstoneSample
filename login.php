@@ -11,6 +11,25 @@ if (!isset($conn) || !($conn instanceof mysqli)) {
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
     $username = trim($_POST['username'] ?? '');
     $password = $_POST['password'] ?? '';
+    $error = '';
+    $prefill_username = $username;
+    $prefill_password = $password;
+
+    if ($username === '' && $password === '') {
+        $error = 'your username and password are incorrect';
+        $prefill_username = '';
+        $prefill_password = '';
+    } elseif ($username === '') {
+        $error = 'your username is incorrect';
+        $prefill_username = '';
+    } elseif ($password === '') {
+        $error = 'your password is incorrect';
+        $prefill_password = '';
+    }
+
+    if (!empty($error)) {
+        // Skip DB lookup when required inputs are missing.
+    } else {
 
     // fetch user by username
     $stmt = $conn->prepare('SELECT * FROM users WHERE username = ? LIMIT 1');
@@ -65,12 +84,15 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             }
             if (!isset($error)) exit();
         } else {
-            $error = "Invalid username or password!";
+            $error = 'your password is incorrect';
+            $prefill_password = '';
         }
     } else {
-        $error = "Invalid username or password!";
+        $error = 'your username is incorrect';
+        $prefill_username = '';
     }
     if (isset($stmt) && $stmt) $stmt->close();
+    }
 }
 ?>
 <!DOCTYPE html>
@@ -325,10 +347,10 @@ button[type="submit"]:hover {
         <h2>OJT-MS Login</h2>
         <?php if (!empty($error)) echo "<p class='error'>$error</p>"; ?>
         <form method="POST">
-            <input type="text" name="username" placeholder="Username" required>
+            <input type="text" name="username" placeholder="Username" required value="<?= htmlspecialchars($prefill_username ?? '') ?>">
 
             <div class="password-container">
-                <input type="password" name="password" id="password" placeholder="Password" required>
+                <input type="password" name="password" id="password" placeholder="Password" required value="<?= htmlspecialchars($prefill_password ?? '') ?>">
                 <button type="button" id="togglePassword" aria-label="Show password">
                     <!-- Eye open -->
                     <svg id="eyeOpen" xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#3a4163" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
