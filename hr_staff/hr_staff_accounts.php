@@ -216,12 +216,22 @@ if (is_array($inputJson) && isset($inputJson['action']) && $inputJson['action'] 
     $q = trim($inputJson['q'] ?? '');
     if ($q === '') { echo json_encode([]); exit; }
     $out = [];
-    $like = $q . '%';
+    $like = '%' . $q . '%';
 
-    $sql = "SELECT DISTINCT course_name FROM school_courses WHERE course_name LIKE ? ORDER BY course_name LIMIT 12";
+    $sql = "
+      SELECT course_name
+      FROM (
+        SELECT DISTINCT course_name FROM school_courses WHERE course_name LIKE ?
+        UNION
+        SELECT DISTINCT course_name FROM courses WHERE course_name LIKE ?
+      ) t
+      WHERE course_name IS NOT NULL AND TRIM(course_name) <> ''
+      ORDER BY course_name
+      LIMIT 12
+    ";
     $stmt = $conn->prepare($sql);
     if ($stmt) {
-      $stmt->bind_param('s', $like);
+      $stmt->bind_param('ss', $like, $like);
       if ($stmt->execute()) {
         $courseName = null;
         $stmt->bind_result($courseName);
@@ -1338,9 +1348,19 @@ document.getElementById('btnAddHr').addEventListener('click', function(e){
   const suggestions = document.getElementById('m_course_suggestions');
   const tagsWrap = document.getElementById('m_course_tags');
   const hidden = document.getElementById('m_accept_courses');
-  const localSource = Array.isArray(window._courseSuggestSource)
-    ? window._courseSuggestSource.map(v => String(v || '').trim()).filter(Boolean)
-    : [];
+  function getLocalSource(){
+    const fromWindow = Array.isArray(window._courseSuggestSource)
+      ? window._courseSuggestSource.map(v => String(v || '').trim()).filter(Boolean)
+      : [];
+    if (!fromWindow.length) return [];
+    const seen = Object.create(null);
+    return fromWindow.filter(function(v){
+      const key = v.toLowerCase();
+      if (seen[key]) return false;
+      seen[key] = true;
+      return true;
+    });
+  }
   let tags = [];
   let suggItems = [];
   let sel = -1;
@@ -1387,8 +1407,21 @@ document.getElementById('btnAddHr').addEventListener('click', function(e){
     tags.push(v);
     input.value = '';
     renderTags();
-       input.focus();
+    input.focus();
     hideSuggestions();
+  }
+
+  function addTagFromSuggestion(val){
+    const v = (val !== undefined ? val : '').trim();
+    if (!v) return;
+    const lc = v.toLowerCase();
+    if (tags.some(t => t.toLowerCase() === lc)) {
+      input.focus();
+      return;
+    }
+    tags.push(v);
+    renderTags();
+    input.focus();
   }
 
   function showSuggestions(items){
@@ -1398,13 +1431,35 @@ document.getElementById('btnAddHr').addEventListener('click', function(e){
     if (!suggItems || suggItems.length === 0) { hideSuggestions(); return; }
     suggItems.forEach((s, i) => {
       const li = document.createElement('li');
-      li.textContent = s;
       li.style.padding = '8px 10px';
       li.style.cursor = 'pointer';
       li.style.whiteSpace = 'nowrap';
-      li.addEventListener('mousedown', function(e){
-        e.preventDefault();
-        addTagFromInput(s);
+      li.style.display = 'flex';
+      li.style.alignItems = 'center';
+      li.style.gap = '8px';
+
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.checked = tags.some(t => t.toLowerCase() === String(s || '').toLowerCase());
+      checkbox.style.margin = '0';
+      checkbox.style.pointerEvents = 'auto';
+      checkbox.style.cursor = 'pointer';
+
+      const label = document.createElement('span');
+      label.textContent = s;
+      label.style.flex = '1';
+
+      li.appendChild(checkbox);
+      li.appendChild(label);
+
+      checkbox.addEventListener('change', function(e){
+        e.stopPropagation();
+        if (this.checked) addTagFromSuggestion(s);
+      });
+
+      li.addEventListener('click', function(e){
+        if (e.target === checkbox) return;
+        addTagFromSuggestion(s);
       });
       li.addEventListener('mouseover', () => highlight(i));
       suggestions.appendChild(li);
@@ -1426,13 +1481,24 @@ document.getElementById('btnAddHr').addEventListener('click', function(e){
     if (nodes[sel]) nodes[sel].scrollIntoView({block:'nearest'});
   }
 
+  function refreshSuggestionCheckboxes(){
+    const nodes = suggestions.querySelectorAll('li');
+    nodes.forEach((node) => {
+      const label = node.querySelector('span');
+      const checkbox = node.querySelector('input[type="checkbox"]');
+      if (!label || !checkbox) return;
+      checkbox.checked = tags.some(t => t.toLowerCase() === label.textContent.toLowerCase());
+    });
+  }
+
   function fetchSuggestions(q){
     if (!q || !q.trim()) { hideSuggestions(); return; }
 
     // fast local suggestions first (avoids AJAX/session/runtime issues)
+    const localSource = getLocalSource();
     if (localSource.length) {
       const qq = q.toLowerCase().trim();
-      const localItems = localSource.filter(name => name.toLowerCase().startsWith(qq)).slice(0, 12);
+      const localItems = localSource.filter(name => name.toLowerCase().indexOf(qq) !== -1).slice(0, 12);
       if (localItems.length) {
         showSuggestions(localItems);
         return;
@@ -1491,6 +1557,11 @@ document.getElementById('btnAddHr').addEventListener('click', function(e){
 
   // hide suggestions on blur (allow click selection via mousedown above)
   input.addEventListener('blur', function(){ setTimeout(hideSuggestions, 120); });
+
+  // prevent input blur when clicking inside suggestions list
+  suggestions.addEventListener('mousedown', function(e){
+    e.preventDefault();
+  });
 
   // expose for submitAdd to read (allow setting courses programmatically)
   window.__hr_modal = {

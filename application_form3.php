@@ -784,6 +784,12 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     color: #4a6ff3;
     text-decoration: underline;
   }
+  .file-error {
+    margin-top: 6px;
+    color: #b42318;
+    font-size: 12px;
+    min-height: 16px;
+  }
   /* style the "Change" control as a compact native-like button */
   .change-file {
     background: #f5f5f5;
@@ -915,6 +921,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 </div>
                 <input type="file" name="formal_pic" accept=".jpg,.jpeg,.png" required data-field-input="formal_pic">
               <?php endif; ?>
+              <div class="file-error" data-field-error="formal_pic"></div>
             </div>
             <div style="flex:1;">
               <label>Letter of Intent * (PDF only)</label>
@@ -933,6 +940,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 </div>
                 <input type="file" name="letter_intent" accept=".pdf" required data-field-input="letter_intent">
               <?php endif; ?>
+              <div class="file-error" data-field-error="letter_intent"></div>
             </div>
           </fieldset>
 
@@ -954,6 +962,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 </div>
                 <input type="file" name="resume" accept=".pdf" required data-field-input="resume">
               <?php endif; ?>
+              <div class="file-error" data-field-error="resume"></div>
             </div>
             <div style="flex:1;">
               <label>Endorsement Letter * (PDF only)</label>
@@ -972,6 +981,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 </div>
                 <input type="file" name="endorsement" accept=".pdf" required data-field-input="endorsement">
               <?php endif; ?>
+              <div class="file-error" data-field-error="endorsement"></div>
             </div>
           </fieldset>
 
@@ -1024,6 +1034,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
               </div>
               <input type="file" name="moa" accept=".pdf" data-field-input="moa">
             <?php endif; ?>
+            <div class="file-error" data-field-error="moa"></div>
           <?php endif; ?>
 
           <p class="note">
@@ -1200,9 +1211,15 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 <script>
 // Toggle saved-file display -> show file input when user clicks Change
 document.addEventListener('DOMContentLoaded', function(){
+  function setFileError(field, msg){
+    var el = document.querySelector('.file-error[data-field-error="'+field+'"]');
+    if (!el) return;
+    el.textContent = msg || '';
+  }
   document.querySelectorAll('.change-file').forEach(function(btn){
     btn.addEventListener('click', function(){
       var field = btn.getAttribute('data-field');
+      setFileError(field, '');
       // remove saved flag hidden input if present
       var savedEl = document.querySelector('input[name="saved_'+field+'"]');
       if (savedEl) savedEl.parentNode.removeChild(savedEl);
@@ -1221,6 +1238,31 @@ document.addEventListener('DOMContentLoaded', function(){
   document.querySelectorAll('input[type=file][data-field-input]').forEach(function(inp){
     inp.addEventListener('change', function(){
       var field = inp.getAttribute('data-field-input');
+      var f = (inp.files && inp.files[0]) ? inp.files[0] : null;
+      if (!f) return;
+      setFileError(field, '');
+
+      var rules = {
+        formal_pic: { ext: /\.(jpe?g|png)$/i, mime: /^image\/(jpeg|png)$/i, label: 'Formal Picture (JPG/PNG)' },
+        letter_intent: { ext: /\.pdf$/i, mime: /^application\/pdf$/i, label: 'Letter of Intent (PDF)' },
+        resume: { ext: /\.pdf$/i, mime: /^application\/pdf$/i, label: 'Resume (PDF)' },
+        endorsement: { ext: /\.pdf$/i, mime: /^application\/pdf$/i, label: 'Endorsement Letter (PDF)' },
+        moa: { ext: /\.pdf$/i, mime: /^application\/pdf$/i, label: 'Memorandum of Agreement (PDF)' }
+      };
+      var rule = rules[field] || null;
+      if (rule) {
+        var extOk = rule.ext.test(f.name || '');
+        var mimeOk = !f.type || rule.mime.test(f.type);
+        if (!extOk || !mimeOk) {
+          setFileError(field, 'Invalid file type. Please upload ' + rule.label + '.');
+          inp.value = '';
+          inp.style.display = '';
+          var dispBad = document.querySelector('.saved-file[data-field="'+field+'"]');
+          if (dispBad) dispBad.style.display = 'none';
+          return;
+        }
+      }
+
       // If a file was selected, populate the saved-file UI to match 'previous' appearance
       var disp = document.querySelector('.saved-file[data-field="'+field+'"]');
       if (disp) {
