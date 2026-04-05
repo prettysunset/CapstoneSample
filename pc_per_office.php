@@ -1508,7 +1508,7 @@ if ($office_id) {
                 <div id="detectionHint" class="detection-hint" aria-live="polite" style="display:none;"></div>
 
                 <div style="text-align:center;margin-top:10px;font-size:13px;color:#475569">
-                    New OJT? <a id="registerFaceLink" href="register_face.php?return=<?php echo urlencode($_SERVER['REQUEST_URI']); ?>" title="For new OJTs or to update an existing face" aria-label="Register or update face" style="color:#3b82f6;text-decoration:underline;margin-left:6px">Click here to register your face</a>
+                    New OJT? <a id="registerFaceLink" href="register_face.php?return=<?php echo urlencode($_SERVER['REQUEST_URI']); ?>" title="For new OJTs" aria-label="Register or update face" style="color:#3b82f6;text-decoration:underline;margin-left:6px">Click here to register your face</a>
                 </div>
 
                 <div id="msg" class="msg" role="status" aria-live="polite"></div>

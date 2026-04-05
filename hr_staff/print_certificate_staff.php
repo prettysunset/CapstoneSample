@@ -95,7 +95,7 @@ function fmtDateNice($d) {
 
 function ordinal($n){ $n=(int)$n; $s = ['th','st','nd','rd','th','th','th','th','th','th']; if (($n%100)>=11 && ($n%100)<=13) return $n.'th'; return $n.$s[$n%10]; }
 
-$issued_date = $date_evaluated ?: date('Y-m-d');
+$issued_date = date('Y-m-d');
 $issued_label = '';
 if ($issued_date) {
     $dt = date_create($issued_date);
